@@ -12,3 +12,8 @@ spring:
     # 스키마는 db/migration, 데모·샘플 데이터(공연장 시드 등)는 db/seed.
     # 시드는 로컬에서만 적용한다. 버전 번호는 두 폴더가 같은 순번을 공유한다.
     locations: classpath:db/migration,classpath:db/seed
+
+jwt:
+  # 로컬 개발 전용 기본값이다. (HS 서명은 32바이트 이상이어야 한다)
+  # 운영에서는 이 값을 쓰지 않고 환경 변수 JWT_SECRET 을 반드시 설정한다.
+  secret: ${JWT_SECRET:local-dev-only-secret-key-change-me-0123456789}
