@@ -15,6 +15,11 @@ spring:
     # 시드는 로컬에서만 적용한다. 버전 번호는 두 폴더가 같은 순번을 공유한다.
     locations: classpath:db/migration,classpath:db/seed
 
+app:
+  cookie:
+    # 로컬은 http 라서 Secure 쿠키가 저장되지 않는다.
+    secure: false
+
 jwt:
   # 로컬 개발 전용 기본값이다. (HS 서명은 32바이트 이상이어야 한다)
   # 운영에서는 이 값을 쓰지 않고 환경 변수 JWT_SECRET 을 반드시 설정한다.
