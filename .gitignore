@@ -60,6 +60,7 @@ out/
 .vscode/
 
 ### Claude Code (개인 설정은 공유하지 않는다) ###
+CLAUDE.local.md
 .claude/settings.local.json
 .claude/worktrees/
 
