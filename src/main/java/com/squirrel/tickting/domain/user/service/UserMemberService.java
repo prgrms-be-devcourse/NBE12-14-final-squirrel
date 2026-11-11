@@ -2,8 +2,6 @@ package com.squirrel.tickting.domain.user.service;
 
 import com.squirrel.tickting.domain.auth.identity.CiHasher;
 import com.squirrel.tickting.domain.auth.identity.VerifiedIdentity;
-import com.squirrel.tickting.domain.terms.infra.entity.Terms;
-import com.squirrel.tickting.domain.terms.service.TermsService;
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import com.squirrel.tickting.domain.user.infra.repository.UserMemberRepository;
 import com.squirrel.tickting.domain.user.type.UserStatus;
@@ -12,58 +10,32 @@ import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
 import com.squirrel.tickting.global.exception.code.UserExceptionCode;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
+import com.squirrel.tickting.global.security.PasswordVerifier;
 import com.squirrel.tickting.global.util.EmailUtil;
-import java.util.List;
-import org.springframework.dao.DataIntegrityViolationException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * 예매자 계정만 다룬다. 약관·토큰처럼 다른 도메인이 얽히는 흐름은 AuthFacade 가 이어 준다.
+ */
 @Service
+@RequiredArgsConstructor
 public class UserMemberService {
 
 	private final UserMemberRepository userMemberRepository;
-	private final TermsService termsService;
 	private final PasswordEncoder passwordEncoder;
-	private final TransactionTemplate transactionTemplate;
-
-	/** 없는 이메일로 로그인할 때도 비밀번호 비교를 한 번 하게 해서, 응답 시간으로 가입 여부를 알아내지 못하게 한다. */
-	private final String dummyPasswordHash;
-
-	public UserMemberService(UserMemberRepository userMemberRepository, TermsService termsService,
-		PasswordEncoder passwordEncoder, TransactionTemplate transactionTemplate) {
-		this.userMemberRepository = userMemberRepository;
-		this.termsService = termsService;
-		this.passwordEncoder = passwordEncoder;
-		this.transactionTemplate = transactionTemplate;
-		this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-timing");
-	}
+	private final PasswordVerifier passwordVerifier;
 
 	/**
-	 * 예매자 가입. 회원 저장과 약관 동의 기록이 한 트랜잭션이다.
-	 *
-	 * 중복은 미리 확인하지만, 동시에 같은 값으로 요청하면 둘 다 확인을 통과할 수 있다.
-	 * 그 경우 DB 의 부분 UNIQUE 인덱스가 막고, 여기서 중복 에러로 바꿔 준다.
-	 * 트랜잭션 안에서는 DB 가 이미 실패 상태라 조회할 수 없어서, 트랜잭션 밖에서 원인을 확인한다.
+	 * 예매자를 만든다. 이메일·본인인증(CI) 중복이면 BusinessException. 호출한 쪽의 트랜잭션에 참여한다.
+	 * 동시 요청이 이 확인을 함께 통과하면 DB 의 UNIQUE 인덱스가 막고, GlobalExceptionHandler 가 같은 에러로 바꿔 준다.
 	 */
-	public CustomUserDetails signup(String rawEmail, String rawPassword, String nickname,
-		VerifiedIdentity identity, List<Long> agreedTermIds) {
+	@Transactional
+	public UserMember create(String rawEmail, String rawPassword, String nickname, VerifiedIdentity identity) {
 		String email = EmailUtil.normalize(rawEmail);
 		String ciHash = CiHasher.hash(identity.ci());
-
-		try {
-			UserMember saved = transactionTemplate.execute(status ->
-				create(email, rawPassword, nickname, identity, ciHash, agreedTermIds));
-			return toAccount(saved);
-		} catch (DataIntegrityViolationException e) {
-			throw translateDuplicate(email, ciHash, e);
-		}
-	}
-
-	private UserMember create(String email, String rawPassword, String nickname,
-		VerifiedIdentity identity, String ciHash, List<Long> agreedTermIds) {
-		List<Terms> agreedTerms = termsService.validateAgreement(agreedTermIds);
 
 		if (userMemberRepository.existsByEmailAndDeletedAtIsNull(email)) {
 			throw new BusinessException(UserExceptionCode.EMAIL_DUPLICATED);
@@ -72,7 +44,7 @@ public class UserMemberService {
 			throw new BusinessException(UserExceptionCode.ALREADY_REGISTERED);
 		}
 
-		UserMember user = userMemberRepository.save(UserMember.builder()
+		return userMemberRepository.save(UserMember.builder()
 			.email(email)
 			.password(passwordEncoder.encode(rawPassword))
 			.name(identity.name())
@@ -82,18 +54,6 @@ public class UserMemberService {
 			.birthDate(identity.birthDate())
 			.status(UserStatus.ACTIVE)
 			.build());
-		termsService.recordAgreements(user.getId(), agreedTerms);
-		return user;
-	}
-
-	private RuntimeException translateDuplicate(String email, String ciHash, DataIntegrityViolationException e) {
-		if (userMemberRepository.existsByEmailAndDeletedAtIsNull(email)) {
-			return new BusinessException(UserExceptionCode.EMAIL_DUPLICATED);
-		}
-		if (userMemberRepository.existsByCiHashAndDeletedAtIsNull(ciHash)) {
-			return new BusinessException(UserExceptionCode.ALREADY_REGISTERED);
-		}
-		return e;
 	}
 
 	/** 이메일·비밀번호 로그인. 어느 쪽이 틀렸는지는 알려 주지 않는다. */
@@ -102,9 +62,7 @@ public class UserMemberService {
 		UserMember user = userMemberRepository.findByEmailAndDeletedAtIsNull(EmailUtil.normalize(rawEmail))
 			.orElse(null);
 
-		boolean passwordMatches = passwordEncoder.matches(rawPassword,
-			user == null ? dummyPasswordHash : user.getPassword());
-		if (user == null || !passwordMatches) {
+		if (!passwordVerifier.matches(rawPassword, user == null ? null : user.getPassword())) {
 			throw new BusinessException(AuthExceptionCode.INVALID_CREDENTIALS);
 		}
 		requireActive(user);
@@ -120,13 +78,13 @@ public class UserMemberService {
 		return toAccount(user);
 	}
 
+	public CustomUserDetails toAccount(UserMember user) {
+		return new CustomUserDetails(user.getId(), AccountType.USER, null, null);
+	}
+
 	private void requireActive(UserMember user) {
 		if (!user.isActive()) {
 			throw new BusinessException(AuthExceptionCode.ACCOUNT_DISABLED);
 		}
-	}
-
-	private CustomUserDetails toAccount(UserMember user) {
-		return new CustomUserDetails(user.getId(), AccountType.USER, null, null);
 	}
 }

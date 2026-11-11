@@ -28,6 +28,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -43,6 +45,12 @@ import tools.jackson.databind.ObjectMapper;
 public abstract class IntegrationTestSupport {
 
 	protected static final String PASSWORD = "password1!";
+
+	/** 서명 키는 코드에 적지 않고 실행할 때 만든다. (DB 는 Testcontainers 가 연결 정보를 덮어쓴다) */
+	@DynamicPropertySource
+	static void jwtSecret(DynamicPropertyRegistry registry) {
+		registry.add("jwt.secret", TestSecrets::randomJwtSecret);
+	}
 
 	private static final Pattern REFRESH_COOKIE = Pattern.compile("refreshToken=([^;]*)");
 

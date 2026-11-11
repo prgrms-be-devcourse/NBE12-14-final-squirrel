@@ -13,54 +13,37 @@ import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
 import com.squirrel.tickting.global.exception.code.SellerExceptionCode;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
+import com.squirrel.tickting.global.security.PasswordVerifier;
 import com.squirrel.tickting.global.util.EmailUtil;
 import java.time.LocalDateTime;
-import org.springframework.dao.DataIntegrityViolationException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
+/** 판매자 사업체와 계정만 다룬다. 토큰 발급처럼 다른 도메인이 얽히는 흐름은 AuthFacade 가 이어 준다. */
 @Service
+@RequiredArgsConstructor
 public class SellerMemberService {
 
 	private final SellerBusinessRepository sellerBusinessRepository;
 	private final SellerMemberRepository sellerMemberRepository;
 	private final PasswordEncoder passwordEncoder;
-	private final TransactionTemplate transactionTemplate;
-
-	/** 없는 이메일로 로그인할 때도 비밀번호 비교를 한 번 하게 해서, 응답 시간으로 가입 여부를 알아내지 못하게 한다. */
-	private final String dummyPasswordHash;
-
-	public SellerMemberService(SellerBusinessRepository sellerBusinessRepository,
-		SellerMemberRepository sellerMemberRepository, PasswordEncoder passwordEncoder,
-		TransactionTemplate transactionTemplate) {
-		this.sellerBusinessRepository = sellerBusinessRepository;
-		this.sellerMemberRepository = sellerMemberRepository;
-		this.passwordEncoder = passwordEncoder;
-		this.transactionTemplate = transactionTemplate;
-		this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-timing");
-	}
+	private final PasswordVerifier passwordVerifier;
 
 	/**
 	 * 판매자 가입 신청. 사업체(승인 대기)와 대표자 계정을 한 트랜잭션으로 만든다.
 	 * 둘 중 하나만 저장되는 일이 없어야 하므로, 어느 쪽에서 실패해도 전부 되돌린다.
-	 * 동시 요청의 중복은 DB UNIQUE 인덱스가 막고, 트랜잭션 밖에서 원인을 확인해 중복 에러로 바꾼다.
+	 * 동시 요청이 아래 중복 확인을 함께 통과하면 DB 의 UNIQUE 인덱스가 막고,
+	 * GlobalExceptionHandler 가 같은 중복 에러(이메일·사업자번호)로 바꿔 준다.
 	 */
+	@Transactional
 	public SellerBusiness signup(SellerSignupCommand command) {
 		if (!command.identity().name().equals(command.representativeName().trim())) {
 			throw new BusinessException(SellerExceptionCode.REPRESENTATIVE_NAME_MISMATCH);
 		}
 		String email = EmailUtil.normalize(command.email());
 
-		try {
-			return transactionTemplate.execute(status -> create(email, command));
-		} catch (DataIntegrityViolationException e) {
-			throw translateDuplicate(email, command.businessNumber(), e);
-		}
-	}
-
-	private SellerBusiness create(String email, SellerSignupCommand command) {
 		if (sellerBusinessRepository.existsByBusinessNumber(command.businessNumber())) {
 			throw new BusinessException(SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED);
 		}
@@ -91,17 +74,6 @@ public class SellerMemberService {
 		return business;
 	}
 
-	private RuntimeException translateDuplicate(String email, String businessNumber,
-		DataIntegrityViolationException e) {
-		if (sellerMemberRepository.existsByEmailAndDeletedAtIsNull(email)) {
-			return new BusinessException(SellerExceptionCode.EMAIL_DUPLICATED);
-		}
-		if (sellerBusinessRepository.existsByBusinessNumber(businessNumber)) {
-			return new BusinessException(SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED);
-		}
-		return e;
-	}
-
 	/**
 	 * 이메일·비밀번호 로그인.
 	 * 비밀번호가 맞은 뒤에만 계정·사업체 상태를 알려 준다. (틀린 사람에게 사업체 상태를 노출하지 않는다)
@@ -111,9 +83,7 @@ public class SellerMemberService {
 		SellerMember member = sellerMemberRepository.findForLoginByEmail(EmailUtil.normalize(rawEmail))
 			.orElse(null);
 
-		boolean passwordMatches = passwordEncoder.matches(rawPassword,
-			member == null ? dummyPasswordHash : member.getPassword());
-		if (member == null || !passwordMatches) {
+		if (!passwordVerifier.matches(rawPassword, member == null ? null : member.getPassword())) {
 			throw new BusinessException(AuthExceptionCode.INVALID_CREDENTIALS);
 		}
 		requireLoginable(member);

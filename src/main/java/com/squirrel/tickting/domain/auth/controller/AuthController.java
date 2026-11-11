@@ -2,7 +2,7 @@ package com.squirrel.tickting.domain.auth.controller;
 
 import com.squirrel.tickting.domain.auth.dto.AuthRequest;
 import com.squirrel.tickting.domain.auth.dto.AuthResponse;
-import com.squirrel.tickting.domain.auth.service.AuthService;
+import com.squirrel.tickting.domain.auth.facade.AuthFacade;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.global.util.CookieUtil;
@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AuthController {
 
-	private final AuthService authService;
+	private final AuthFacade authFacade;
 
 	@Operation(summary = "예매자 회원가입",
 		description = "가입하면 바로 로그인된다. 액세스 토큰은 본문, 리프레시 토큰은 HttpOnly 쿠키로 내려간다.")
@@ -37,7 +37,7 @@ public class AuthController {
 		HttpServletResponse response
 	) {
 		return ResponseEntity.status(HttpStatus.CREATED)
-			.body(ApiResponse.success(authService.userSignup(request, response)));
+			.body(ApiResponse.success(authFacade.userSignup(request, response)));
 	}
 
 	@Operation(summary = "예매자 로그인")
@@ -46,7 +46,7 @@ public class AuthController {
 		@Valid @RequestBody AuthRequest.Login request,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authService.userLogin(request, response)));
+		return ResponseEntity.ok(ApiResponse.success(authFacade.userLogin(request, response)));
 	}
 
 	@Operation(summary = "판매자(대표자) 가입 신청",
@@ -56,7 +56,7 @@ public class AuthController {
 		@Valid @RequestBody AuthRequest.SellerSignup request
 	) {
 		return ResponseEntity.status(HttpStatus.CREATED)
-			.body(ApiResponse.success(authService.sellerSignup(request)));
+			.body(ApiResponse.success(authFacade.sellerSignup(request)));
 	}
 
 	@Operation(summary = "판매자 로그인", description = "사업체가 승인된 계정만 로그인할 수 있다.")
@@ -65,7 +65,7 @@ public class AuthController {
 		@Valid @RequestBody AuthRequest.Login request,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authService.sellerLogin(request, response)));
+		return ResponseEntity.ok(ApiResponse.success(authFacade.sellerLogin(request, response)));
 	}
 
 	@Operation(summary = "토큰 재발급", description = "쿠키의 리프레시 토큰으로 액세스 토큰을 다시 받는다. 리프레시 토큰도 새로 발급된다.")
@@ -74,7 +74,7 @@ public class AuthController {
 		@CookieValue(name = CookieUtil.REFRESH_TOKEN_COOKIE, required = false) String refreshToken,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authService.refresh(refreshToken, response)));
+		return ResponseEntity.ok(ApiResponse.success(authFacade.refresh(refreshToken, response)));
 	}
 
 	@Operation(summary = "내 계정 정보", description = "액세스 토큰에 담긴 계정 종류·역할·사업체 번호를 돌려준다.")
