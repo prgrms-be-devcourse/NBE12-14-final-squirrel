@@ -1,6 +1,7 @@
 package com.squirrel.tickting.global.exception;
 
 import com.squirrel.tickting.global.response.ApiResponse;
+import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +10,8 @@ import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -19,9 +22,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 컨트롤러 예외를 ApiResponse 형식으로 통일해 응답한다.
- *
- * 인증·인가 예외(AuthenticationException, AccessDeniedException)와 JWT 예외는
- * 인증 기능을 만들 때 AuthExceptionCode와 함께 이곳에 추가한다.
+ * 필터에서 난 예외(JWT 검증 실패 등)도 HandlerExceptionResolver 를 거쳐 이곳으로 들어온다.
  */
 @Slf4j
 @RestControllerAdvice
@@ -34,6 +35,24 @@ public class GlobalExceptionHandler {
 		logByStatus(ec, e);
 		return ResponseEntity.status(ec.getStatus())
 			.body(ApiResponse.error(e.getMessage(), ec.getCode()));
+	}
+
+	/** 시큐리티 인증 실패. 주로 컨트롤러 구간. 토큰 없는 요청의 401 은 EntryPoint 가 처리한다 */
+	@ExceptionHandler(AuthenticationException.class)
+	public ResponseEntity<ApiResponse<Void>> handleAuthentication(AuthenticationException e) {
+		AuthExceptionCode ec = AuthExceptionCode.AUTHENTICATION_FAILED;
+		log.warn("[{}] AuthenticationException: {}", ec.getCode(), e.getMessage());
+		return ResponseEntity.status(ec.getStatus())
+			.body(ApiResponse.error(ec.getMessage(), ec.getCode()));
+	}
+
+	/** 인증은 됐으나 권한 부족. 주로 @PreAuthorize 실패. 경로 규칙의 403 은 AccessDeniedHandler 가 처리한다 */
+	@ExceptionHandler(AccessDeniedException.class)
+	public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException e) {
+		AuthExceptionCode ec = AuthExceptionCode.ACCESS_DENIED;
+		log.warn("[{}] AccessDeniedException: {}", ec.getCode(), e.getMessage());
+		return ResponseEntity.status(ec.getStatus())
+			.body(ApiResponse.error(ec.getMessage(), ec.getCode()));
 	}
 
 	/** @Valid 요청 본문 검증 실패 (필드 제약 위반) */

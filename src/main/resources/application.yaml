@@ -26,6 +26,13 @@ spring:
         # 클라이언트가 size 를 크게 넣어 한 번에 다 긁어가는 것을 막는다.
         max-page-size: 50
 
+jwt:
+  issuer: tickting
+  # 짧게 두고, 로그아웃·비활성화한 계정의 토큰은 Redis 블랙리스트로 막는다.
+  access-token-validity-seconds: 900
+  refresh-token-validity-seconds: 1209600
+  # secret 은 환경마다 다르다. 로컬은 application-local.yaml, 운영은 환경 변수 JWT_SECRET.
+
 management:
   endpoints:
     web:
