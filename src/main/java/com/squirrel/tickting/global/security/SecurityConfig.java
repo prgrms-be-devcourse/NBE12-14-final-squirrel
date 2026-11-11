@@ -23,6 +23,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  *
  * 경로별 접근 규칙
  *  - /api/v1/auth/**      누구나 (로그인, 가입, 토큰 재발급)
+ *  - Swagger, health      누구나
  *  - /api/v1/admin/**     관리자만
  *  - /api/v1/seller/**    판매자만 (대표·담당자). 대표만 가능한 기능은 메서드에 @PreAuthorize("hasRole('SELLER_OWNER')")
  *  - 그 밖                 로그인 필요
@@ -33,7 +34,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, AuthCookieProperties.class})
 public class SecurityConfig {
 
 	@Bean
@@ -58,6 +59,7 @@ public class SecurityConfig {
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers("/api/v1/auth/**").permitAll()
 				.requestMatchers("/actuator/health", "/actuator/info").permitAll()
+				.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.requestMatchers("/api/v1/seller/**").hasRole("SELLER")
 				.anyRequest().authenticated())

@@ -93,7 +93,7 @@ com.squirrel.tickting
 
 ## Git·협업
 
-- `main`에는 직접 push하지 않는다. 브랜치에서 작업하고 PR을 올린다.
+- `dev`가 개발 통합 브랜치다. `main`과 `dev`에는 직접 push하지 않고, 작업 브랜치에서 **`dev`로 PR**을 올린다. (`origin/dev` 기준으로 브랜치를 딴다)
 - 브랜치: `feat/…`, `fix/…`, `docs/…`, `chore/…` (예: `feat/seat-hold`)
 - 커밋 메시지: `feat: 좌석 점유 기능 추가`처럼 `타입: 내용`. 타입은 `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 - PR은 **기능 하나 단위**로 작게 올린다. 리뷰어 1명 이상의 승인을 받고 머지한다.

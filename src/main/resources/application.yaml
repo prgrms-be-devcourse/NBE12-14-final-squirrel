@@ -26,6 +26,13 @@ spring:
         # 클라이언트가 size 를 크게 넣어 한 번에 다 긁어가는 것을 막는다.
         max-page-size: 50
 
+app:
+  cookie:
+    # 리프레시 토큰 쿠키. secure 는 안전한 쪽(true)이 기본이고 로컬 프로필에서만 낮춘다.
+    secure: true
+    same-site: Lax
+    path: /api/v1/auth
+
 jwt:
   issuer: tickting
   # 짧게 두고, 로그아웃·비활성화한 계정의 토큰은 Redis 블랙리스트로 막는다.
