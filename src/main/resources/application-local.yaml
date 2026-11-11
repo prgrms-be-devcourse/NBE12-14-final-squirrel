@@ -1,0 +1,14 @@
+# 로컬 개발 설정. 프로필을 따로 주지 않으면 이 파일이 적용된다.
+spring:
+  config:
+    # 프로젝트 루트의 .env 를 읽는다. (없어도 기동은 된다)
+    # .env 는 git 에 올라가지 않는다. 필요한 키는 .env.example 을 복사해서 만든다.
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5432/tickting}
+    username: ${DATASOURCE_USERNAME:postgres}
+    password: ${DATASOURCE_PASSWORD:}
+  flyway:
+    # 스키마는 db/migration, 데모·샘플 데이터(공연장 시드 등)는 db/seed.
+    # 시드는 로컬에서만 적용한다. 버전 번호는 두 폴더가 같은 순번을 공유한다.
+    locations: classpath:db/migration,classpath:db/seed
