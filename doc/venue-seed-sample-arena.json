@@ -1,0 +1,182 @@
+{
+  "name": "가상 아레나 (샘플)",
+  "address": "서울 (가상)",
+  "region": "서울",
+  "layoutKey": "sample-arena",
+  "zones": [
+    {
+      "name": "Floor석", "floor": "1층",
+      "memo": "[가정] 스탠딩 성격(좌석 번호 없음). 500석으로 가정",
+      "rows": [
+        {"label": "스탠딩", "from": 1, "to": 500}
+      ]
+    },
+    {
+      "name": "F1구역", "floor": "1층",
+      "memo": "[높음] 도면에서 확인",
+      "rows": [
+        {"rowRange": [1, 11], "suffix": "열", "from": 1, "to": 6}
+      ]
+    },
+    {
+      "name": "F2구역", "floor": "1층",
+      "memo": "[높음] 도면에서 확인",
+      "rows": [
+        {"rowRange": [1, 11], "suffix": "열", "from": 1, "to": 20}
+      ]
+    },
+    {
+      "name": "F3구역", "floor": "1층",
+      "memo": "[높음] 도면에서 확인",
+      "rows": [
+        {"rowRange": [1, 11], "suffix": "열", "from": 1, "to": 6}
+      ]
+    },
+    {
+      "name": "A1구역", "floor": "2층",
+      "memo": "[중간] 8·9열은 가장자리라 일부만 있음(추정)",
+      "rows": [
+        {"rowRange": [1, 7], "suffix": "열", "from": 1, "to": 10},
+        {"label": "8열", "from": 1, "to": 10},
+        {"label": "9열", "from": 5, "to": 10}
+      ]
+    },
+    {
+      "name": "A2구역", "floor": "2층",
+      "memo": "[중간] 직사각형",
+      "rows": [
+        {"rowRange": [1, 10], "suffix": "열", "from": 1, "to": 12}
+      ]
+    },
+    {
+      "name": "A3구역", "floor": "2층",
+      "memo": "[중간] 직사각형",
+      "rows": [
+        {"rowRange": [1, 10], "suffix": "열", "from": 1, "to": 12}
+      ]
+    },
+    {
+      "name": "A4구역", "floor": "2층",
+      "memo": "[중간] 8·9열은 가장자리라 일부만 있음(추정)",
+      "rows": [
+        {"rowRange": [1, 7], "suffix": "열", "from": 1, "to": 14},
+        {"label": "8열", "from": 1, "to": 11},
+        {"label": "9열", "from": 1, "to": 6}
+      ]
+    },
+    {
+      "name": "G구역", "floor": "2층",
+      "memo": "[낮음] 계단형 구역, 열마다 좌석 수가 다름(추정)",
+      "rows": [
+        {"label": "1열", "from": 1, "to": 2},
+        {"label": "2열", "from": 1, "to": 4},
+        {"label": "3열", "from": 1, "to": 6},
+        {"label": "4열", "from": 1, "to": 8},
+        {"label": "5열", "from": 1, "to": 10},
+        {"label": "6열", "from": 1, "to": 12}
+      ]
+    },
+    {
+      "name": "B1구역", "floor": "2층",
+      "memo": "[낮음] 대각선 배치를 직사각형으로 근사",
+      "rows": [
+        {"rowRange": [1, 13], "suffix": "열", "from": 1, "to": 10}
+      ]
+    },
+    {
+      "name": "B2구역", "floor": "2층",
+      "memo": "[낮음] 대각선 배치를 직사각형으로 근사",
+      "rows": [
+        {"rowRange": [1, 9], "suffix": "열", "from": 1, "to": 23}
+      ]
+    },
+    {
+      "name": "C1구역", "floor": "2층",
+      "memo": "[중간] 하단 GATE 5쪽, 구역 이름 임시",
+      "rows": [
+        {"rowRange": [1, 5], "suffix": "열", "from": 12, "to": 20},
+        {"rowRange": [6, 12], "suffix": "열", "from": 5, "to": 20}
+      ]
+    },
+    {
+      "name": "C2-1구역", "floor": "2층",
+      "memo": "[중간] 하단 중앙 왼쪽(빨강), 이름 임시",
+      "rows": [
+        {"rowRange": [1, 12], "suffix": "열", "from": 1, "to": 9}
+      ]
+    },
+    {
+      "name": "C2-2구역", "floor": "2층",
+      "memo": "[중간] 하단 중앙 오른쪽(파랑), 이름 임시",
+      "rows": [
+        {"rowRange": [1, 12], "suffix": "열", "from": 10, "to": 18}
+      ]
+    },
+    {
+      "name": "C3구역", "floor": "2층",
+      "memo": "[중간] 하단 GATE 6쪽, 구역 이름 임시",
+      "rows": [
+        {"rowRange": [1, 5], "suffix": "열", "from": 1, "to": 9},
+        {"rowRange": [6, 12], "suffix": "열", "from": 1, "to": 16}
+      ]
+    },
+    {
+      "name": "D1구역", "floor": "2층",
+      "memo": "[낮음] B1의 좌우 대칭으로 근사",
+      "rows": [
+        {"rowRange": [1, 13], "suffix": "열", "from": 1, "to": 10}
+      ]
+    },
+    {
+      "name": "D2구역", "floor": "2층",
+      "memo": "[낮음] B2의 좌우 대칭으로 근사",
+      "rows": [
+        {"rowRange": [1, 9], "suffix": "열", "from": 1, "to": 23}
+      ]
+    },
+    {
+      "name": "E1구역", "floor": "2층",
+      "memo": "[중간] A1의 좌우 대칭으로 근사",
+      "rows": [
+        {"rowRange": [1, 7], "suffix": "열", "from": 1, "to": 10},
+        {"label": "8열", "from": 1, "to": 10},
+        {"label": "9열", "from": 5, "to": 10}
+      ]
+    },
+    {
+      "name": "E2구역", "floor": "2층",
+      "memo": "[중간] 직사각형",
+      "rows": [
+        {"rowRange": [1, 10], "suffix": "열", "from": 1, "to": 12}
+      ]
+    },
+    {
+      "name": "E3구역", "floor": "2층",
+      "memo": "[중간] 직사각형",
+      "rows": [
+        {"rowRange": [1, 10], "suffix": "열", "from": 1, "to": 12}
+      ]
+    },
+    {
+      "name": "E4구역", "floor": "2층",
+      "memo": "[중간] A4의 좌우 대칭으로 근사",
+      "rows": [
+        {"rowRange": [1, 7], "suffix": "열", "from": 1, "to": 14},
+        {"label": "8열", "from": 1, "to": 11},
+        {"label": "9열", "from": 1, "to": 6}
+      ]
+    },
+    {
+      "name": "H구역", "floor": "2층",
+      "memo": "[낮음] G의 좌우 대칭으로 근사",
+      "rows": [
+        {"label": "1열", "from": 1, "to": 2},
+        {"label": "2열", "from": 1, "to": 4},
+        {"label": "3열", "from": 1, "to": 6},
+        {"label": "4열", "from": 1, "to": 8},
+        {"label": "5열", "from": 1, "to": 10},
+        {"label": "6열", "from": 1, "to": 12}
+      ]
+    }
+  ]
+}

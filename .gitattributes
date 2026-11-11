@@ -1,0 +1,6 @@
+# 줄바꿈: 저장소에는 LF로 두고, 체크아웃할 때 OS에 맞춘다. (Windows 팀원의 CRLF 충돌 방지)
+* text=auto
+
+/gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

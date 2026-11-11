@@ -1,0 +1,75 @@
+### Gradle ###
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+.kotlin/
+
+### 비밀 값 · 환경 설정 (절대 커밋하지 않는다) ###
+# .env 는 팀원이 각자 만든다. 필요한 키 목록은 README에 적는다.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+application-local.yaml
+application-local.yml
+application-local.properties
+application-secret*.yaml
+application-secret*.yml
+
+### 로그 · 덤프 ###
+*.log
+logs/
+hs_err_pid*
+*.hprof
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Claude Code (개인 설정은 공유하지 않는다) ###
+.claude/settings.local.json
+.claude/worktrees/
+
+### OS ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### 로컬 데이터 (docker 볼륨, 임시 파일) ###
+/data/
+/pgdata/
+*.tmp
+*.swp
