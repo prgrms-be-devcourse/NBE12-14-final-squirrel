@@ -13,6 +13,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.access.prepost.PreAuthorize;
+import com.squirrel.tickting.support.TestSecrets;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +27,12 @@ import org.springframework.web.bind.annotation.RestController;
 @WebMvcTest(SecurityConfigTest.TestController.class)
 @Import({SecurityConfig.class, GlobalExceptionHandler.class, JwtProvider.class, SecurityConfigTest.TestController.class})
 class SecurityConfigTest {
+
+	/** 서명 키는 코드에 적지 않고 실행할 때 만든다. */
+	@DynamicPropertySource
+	static void jwtSecret(DynamicPropertyRegistry registry) {
+		registry.add("jwt.secret", TestSecrets::randomJwtSecret);
+	}
 
 	@Autowired
 	MockMvc mockMvc;

@@ -13,6 +13,10 @@ build/
 # application-local.yaml 은 비밀 값이 없고 .env 를 읽도록만 되어 있어서 커밋한다.
 .env
 .env.*
+docker-compose*.yml
+docker-compose*.yaml
+compose.yml
+compose.yaml
 *.pem
 *.key
 *.p12

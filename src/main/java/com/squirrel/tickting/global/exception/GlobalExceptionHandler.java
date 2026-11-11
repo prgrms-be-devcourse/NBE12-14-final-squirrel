@@ -6,6 +6,7 @@ import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.query.sqm.UnknownPathException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.ResponseEntity;
@@ -150,6 +151,19 @@ public class GlobalExceptionHandler {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * DB 제약(UNIQUE 등) 위반. 서비스가 미리 확인하지만 동시 요청은 그 확인을 함께 통과할 수 있다.
+	 * 안 잡으면 500 이라 409 로 바꾼다. 어떤 UNIQUE 인덱스인지 UniqueConstraintCodes 에 등록돼 있으면
+	 * 그 에러(이메일 중복 등)로, 아니면 일반 충돌 에러(COMMON003)로 응답한다.
+	 */
+	@ExceptionHandler(DataIntegrityViolationException.class)
+	public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(DataIntegrityViolationException e) {
+		ExceptionCode ec = UniqueConstraintCodes.find(e).orElse(CommonExceptionCode.CONFLICT);
+		log.warn("[{}] DB 제약 위반: {}", ec.getCode(), e.getMostSpecificCause().getMessage());
+		return ResponseEntity.status(ec.getStatus())
+			.body(ApiResponse.error(ec.getMessage(), ec.getCode()));
 	}
 
 	/** 위에서 못 잡은 모든 예외. 원문 메시지는 노출하지 않는다 */

@@ -25,7 +25,8 @@
 com.squirrel.tickting
   domain/{도메인}
     controller      # API
-    service         # 비즈니스 로직
+    service         # 비즈니스 로직 (자기 도메인만)
+    facade          # 여러 도메인의 서비스를 엮는 흐름 (필요할 때만 만든다)
     dto             # 요청/응답 (XxxRequest, XxxResponse)
     infra/entity    # JPA 엔티티
     infra/repository
@@ -39,7 +40,10 @@ com.squirrel.tickting
 ```
 
 - `global`에는 도메인 로직을 넣지 않는다.
-- 도메인 사이의 호출은 상대 도메인의 **service**를 통한다. 남의 repository를 직접 쓰지 않는다.
+- **서비스는 다른 서비스를 호출하지 않는다.** 서비스는 자기 도메인의 repository만 쓴다. (서로 부르기 시작하면 순환 의존과 트랜잭션 경계가 흐려진다)
+- 여러 도메인이 얽히는 흐름(가입 = 약관 + 회원 + 토큰 등)은 **파사드(`facade`)**가 각 서비스를 순서대로 호출한다. 컨트롤러는 파사드(또는 서비스 하나)만 부른다.
+- 트랜잭션이 여러 서비스에 걸치면 파사드에서 `TransactionTemplate`으로 묶는다. 서비스의 `@Transactional`은 그 트랜잭션에 참여한다.
+- 남의 도메인 repository를 직접 쓰지 않는다.
 
 ## 응답과 예외
 
@@ -59,6 +63,12 @@ com.squirrel.tickting
 - **소프트 삭제**는 전역 필터(`@SQLRestriction`)를 쓰지 않는다. 조회 메서드 이름에 조건을 드러낸다. (`findByIdAndDeletedAtIsNull`)
 - 동시에 바뀌는 값(수량, 카운터)은 엔티티에서 더하지 않고 `UPDATE ... SET x = x + 1`로 DB에서 바꾼다.
 
+## 비밀 값·환경 설정
+
+- **`.env`에 있어야 할 값(비밀번호, 키, 접속 정보)은 코드·yaml·테스트에 적지 않는다.** `${KEY:기본값}`처럼 대체값을 두지 않는다. (키가 없으면 앱이 뜨지 않는 게 맞다. 저장소에 값이 남으면 유출이다)
+- 비밀 값이 필요한 테스트는 값을 코드에 쓰지 말고 **실행할 때 무작위로 만든다.** (`TestSecrets` 참고)
+- `.env`와 `docker-compose.yml`은 git에 올리지 않는다. 필요한 키 이름은 `application-local.yaml` 주석에 적는다.
+
 ## DB·마이그레이션
 
 - 스키마 변경은 **Flyway**만 쓴다. `src/main/resources/db/migration/V{n}__설명.sql`.
@@ -67,6 +77,7 @@ com.squirrel.tickting
 - 부분 UNIQUE 인덱스, `jsonb`, `fillfactor` 같은 PostgreSQL 기능은 SQL로 만든다. (설계 문서 참고)
 - 데모·샘플 데이터(공연장 시드 등)는 `db/seed`에 두고 로컬에서만 적용한다. 스키마 변경을 시드 파일에 넣지 않는다.
 - 조회에 쓰는 컬럼은 인덱스를 직접 만든다. (논리 FK라 자동으로 생기지 않는다)
+- **중복(UNIQUE) 에러는 인덱스 이름으로 연결한다.** 서비스가 미리 확인해도 동시 요청은 뚫을 수 있어서 마지막 방어선은 DB의 UNIQUE 인덱스다. 사용자에게 구체적으로 알려야 하는 인덱스는 `UniqueConstraintCodes`에 `인덱스 이름 → 에러 코드`로 한 줄 등록한다. (등록하지 않으면 일반 충돌 `COMMON003`) 서비스에서 실패 후 다시 조회하거나 try/catch 하지 않는다.
 
 ## DTO·컨트롤러·서비스
 
@@ -74,7 +85,7 @@ com.squirrel.tickting
 - 요청 검증은 `@Valid` + `jakarta.validation` 어노테이션, 메시지는 한국어로 쓴다.
 - API 경로는 `/api/v1/` 아래에 둔다. 관리자는 `/admin/**`, 판매자는 `/seller/**`로 구분한다. (임시)
 - 서비스는 `@Service @RequiredArgsConstructor`. 쓰기는 `@Transactional`, 읽기는 `@Transactional(readOnly = true)`.
-- 의존성은 생성자 주입(`@RequiredArgsConstructor`)만 쓴다.
+- 의존성은 `@RequiredArgsConstructor`로 만든 생성자 주입만 쓴다. **생성자를 직접 쓰지 않는다.** 생성 후 초기화가 필요하면 `@PostConstruct`를 쓰거나 그 일을 맡는 별도 컴포넌트로 뺀다. (`PasswordVerifier` 참고)
 - 복잡한 조회는 `@Query` 텍스트 블록으로 쓰고 페이징은 `countQuery`를 분리한다.
 
 ## 코드 스타일

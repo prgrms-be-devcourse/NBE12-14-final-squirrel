@@ -7,13 +7,15 @@ import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
+import com.squirrel.tickting.support.TestSecrets;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class JwtProviderTest {
 
-	private static final String SECRET = "test-secret-key-for-jwt-provider-0123456789";
-	private static final String OTHER_SECRET = "another-secret-key-for-forged-token-0123456789";
+	// 키는 코드에 적지 않고 실행할 때 만든다. 서로 다른 두 키가 필요하다. (위조 토큰 검증용)
+	private static final String SECRET = TestSecrets.randomJwtSecret();
+	private static final String OTHER_SECRET = TestSecrets.randomJwtSecret();
 
 	private final JwtProvider provider = new JwtProvider(new JwtProperties(SECRET, "tickting", 900, 1209600));
 

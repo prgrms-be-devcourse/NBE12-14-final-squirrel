@@ -20,6 +20,9 @@ public enum AuthExceptionCode implements ExceptionCode {
 	/** 비활성화(정지)된 계정 */
 	ACCOUNT_DISABLED("AUTH003", HttpStatus.UNAUTHORIZED, "비활성화된 계정입니다."),
 
+	/** 본인인증 결과를 확인하지 못함 (토큰 형식 오류, 인증 실패 등) */
+	IDENTITY_VERIFICATION_FAILED("AUTH300", HttpStatus.BAD_REQUEST, "본인인증에 실패했습니다."),
+
 	/** 로그인은 됐으나 권한 부족 (예: 예매자가 관리자 API 호출, 403) */
 	ACCESS_DENIED("AUTH100", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 

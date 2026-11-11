@@ -21,6 +21,8 @@ public enum CommonExceptionCode implements ExceptionCode {
 	METHOD_NOT_ALLOWED("COMMON001", HttpStatus.METHOD_NOT_ALLOWED, "이 경로에서 지원하지 않는 요청 방식입니다."),
 	/** 존재하지 않는 경로로 요청한 경우 (404) */
 	ENDPOINT_NOT_FOUND("COMMON002", HttpStatus.NOT_FOUND, "존재하지 않는 경로입니다."),
+	/** DB 제약에 걸린 요청. 동시에 같은 값으로 저장하려는 등 코드가 미리 막지 못한 충돌 (409) */
+	CONFLICT("COMMON003", HttpStatus.CONFLICT, "요청이 현재 상태와 충돌합니다. 잠시 후 다시 시도해 주세요."),
 	/** 예상하지 못한 서버 예외. 원문 메시지는 클라이언트에 노출하지 않는다 (500) */
 	INTERNAL_ERROR("COMMON999", HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다.");
 
