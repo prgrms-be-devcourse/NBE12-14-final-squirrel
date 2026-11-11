@@ -14,7 +14,7 @@
 
 | 항목 | 내용 | 언제 |
 |---|---|---|
-| DB 연결 설정 | `application.yaml`에 PostgreSQL 연결 정보가 아직 없음. (지금 실행하면 DB 연결에서 실패) `psql`로 DB를 직접 만든 뒤 설정 | DB 작업을 시작할 때 |
+| DB 연결 설정 | ✅ 완료. `application-local.yaml` + `.env`로 접속 정보를 읽는다. `.env.example`을 복사해서 `.env`를 만들고, DB는 `psql`로 미리 만든다 | - |
 | Flyway 첫 마이그레이션 | `src/main/resources/db/migration/`에 `V1__...sql`부터 작성. 부록 C의 순서대로 | DB 작업을 시작할 때 |
 | Redis 설정 | 블랙리스트, 대기열, 캐시를 만들 때 같이 | Redis 기능을 만들 때 |
 | 도면·표 이미지 | 문서가 언급하는 `p1-*.png` ~ `p5-*.png`. 재환님이 나중에 전달하기로 함 | 노션에 공유할 때 |

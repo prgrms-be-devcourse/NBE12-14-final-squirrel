@@ -8,7 +8,8 @@ build/
 .kotlin/
 
 ### 비밀 값 · 환경 설정 (절대 커밋하지 않는다) ###
-# .env 는 팀원이 각자 만든다. 필요한 키 목록은 README에 적는다.
+# .env 는 팀원이 각자 만든다. 필요한 키 목록은 .env.example 에 있다.
+# application-local.yaml 은 비밀 값이 없고 .env 를 읽도록만 되어 있어서 커밋한다.
 .env
 .env.*
 !.env.example
@@ -16,9 +17,6 @@ build/
 *.key
 *.p12
 *.jks
-application-local.yaml
-application-local.yml
-application-local.properties
 application-secret*.yaml
 application-secret*.yml
 
