@@ -4,9 +4,11 @@ import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.infra.entity.UserTermsAgreement;
 import com.squirrel.tickting.domain.terms.infra.repository.TermsRepository;
 import com.squirrel.tickting.domain.terms.infra.repository.UserTermsAgreementRepository;
+import com.squirrel.tickting.domain.terms.type.TermsType;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.TermsExceptionCode;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +23,20 @@ public class TermsService {
 
 	private final TermsRepository termsRepository;
 	private final UserTermsAgreementRepository agreementRepository;
+
+	/**
+	 * 종류별 최신 약관. type 을 주면 그 종류만 돌려주고, 그 종류의 약관이 없으면 빈 목록이다.
+	 * "최신"의 기준을 가입 검증(validateAgreement)과 같은 쿼리 하나로 두려고, 종류 하나만 볼 때도 따로 조회하지 않고 걸러 낸다.
+	 * (약관은 종류마다 한 건이라 많아야 몇 건이다)
+	 * 저장 순서와 상관없이 화면에 같은 순서로 보이도록 종류 순(서비스 이용 → 개인정보 → 탈퇴)으로 정렬한다.
+	 */
+	@Transactional(readOnly = true)
+	public List<Terms> getLatest(TermsType type) {
+		return termsRepository.findLatestOfEachType().stream()
+			.filter(terms -> type == null || terms.getType() == type)
+			.sorted(Comparator.comparing(Terms::getType))
+			.toList();
+	}
 
 	/**
 	 * 가입 요청의 약관 동의를 확인하고, 동의한 약관 목록을 돌려준다.
