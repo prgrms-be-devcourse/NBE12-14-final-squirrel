@@ -1,4 +1,4 @@
-package com.squirrel.tickting.domain.seller.dto;
+package com.squirrel.tickting.domain.admin.dto;
 
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerMember;
@@ -9,9 +9,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import lombok.Builder;
 
-public class SellerBusinessResponse {
+public class AdminSellerBusinessResponse {
 
-	private SellerBusinessResponse() {
+	private AdminSellerBusinessResponse() {
 	}
 
 	/**

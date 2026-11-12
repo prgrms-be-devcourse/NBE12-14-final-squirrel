@@ -1,6 +1,6 @@
-package com.squirrel.tickting.domain.seller.controller;
+package com.squirrel.tickting.domain.admin.controller;
 
-import com.squirrel.tickting.domain.seller.dto.SellerBusinessResponse;
+import com.squirrel.tickting.domain.admin.dto.AdminSellerBusinessResponse;
 import com.squirrel.tickting.domain.seller.service.SellerBusinessService;
 import com.squirrel.tickting.domain.seller.type.SellerBusinessSearchStatus;
 import com.squirrel.tickting.global.response.ApiResponse;
@@ -35,7 +35,7 @@ public class AdminSellerBusinessController {
 		description = "상호·대표자명·사업자번호에서 검색어를 부분 일치로 찾는다. 상태를 주지 않으면 승인 대기만 보이고, "
 			+ "ALL 이면 모든 상태가 보인다. 최신 신청이 먼저 나오고(정렬은 고정) 한 번에 최대 20개까지 준다.")
 	@GetMapping
-	public ResponseEntity<ApiResponse<PageResponse<SellerBusinessResponse.Summary>>> list(
+	public ResponseEntity<ApiResponse<PageResponse<AdminSellerBusinessResponse.Summary>>> list(
 		@Parameter(description = "검색어. 비우면 전체")
 		@RequestParam(required = false) String keyword,
 		@Parameter(description = "상태. 기본 PENDING, ALL 은 전체")
@@ -47,7 +47,7 @@ public class AdminSellerBusinessController {
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
 		var page = sellerBusinessService.search(status, keyword, pageRequest)
-			.map(SellerBusinessResponse.Summary::from);
+			.map(AdminSellerBusinessResponse.Summary::from);
 		return ResponseEntity.ok(ApiResponse.success(PageResponse.from(page)));
 	}
 
@@ -55,8 +55,8 @@ public class AdminSellerBusinessController {
 		description = "승인·반려를 판단할 사업체 정보와 신청과 함께 가입한 대표 계정(이메일·휴대폰·상태)을 준다. "
 			+ "비밀번호·본인인증 값은 주지 않는다. 없는 사업체는 404.")
 	@GetMapping("/{businessId}")
-	public ResponseEntity<ApiResponse<SellerBusinessResponse.Detail>> detail(@PathVariable Long businessId) {
+	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Detail>> detail(@PathVariable Long businessId) {
 		var detail = sellerBusinessService.getDetail(businessId);
-		return ResponseEntity.ok(ApiResponse.success(SellerBusinessResponse.Detail.from(detail)));
+		return ResponseEntity.ok(ApiResponse.success(AdminSellerBusinessResponse.Detail.from(detail)));
 	}
 }

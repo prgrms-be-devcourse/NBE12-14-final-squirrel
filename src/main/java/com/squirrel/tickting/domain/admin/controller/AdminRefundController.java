@@ -1,4 +1,4 @@
-package com.squirrel.tickting.domain.payment.controller;
+package com.squirrel.tickting.domain.admin.controller;
 
 import com.squirrel.tickting.domain.payment.service.RefundService;
 import lombok.RequiredArgsConstructor;
