@@ -1,6 +1,7 @@
 package com.squirrel.tickting.global.response;
 
 import java.util.List;
+import lombok.Builder;
 import org.springframework.data.domain.Page;
 
 /**
@@ -8,6 +9,7 @@ import org.springframework.data.domain.Page;
  * Spring 의 Page 를 그대로 내리면 정렬·pageable 같은 내부 구조가 노출되고 모양이 바뀔 수 있어서,
  * 프론트가 쓰는 값만 골라 고정한다. 페이지 번호는 0부터 시작한다.
  */
+@Builder
 public record PageResponse<T>(
 	List<T> content,
 	int page,
@@ -17,7 +19,12 @@ public record PageResponse<T>(
 ) {
 
 	public static <T> PageResponse<T> from(Page<T> page) {
-		return new PageResponse<>(page.getContent(), page.getNumber(), page.getSize(),
-			page.getTotalElements(), page.getTotalPages());
+		return PageResponse.<T>builder()
+			.content(page.getContent())
+			.page(page.getNumber())
+			.size(page.getSize())
+			.totalElements(page.getTotalElements())
+			.totalPages(page.getTotalPages())
+			.build();
 	}
 }
