@@ -913,6 +913,8 @@ Query: `keyword`, `region`, `page`, `size`
 
 `DRAFT`로 생성.
 
+DRAFT에서는 판매 정책(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)을 비워 둘 수 있습니다. PUBLISHED 전환 전에 모두 설정되어 있는지 서비스에서 검증합니다.
+
 **요청**
 
 ```json
@@ -1712,6 +1714,6 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 3. ~~공개 조회 API의 `permitAll` 경로~~ → `SecurityConfig`에 반영됨 (위 권한 표 참고)
 4. 로그아웃 경로 (`/api/v1/auth/**`가 permitAll)
 5. ~~관리자 로그인 경로~~ → `POST /api/v1/auth/admins/login` 구현됨. 판매자·관리자 로그아웃은 미정
-6. 공연 등록(DRAFT) 때 판매 정책이 비어도 되는지 (`performance` 컬럼이 NOT NULL)
+6. ~~공연 등록(DRAFT) 때 판매 정책이 비어도 되는지~~ → 확정: 판매 정책 5개 컬럼은 DRAFT에서 NULL 허용, PUBLISHED 전환 시 서비스에서 필수값 검증
 7. 이미지는 주소 문자열만 받음 — 업로드 방식 미정
 8. 환불 `reasonType`에 `SYSTEM` 포함 여부 (4부 문서는 `SYSTEM` 포함, 기능 정의서에는 없음) → `project-log.md`에서 `SYSTEM` 포함으로 결정되어 있음

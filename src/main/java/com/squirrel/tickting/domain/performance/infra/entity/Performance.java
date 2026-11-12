@@ -87,21 +87,22 @@ public class Performance extends BaseTimeEntity {
 	@Column(nullable = false, length = 20)
 	private PerformanceStatus status;
 
-	@Column(nullable = false)
+	/** DRAFT 상태에서는 비어 있을 수 있고, 공개할 때 서비스에서 필수 여부를 검증한다. */
+	@Column
 	private LocalDateTime saleOpenAt;
 
-	@Column(nullable = false)
+	@Column
 	private LocalDateTime saleCloseAt;
 
 	/** 공연의 모든 회차를 합친 누적 기준이다. 예매가 생긴 뒤에는 늘리는 것만 가능하다. */
-	@Column(nullable = false)
+	@Column
 	private Integer maxPerPerson;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 20)
+	@Column(length = 20)
 	private ReceiveType receiveType;
 
 	/** 티켓 1장당 원. 판매자가 공연마다 정한다. */
-	@Column(nullable = false)
+	@Column
 	private Integer bookingFee;
 }
