@@ -61,7 +61,7 @@
 | AUTH-03 | 예매자 로그인 | POST `/api/v1/auth/users/login` | 구현됨 |
 | AUTH-04 | 로그아웃 | POST `/api/v1/auth/logout` | 미구현 |
 | AUTH-05 | 토큰 재발급 | POST `/api/v1/auth/refresh` | 구현됨 |
-| AUTH-06 | 내 정보 조회 | GET `/api/v1/users/me` | 미구현 |
+| AUTH-06 | 내 정보 조회 | GET `/api/v1/users/me` | 구현됨 |
 | AUTH-07 | 내 정보 수정 | PATCH `/api/v1/users/me` | 미구현 |
 | AUTH-08 | 회원 탈퇴 | DELETE `/api/v1/users/me` | 미구현 |
 | AUTH-09 | 판매자 가입 신청 | POST `/api/v1/auth/sellers/signup` | 구현됨 |
@@ -247,7 +247,9 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 
 **에러**: 401 `AUTH200` 쿠키 없음 · 401 `AUTH201` 토큰 무효 · 401 `AUTH202` 토큰 만료 (그 외 계정 상태 에러는 코드 미정)
 
-### AUTH-06 내 정보 조회 — `GET /api/v1/users/me` (예매자, 미구현)
+### AUTH-06 내 정보 조회 — `GET /api/v1/users/me` (예매자, 구현됨)
+
+회원 번호는 경로로 받지 않고 토큰에서 꺼냅니다. 비밀번호와 본인인증 값(`ci_hash`)은 내려가지 않습니다. 정지된 회원도 토큰이 살아 있는 동안은 조회할 수 있습니다. (로그인·재발급에서 이미 막힘)
 
 **응답 200**
 
@@ -268,6 +270,8 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
   }
 }
 ```
+
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 404 `USER002` 회원 없음(탈퇴 후 토큰이 만료되기 전)
 
 ### AUTH-07 내 정보 수정 — `PATCH /api/v1/users/me` (예매자, 미구현)
 

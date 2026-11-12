@@ -78,6 +78,16 @@ public class UserMemberService {
 		return toAccount(user);
 	}
 
+	/**
+	 * 로그인한 예매자 본인의 정보. 탈퇴한 회원이면 USER_NOT_FOUND.
+	 * 정지(SUSPENDED)된 회원은 막지 않는다. 자기 정보를 읽기만 하는 것이라 위험하지 않고, 로그인과 토큰 재발급에서 이미 막힌다.
+	 */
+	@Transactional(readOnly = true)
+	public UserMember getMe(Long userId) {
+		return userMemberRepository.findByIdAndDeletedAtIsNull(userId)
+			.orElseThrow(() -> new BusinessException(UserExceptionCode.USER_NOT_FOUND));
+	}
+
 	public CustomUserDetails toAccount(UserMember user) {
 		return new CustomUserDetails(user.getId(), AccountType.USER, null, null);
 	}

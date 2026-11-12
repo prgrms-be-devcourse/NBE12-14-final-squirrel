@@ -13,7 +13,9 @@ public enum UserExceptionCode implements ExceptionCode {
 	/** 이미 가입된 이메일 (탈퇴한 회원의 이메일은 다시 쓸 수 있다) */
 	EMAIL_DUPLICATED("USER000", HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
 	/** 같은 본인인증 정보(CI)로 이미 가입한 사람. 1인 1계정 */
-	ALREADY_REGISTERED("USER001", HttpStatus.CONFLICT, "이미 가입된 사용자입니다.");
+	ALREADY_REGISTERED("USER001", HttpStatus.CONFLICT, "이미 가입된 사용자입니다."),
+	/** 토큰의 회원 번호로 회원을 찾지 못함. 탈퇴한 뒤 액세스 토큰이 만료되기 전(최대 15분)에 호출하면 생긴다 */
+	USER_NOT_FOUND("USER002", HttpStatus.NOT_FOUND, "회원 정보를 찾을 수 없습니다.");
 
 	private final String code;
 	private final HttpStatus status;
