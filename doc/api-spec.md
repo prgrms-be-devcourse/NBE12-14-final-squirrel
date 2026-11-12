@@ -101,6 +101,7 @@
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
 | ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 미구현 |
 | ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 미구현 |
+| ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 
 ---
 
@@ -1480,7 +1481,7 @@ Query
 | `page` | 0부터. 기본 0 |
 | `size` | 기본 **10**, 최대 **20** (넘으면 20으로 줄어듦) |
 
-정렬은 **최신 신청이 먼저**로 고정이고, 클라이언트가 보낸 `sort`는 무시합니다. 목록에는 고르는 데 필요한 값만 있고, 연락처·반려 사유·처리한 관리자 같은 값은 상세 조회에서 줍니다. (상세 조회 API는 다음 PR에서 추가)
+정렬은 **최신 신청이 먼저**로 고정이고, 클라이언트가 보낸 `sort`는 무시합니다. 목록에는 고르는 데 필요한 값만 있고, 연락처·반려 사유·처리한 관리자 같은 값은 상세 조회(ADM-07)에서 줍니다.
 
 **응답 200**
 
@@ -1511,6 +1512,50 @@ Query
 
 **에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 400 `COMMON000` 알 수 없는 상태 값
 
+### ADM-07 사업체 상세 — `GET /api/v1/admin/seller-businesses/{businessId}` (구현됨)
+
+승인·반려를 판단할 때 보는 화면입니다. 판매자 가입은 **사업체 신청과 대표 계정 가입이 한 번의 요청**이라서, `owner`는 신청과 함께 가입한 본인입니다. (승인되기 전에는 이 계정으로 로그인할 수 없습니다)
+
+- `owner`에는 계정 번호·로그인 이메일·본인인증 휴대폰·상태만 줍니다. 비밀번호·CI 해시·생년월일은 주지 않습니다.
+- 이름은 본인인증 이름과 `representativeName`이 같아야 가입되므로 `owner`에 따로 두지 않습니다.
+- `contactPhone`(업무 연락처)과 `owner.phone`(본인인증 휴대폰)은 다를 수 있어서 둘 다 줍니다.
+- `reviewedBy`는 처리한 관리자 **번호**만 줍니다. 담당자(STAFF) 목록은 주지 않습니다.
+- 탈퇴 처리된 대표 계정이면 `owner`가 `null`입니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "businessId": 3,
+    "companyName": "(주)가상기획",
+    "representativeName": "김대표",
+    "businessNumber": "1234567890",
+    "contactPhone": "0212345678",
+    "contactEmail": "contact@company.com",
+    "status": "REJECTED",
+    "rejectReason": "사업자등록번호 확인이 필요합니다.",
+    "reviewedBy": 1,
+    "reviewedAt": "2026-11-12T16:10:00",
+    "termsAgreedAt": "2026-11-12T15:30:00",
+    "createdAt": "2026-11-12T15:30:00",
+    "owner": {
+      "memberId": 5,
+      "email": "owner@company.com",
+      "phone": "01011112222",
+      "status": "ACTIVE"
+    }
+  }
+}
+```
+
+처리 전에는 `rejectReason`, `reviewedBy`, `reviewedAt`이 `null`입니다.
+
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 없는 사업체 · 400 `COMMON000` 번호가 숫자가 아님
+
 ### ADM-02 사업체 승인 — `POST /api/v1/admin/seller-businesses/{businessId}/approve`
 
 Body 없음. 처리 관리자·시각 기록, 감사 로그.
@@ -1530,7 +1575,7 @@ Body 없음. 처리 관리자·시각 기록, 감사 로그.
 }
 ```
 
-**에러**(코드 미정): 404 사업체 없음 · 409 이미 처리된 건
+**에러**: 404 `SELLER006` 사업체 없음 · 409 이미 처리된 건(코드 미정)
 
 ### ADM-03 사업체 반려 — `POST /api/v1/admin/seller-businesses/{businessId}/reject`
 
