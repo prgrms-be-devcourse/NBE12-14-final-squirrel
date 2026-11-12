@@ -174,13 +174,15 @@ erDiagram
 |  | 판매자 공지 | `notice` | TEXT | NULL | 이 공연만의 공지 |
 |  | 이용 안내 | `guide` | TEXT | NULL | 이 공연만의 안내 |
 |  | 상태 | `status` | enum | NOT NULL | DRAFT 작성 중 / PUBLISHED 공개 / CANCELED 공연 취소 |
-|  | 판매 오픈 일시 | `sale_open_at` | LocalDateTime | NOT NULL | 모든 회차 공통 |
-|  | 판매 종료 일시 | `sale_close_at` | LocalDateTime | NOT NULL | 모든 회차 공통 |
-|  | 1인 최대 매수 | `max_per_person` | Integer | NOT NULL |  |
-|  | 수령 방법 | `receive_type` | enum | NOT NULL | ONSITE 현장 / DELIVERY 배송 / BOTH 예매자 선택 |
-|  | 예매 수수료 | `booking_fee` | Integer | NOT NULL | 티켓 1장당 원. 판매자가 공연마다 설정 |
+|  | 판매 오픈 일시 | `sale_open_at` | LocalDateTime | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. 모든 회차 공통 |
+|  | 판매 종료 일시 | `sale_close_at` | LocalDateTime | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. 모든 회차 공통 |
+|  | 1인 최대 매수 | `max_per_person` | Integer | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수 |
+|  | 수령 방법 | `receive_type` | enum | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. ONSITE 현장 / DELIVERY 배송 / BOTH 예매자 선택 |
+|  | 예매 수수료 | `booking_fee` | Integer | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. 티켓 1장당 원. 판매자가 공연마다 설정 |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
+
+판매 정책 다섯 항목은 DRAFT에서 비워 둘 수 있습니다. PUBLISHED 전환 시에는 서비스에서 모두 설정됐는지 검증합니다.
 
 **Q. `status`는 왜 3개뿐인가요?**
 
