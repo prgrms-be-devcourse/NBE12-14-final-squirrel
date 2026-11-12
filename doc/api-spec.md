@@ -35,7 +35,8 @@
 
 - 인증 헤더: `Authorization: Bearer {accessToken}`
 - 액세스 토큰 900초, 리프레시 토큰 14일(HttpOnly 쿠키 `refreshToken`, `Path=/api/v1/auth`, `SameSite=Lax`)
-- 페이징 요청: `page`(0부터), `size`(최대 50). 페이징 응답 구조는 **미정**이라 아래 목록 API는 `content/page/size/totalElements/totalPages`로 가정
+- 페이징 요청: `page`(0부터), `size`. 기본 크기와 최대 크기는 API마다 정합니다. (공통 설정의 최대는 50이고, 사업체 목록은 기본 10·최대 20) 크기가 최대를 넘으면 에러가 아니라 최대로 줄어듭니다.
+- **목록 응답 구조 (확정)**: `data`에 `content`(항목 배열), `page`(현재 페이지, 0부터), `size`, `totalElements`, `totalPages`가 들어갑니다. (`PageResponse`)
 
 **공통 에러 코드** (구현됨)
 
@@ -94,7 +95,7 @@
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 미구현 |
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
-| ADM-01 | 사업체 목록 | GET `/api/v1/admin/seller-businesses` | 미구현 |
+| ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 미구현 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 미구현 |
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
@@ -1468,9 +1469,18 @@ Query: `status`, `page`, `size`
 
 ## 5. 관리자 (`/api/v1/admin/**`)
 
-### ADM-01 사업체 목록 — `GET /api/v1/admin/seller-businesses`
+### ADM-01 사업체 목록·검색 — `GET /api/v1/admin/seller-businesses` (구현됨)
 
-Query: `status`(`PENDING/APPROVED/REJECTED`, 기본 `PENDING`), `page`, `size`
+Query
+
+| 이름 | 설명 |
+| --- | --- |
+| `keyword` | 검색어. **상호·대표자명·사업자번호**에서 부분 일치로 찾고 영문은 대소문자를 가립니다. 비우면 전체. `%`, `_`는 글자 그대로 찾습니다 |
+| `status` | `PENDING`(기본) / `APPROVED` / `REJECTED` / `SUSPENDED` / `ALL`(전체). 알 수 없는 값은 400 `COMMON000` |
+| `page` | 0부터. 기본 0 |
+| `size` | 기본 **10**, 최대 **20** (넘으면 20으로 줄어듦) |
+
+정렬은 **최신 신청이 먼저**로 고정이고, 클라이언트가 보낸 `sort`는 무시합니다. 목록에는 고르는 데 필요한 값만 있고, 연락처·반려 사유·처리한 관리자 같은 값은 상세 조회에서 줍니다. (상세 조회 API는 다음 PR에서 추가)
 
 **응답 200**
 
@@ -1486,21 +1496,20 @@ Query: `status`(`PENDING/APPROVED/REJECTED`, 기본 `PENDING`), `page`, `size`
         "companyName": "(주)가상기획",
         "representativeName": "김대표",
         "businessNumber": "1234567890",
-        "contactPhone": "01012345678",
-        "contactEmail": "contact@company.com",
         "status": "PENDING",
-        "rejectReason": null,
         "createdAt": "2026-11-12T15:30:00",
         "reviewedAt": null
       }
     ],
     "page": 0,
-    "size": 20,
+    "size": 10,
     "totalElements": 1,
     "totalPages": 1
   }
 }
 ```
+
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 400 `COMMON000` 알 수 없는 상태 값
 
 ### ADM-02 사업체 승인 — `POST /api/v1/admin/seller-businesses/{businessId}/approve`
 
@@ -1699,7 +1708,7 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 ## 확정이 필요한 것
 
 1. 미구현 API의 에러 코드(접두사·번호)
-2. 페이징 응답 구조 (`Page` 그대로 vs `content/page/...` 래퍼)
+2. ~~페이징 응답 구조~~ → `content/page/size/totalElements/totalPages`로 확정 (`PageResponse`)
 3. ~~공개 조회 API의 `permitAll` 경로~~ → `SecurityConfig`에 반영됨 (위 권한 표 참고)
 4. 로그아웃 경로 (`/api/v1/auth/**`가 permitAll)
 5. ~~관리자 로그인 경로~~ → `POST /api/v1/auth/admins/login` 구현됨. 판매자·관리자 로그아웃은 미정
