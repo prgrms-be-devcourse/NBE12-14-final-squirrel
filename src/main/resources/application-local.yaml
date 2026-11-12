@@ -11,9 +11,12 @@ spring:
     username: ${DATASOURCE_USERNAME}
     password: ${DATASOURCE_PASSWORD}
   flyway:
-    # 스키마는 db/migration, 데모·샘플 데이터(공연장 시드 등)는 db/seed.
+    # 스키마는 db/migration, 데모·샘플 데이터(공연장·공연 시드 등)는 db/seed.
     # 시드는 로컬에서만 적용한다. 버전 번호는 두 폴더가 같은 순번을 공유한다.
+    # 시드는 V100 번대를 쓰고(V2 약관 시드만 예외), 마이그레이션은 V7 부터 이어서 추가한다.
     locations: classpath:db/migration,classpath:db/seed
+    # 시드(V100 번대)를 이미 적용한 로컬 DB 에도, 새로 받은 마이그레이션(V7 ...)을 적용할 수 있게 한다.
+    out-of-order: true
 
 app:
   cookie:
