@@ -1,12 +1,14 @@
 package com.squirrel.tickting.global.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.global.exception.GlobalExceptionHandler;
 import com.squirrel.tickting.global.jwt.JwtProperties;
 import com.squirrel.tickting.global.jwt.JwtProvider;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -69,6 +72,19 @@ class SecurityConfigTest {
 		@GetMapping("/api/v1/seller/owner-only")
 		@PreAuthorize("hasRole('SELLER_OWNER')")
 		String sellerOwnerOnly() {
+			return "ok";
+		}
+
+		// 공개 조회 경로. 실제 컨트롤러가 만들어지기 전에도 접근 규칙을 확인하려고 같은 경로로 둔다.
+		@GetMapping({"/api/v1/terms", "/api/v1/performances", "/api/v1/performances/{id}",
+			"/api/v1/schedules/{id}/zones", "/api/v1/schedules/{id}/zones/{zoneId}/seats",
+			"/api/v1/bookings"})
+		String publicRead() {
+			return "ok";
+		}
+
+		@PostMapping({"/api/v1/performances", "/api/v1/schedules/{id}/bookings"})
+		String loggedInWrite() {
 			return "ok";
 		}
 	}
@@ -176,5 +192,58 @@ class SecurityConfigTest {
 				.header("Authorization", bearer(2L, AccountType.SELLER, "STAFF", 1L)))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("AUTH100"));
+	}
+
+	@Test
+	@DisplayName("약관, 공연 목록·상세, 구역 요약, 구역 좌석 상세는 토큰 없이 GET 으로 볼 수 있다")
+	void publicReadPathsAreOpen() throws Exception {
+		for (String path : List.of("/api/v1/terms", "/api/v1/performances", "/api/v1/performances/12",
+			"/api/v1/schedules/31/zones", "/api/v1/schedules/31/zones/12/seats")) {
+			mockMvc.perform(get(path)).andExpect(status().isOk());
+		}
+	}
+
+	@Test
+	@DisplayName("공개 조회 경로라도 같은 경로의 쓰기 요청(POST)은 로그인이 필요하다")
+	void writeOnPublicPathNeedsLogin() throws Exception {
+		mockMvc.perform(post("/api/v1/performances"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH200"));
+	}
+
+	@Test
+	@DisplayName("좌석 점유(POST)는 토큰이 없으면 401 이고, 로그인한 예매자는 호출할 수 있다")
+	void bookingNeedsLogin() throws Exception {
+		mockMvc.perform(post("/api/v1/schedules/31/bookings"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH200"));
+
+		mockMvc.perform(post("/api/v1/schedules/31/bookings")
+				.header("Authorization", bearer(1L, AccountType.USER, null, null)))
+			.andExpect(status().isOk());
+	}
+
+	@Test
+	@DisplayName("공개 목록이 아닌 내 예매 목록은 토큰 없이 볼 수 없다")
+	void myBookingsAreNotPublic() throws Exception {
+		mockMvc.perform(get("/api/v1/bookings"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH200"));
+	}
+
+	@Test
+	@DisplayName("공개 조회에 잘못된 토큰을 보내면 401 AUTH201 이다 (만료되면 프론트가 재발급하게 하려는 것)")
+	void invalidTokenOnPublicPathIs401() throws Exception {
+		mockMvc.perform(get("/api/v1/performances").header("Authorization", "Bearer not-a-jwt"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH201"));
+	}
+
+	@Test
+	@DisplayName("로그인한 예매자도 공개 조회를 그대로 볼 수 있다")
+	void loggedInUserCanReadPublicPaths() throws Exception {
+		mockMvc.perform(get("/api/v1/performances")
+				.header("Authorization", bearer(1L, AccountType.USER, null, null)))
+			.andExpect(status().isOk());
 	}
 }
