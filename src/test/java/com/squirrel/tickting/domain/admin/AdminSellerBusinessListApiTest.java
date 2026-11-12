@@ -1,4 +1,4 @@
-package com.squirrel.tickting.domain.seller;
+package com.squirrel.tickting.domain.admin;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;

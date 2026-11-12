@@ -1,4 +1,4 @@
-package com.squirrel.tickting.domain.venue.controller;
+package com.squirrel.tickting.domain.admin.controller;
 
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import lombok.RequiredArgsConstructor;
