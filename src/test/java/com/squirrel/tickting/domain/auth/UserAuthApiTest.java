@@ -25,7 +25,6 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	private static final String SIGNUP = "/api/v1/auth/users/signup";
 	private static final String LOGIN = "/api/v1/auth/users/login";
 	private static final String REFRESH = "/api/v1/auth/refresh";
-	private static final String ME = "/api/v1/me";
 
 	private MvcResult signup(String email, String ci) throws Exception {
 		return postJson(SIGNUP, userSignupBody(email, ci)).andExpect(status().isCreated()).andReturn();
@@ -63,20 +62,16 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("발급된 액세스 토큰은 예매자 토큰이고, 보호된 경로(/me)를 호출할 수 있다")
-	void issuedAccessTokenWorks() throws Exception {
+	@DisplayName("발급된 액세스 토큰은 가입한 회원의 예매자 토큰이다")
+	void issuedAccessTokenBelongsToTheNewUser() throws Exception {
 		MvcResult result = signup("user@example.com", "ci-001");
-		String token = accessToken(result);
 
-		CustomUserDetails parsed = jwtProvider.parseAccessToken(token);
+		CustomUserDetails parsed = jwtProvider.parseAccessToken(accessToken(result));
+
 		assertThat(parsed.getAccountType()).isEqualTo(AccountType.USER);
+		assertThat(parsed.getId()).isEqualTo(jdbc.queryForObject("SELECT id FROM user_member", Long.class));
 		assertThat(parsed.getRole()).isNull();
 		assertThat(parsed.getBusinessId()).isNull();
-
-		mockMvc.perform(get(ME).header("Authorization", "Bearer " + token))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.id").value(parsed.getId()))
-			.andExpect(jsonPath("$.data.accountType").value("USER"));
 	}
 
 	@Test
@@ -96,7 +91,8 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	void refreshTokenCannotCallApi() throws Exception {
 		String refresh = refreshCookie(signup("user@example.com", "ci-001"));
 
-		mockMvc.perform(get(ME).header("Authorization", "Bearer " + refresh))
+		// 로그인 전용 API 가 아직 없어서 임의의 경로를 쓴다. 토큰 검사는 필터에서 먼저 일어난다.
+		mockMvc.perform(get("/api/v1/anything").header("Authorization", "Bearer " + refresh))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH201"));
 	}
@@ -298,8 +294,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 			.andReturn();
 
 		assertThat(refreshCookie(result)).isNotBlank();
-		mockMvc.perform(get(ME).header("Authorization", "Bearer " + accessToken(result)))
-			.andExpect(status().isOk());
+		assertThat(jwtProvider.parseAccessToken(accessToken(result)).getAccountType()).isEqualTo(AccountType.USER);
 	}
 
 	@Test
@@ -356,7 +351,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	// ---------------------------------------------------------------- 재발급
 
 	@Test
-	@DisplayName("리프레시 쿠키로 액세스 토큰을 다시 받고, 새 토큰으로 API 를 호출할 수 있다")
+	@DisplayName("리프레시 쿠키로 액세스 토큰을 다시 받는다")
 	void refreshSuccess() throws Exception {
 		String refresh = refreshCookie(signup("user@example.com", "ci-001"));
 
@@ -366,8 +361,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 			.andReturn();
 
 		assertThat(refreshCookie(result)).isNotBlank();
-		mockMvc.perform(get(ME).header("Authorization", "Bearer " + accessToken(result)))
-			.andExpect(status().isOk());
+		assertThat(jwtProvider.parseAccessToken(accessToken(result)).getAccountType()).isEqualTo(AccountType.USER);
 	}
 
 	@Test

@@ -4,7 +4,6 @@ import com.squirrel.tickting.domain.auth.dto.AuthRequest;
 import com.squirrel.tickting.domain.auth.dto.AuthResponse;
 import com.squirrel.tickting.domain.auth.facade.AuthFacade;
 import com.squirrel.tickting.global.response.ApiResponse;
-import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.global.util.CookieUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,9 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.CookieValue;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -75,11 +72,5 @@ public class AuthController {
 		HttpServletResponse response
 	) {
 		return ResponseEntity.ok(ApiResponse.success(authFacade.refresh(refreshToken, response)));
-	}
-
-	@Operation(summary = "내 계정 정보", description = "액세스 토큰에 담긴 계정 종류·역할·사업체 번호를 돌려준다.")
-	@GetMapping("/me")
-	public ResponseEntity<ApiResponse<AuthResponse.Me>> me(@AuthenticationPrincipal CustomUserDetails account) {
-		return ResponseEntity.ok(ApiResponse.success(AuthResponse.Me.from(account)));
 	}
 }

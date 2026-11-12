@@ -21,7 +21,6 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	private static final String SIGNUP = "/api/v1/auth/sellers/signup";
 	private static final String LOGIN = "/api/v1/auth/sellers/login";
 	private static final String REFRESH = "/api/v1/auth/refresh";
-	private static final String ME = "/api/v1/me";
 
 	private static final String EMAIL = "owner@company.com";
 	private static final String BUSINESS_NUMBER = "1234567890";
@@ -183,12 +182,6 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 		assertThat(parsed.getAccountType()).isEqualTo(AccountType.SELLER);
 		assertThat(parsed.getRole()).isEqualTo("OWNER");
 		assertThat(parsed.getBusinessId()).isEqualTo(businessId);
-
-		mockMvc.perform(get(ME).header("Authorization", "Bearer " + accessToken(result)))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.accountType").value("SELLER"))
-			.andExpect(jsonPath("$.data.role").value("OWNER"))
-			.andExpect(jsonPath("$.data.businessId").value(businessId));
 	}
 
 	@Test

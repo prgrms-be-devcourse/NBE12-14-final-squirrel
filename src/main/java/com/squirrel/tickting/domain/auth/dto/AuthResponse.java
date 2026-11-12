@@ -37,19 +37,4 @@ public class AuthResponse {
 		String status
 	) {
 	}
-
-	@Schema(name = "Me", description = "로그인한 계정 정보 (토큰에서 꺼낸 값)")
-	public record Me(
-		Long id,
-		AccountType accountType,
-		@Schema(description = "판매자 역할. 판매자가 아니면 null")
-		String role,
-		@Schema(description = "판매자 소속 사업체 번호. 판매자가 아니면 null")
-		Long businessId
-	) {
-
-		public static Me from(CustomUserDetails account) {
-			return new Me(account.getId(), account.getAccountType(), account.getRole(), account.getBusinessId());
-		}
-	}
 }

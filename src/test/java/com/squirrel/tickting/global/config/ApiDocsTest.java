@@ -20,8 +20,7 @@ class ApiDocsTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
 			.andExpect(jsonPath("$.paths['/api/v1/auth/users/signup']").exists())
 			.andExpect(jsonPath("$.paths['/api/v1/auth/sellers/login']").exists())
-			.andExpect(jsonPath("$.paths['/api/v1/auth/refresh']").exists())
-			.andExpect(jsonPath("$.paths['/api/v1/me']").exists());
+			.andExpect(jsonPath("$.paths['/api/v1/auth/refresh']").exists());
 	}
 
 	@Test
