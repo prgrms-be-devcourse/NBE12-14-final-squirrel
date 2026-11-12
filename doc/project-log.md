@@ -165,3 +165,4 @@
 | 2026-11-10 | 설계 점검 반영: 좌석 생성을 오픈 전날로 변경, `ci_hash` 탈퇴 처리, `booking.performance_id`, `refund` 멱등 키·`PROCESSING`, 점유+예매 한 트랜잭션, 1인 최대 매수 설계, 연기 무료 취소 판정 규칙. 기술 스택을 실제 프로젝트(Groovy DSL, `com.squirrel.tickting`)에 맞추고 FK 방침을 논리 FK로 확정 (상세는 `appendix.md` 부록 G) |
 | 2026-11-12 | 인프라·배포 결정 추가(로컬 Nginx / 운영 ALB + Auto Scaling, ECR, ElastiCache 검토, 크레딧·가동 시간 조건), `CLAUDE.md` 상태 갱신, 남은 일에 문서 간 불일치와 확인 사항 추가 |
 | 2026-11-12 | 권한 규칙 정리: 공개 조회 경로, 예매자 전용 경로, 소유권(내 것인가) 확인과 404 규칙을 `SecurityConfig`·`CLAUDE.md`·`api-spec.md`에 반영. `CLAUDE.md`에 다른 도메인을 건드릴 때 담당자에게 먼저 연락하는 규칙 추가 |
+| 2026-11-12 | 팀 분담 갱신(`appendix.md` 부록 D): 재환님은 어려운 것(좌석 점유·결제·환불·스케줄러·Redis·배포), A파트는 판매자 쪽, B파트는 예매자 쪽으로 정리하고 쉬운 것부터 시작하는 순서와 주차별 계획 추가 |
