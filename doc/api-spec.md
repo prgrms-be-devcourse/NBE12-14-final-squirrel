@@ -56,7 +56,7 @@
 
 | ID | 이름 | 메서드 · URL | 상태 |
 | --- | --- | --- | --- |
-| AUTH-01 | 약관 조회 | GET `/api/v1/terms` | 미구현 |
+| AUTH-01 | 약관 조회 | GET `/api/v1/terms` | 구현됨 |
 | AUTH-02 | 예매자 가입 | POST `/api/v1/auth/users/signup` | 구현됨 |
 | AUTH-03 | 예매자 로그인 | POST `/api/v1/auth/users/login` | 구현됨 |
 | AUTH-04 | 로그아웃 | POST `/api/v1/auth/logout` | 미구현 |
@@ -106,9 +106,13 @@
 
 ## 1. 계정·인증
 
-### AUTH-01 약관 조회 — `GET /api/v1/terms` (공개, 미구현)
+### AUTH-01 약관 조회 — `GET /api/v1/terms` (공개, 구현됨)
 
 Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버전만.
+
+- 순서는 종류 순(`SERVICE` → `PRIVACY` → `WITHDRAW`)으로 고정입니다.
+- `type`을 주면 그 종류만 주고, 그 종류의 약관이 없으면 에러가 아니라 빈 배열(`data: []`)입니다.
+- `termId`는 가입 요청의 `agreedTermIds`에 그대로 보냅니다.
 
 **응답 200**
 
@@ -135,6 +139,8 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
   ]
 }
 ```
+
+**에러**: 400 `COMMON000` 알 수 없는 `type` 값
 
 ### AUTH-02 예매자 가입 — `POST /api/v1/auth/users/signup` (공개, 구현됨)
 
