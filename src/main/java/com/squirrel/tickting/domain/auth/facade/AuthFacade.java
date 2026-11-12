@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.auth.facade;
 
+import com.squirrel.tickting.domain.admin.service.AdminMemberService;
 import com.squirrel.tickting.domain.auth.dto.AuthRequest;
 import com.squirrel.tickting.domain.auth.dto.AuthResponse;
 import com.squirrel.tickting.domain.auth.identity.IdentityVerifier;
@@ -12,8 +13,6 @@ import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.service.TermsService;
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import com.squirrel.tickting.domain.user.service.UserMemberService;
-import com.squirrel.tickting.global.exception.BusinessException;
-import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
@@ -34,6 +33,7 @@ public class AuthFacade {
 	private final IdentityVerifier identityVerifier;
 	private final UserMemberService userMemberService;
 	private final SellerMemberService sellerMemberService;
+	private final AdminMemberService adminMemberService;
 	private final TermsService termsService;
 	private final TokenService tokenService;
 	private final TransactionTemplate transactionTemplate;
@@ -78,6 +78,12 @@ public class AuthFacade {
 		return tokenService.issue(account, response);
 	}
 
+	/** 관리자는 가입이 없다. 시드로 만든 계정으로 로그인한다. */
+	public AuthResponse.Token adminLogin(AuthRequest.Login request, HttpServletResponse response) {
+		CustomUserDetails account = adminMemberService.login(request.email(), request.password());
+		return tokenService.issue(account, response);
+	}
+
 	/** 쿠키의 리프레시 토큰으로 재발급한다. 권한(역할, 사업체)은 토큰이 아니라 DB 값으로 다시 만든다. */
 	public AuthResponse.Token refresh(String refreshToken, HttpServletResponse response) {
 		CustomUserDetails identity = tokenService.readRefreshToken(refreshToken);
@@ -85,8 +91,7 @@ public class AuthFacade {
 		CustomUserDetails account = switch (identity.getAccountType()) {
 			case USER -> userMemberService.getLoginAccount(identity.getId());
 			case SELLER -> sellerMemberService.getLoginAccount(identity.getId());
-			// 관리자 로그인은 아직 없다. 이 토큰은 발급될 수 없으므로 위조로 본다.
-			case ADMIN -> throw new BusinessException(AuthExceptionCode.TOKEN_INVALID);
+			case ADMIN -> adminMemberService.getLoginAccount(identity.getId());
 		};
 		return tokenService.issue(account, response);
 	}
