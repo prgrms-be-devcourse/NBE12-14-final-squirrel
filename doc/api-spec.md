@@ -23,9 +23,15 @@
 | 구분 | 경로 | 권한 |
 | --- | --- | --- |
 | 인증 | `/api/v1/auth/**` | 누구나 |
-| 예매자·공개 | `/api/v1/**` | 로그인 (공개 조회는 permitAll 추가 필요) |
-| 판매자 | `/api/v1/seller/**` | 판매자 (대표·STAFF) |
+| 공개 조회 | GET `/api/v1/terms`, `/api/v1/performances`, `/api/v1/performances/*`, `/api/v1/schedules/*/zones`, `/api/v1/schedules/*/zones/*/seats` | 누구나 (GET만. 같은 경로의 쓰기 요청은 로그인 필요) |
+| 예매자 | `/api/v1/users/**`, `/api/v1/bookings/**`, `/api/v1/payments/**`, `/api/v1/schedules/*/bookings` | 예매자만 (판매자·관리자 토큰은 403) |
+| 판매자 | `/api/v1/seller/**` | 판매자 (대표·STAFF). 대표만 가능한 기능은 메서드에 `@PreAuthorize("hasRole('SELLER_OWNER')")` |
 | 관리자 | `/api/v1/admin/**` | 관리자 |
+| 그 밖 | 위에 없는 경로 | 로그인 (계정 종류는 가리지 않음) |
+
+- **권한은 두 단계**입니다. ① 계정 종류·역할은 시큐리티가 토큰으로 검사하고(위 표), ② "이 데이터가 내 것인가"는 서비스가 토큰의 번호(`account.getId()`, `account.getBusinessId()`)로 조회해서 확인합니다. 남의 것은 403이 아니라 **404**로 답합니다.
+- 토큰의 역할은 발급 시점 값이라, 계정이 비활성화돼도 액세스 토큰이 만료될 때(15분)까지는 통합니다. (재발급은 DB 상태를 다시 읽습니다)
+- 새 API를 만들면 위 표의 어느 줄에 들어가는지 확인하고, 공개 조회나 예매자 전용이면 `SecurityConfig`의 `PUBLIC_READ_PATHS`, `USER_ONLY_PATHS`에 경로를 추가합니다.
 
 - 인증 헤더: `Authorization: Bearer {accessToken}`
 - 액세스 토큰 900초, 리프레시 토큰 14일(HttpOnly 쿠키 `refreshToken`, `Path=/api/v1/auth`, `SameSite=Lax`)
@@ -1692,7 +1698,7 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 
 1. 미구현 API의 에러 코드(접두사·번호)
 2. 페이징 응답 구조 (`Page` 그대로 vs `content/page/...` 래퍼)
-3. 공개 조회 API의 `permitAll` 경로 (공연·구역·약관)
+3. ~~공개 조회 API의 `permitAll` 경로~~ → `SecurityConfig`에 반영됨 (위 권한 표 참고)
 4. 로그아웃 경로 (`/api/v1/auth/**`가 permitAll)
 5. 관리자 로그인 경로, 판매자·관리자 로그아웃
 6. 공연 등록(DRAFT) 때 판매 정책이 비어도 되는지 (`performance` 컬럼이 NOT NULL)
