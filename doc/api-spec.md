@@ -65,7 +65,7 @@
 | AUTH-08 | 회원 탈퇴 | DELETE `/api/v1/users/me` | 미구현 |
 | AUTH-09 | 판매자 가입 신청 | POST `/api/v1/auth/sellers/signup` | 구현됨 |
 | AUTH-10 | 판매자 로그인 | POST `/api/v1/auth/sellers/login` | 구현됨 |
-| AUTH-11 | 관리자 로그인 | POST `/api/v1/auth/admins/login` | 미구현 |
+| AUTH-11 | 관리자 로그인 | POST `/api/v1/auth/admins/login` | 구현됨 |
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 미구현 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
@@ -367,12 +367,14 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 
 **에러**: 401 `AUTH001` 불일치 · 401 `AUTH003` 비활성 계정 · 403 `SELLER003` 승인 대기 · 403 `SELLER004` 반려 · 403 `SELLER005` 정지
 
-### AUTH-11 관리자 로그인 — `POST /api/v1/auth/admins/login` (공개, 미구현)
+### AUTH-11 관리자 로그인 — `POST /api/v1/auth/admins/login` (공개, 구현됨)
+
+관리자는 가입과 비밀번호 변경이 없습니다. 로컬에서는 `db/seed/V103`의 시드 계정(`admin@tickting.local`)으로 로그인하고, **비밀번호는 저장소에 없어서 팀에서 따로 전달**합니다. 운영 관리자 계정은 배포 때 따로 만듭니다.
 
 **요청**
 
 ```json
-{ "email": "admin@example.com", "password": "AdminPassword1!" }
+{ "email": "admin@tickting.local", "password": "시드 계정의 비밀번호" }
 ```
 
 **응답 200** (`Set-Cookie: refreshToken=...`)
@@ -1700,7 +1702,7 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 2. 페이징 응답 구조 (`Page` 그대로 vs `content/page/...` 래퍼)
 3. ~~공개 조회 API의 `permitAll` 경로~~ → `SecurityConfig`에 반영됨 (위 권한 표 참고)
 4. 로그아웃 경로 (`/api/v1/auth/**`가 permitAll)
-5. 관리자 로그인 경로, 판매자·관리자 로그아웃
+5. ~~관리자 로그인 경로~~ → `POST /api/v1/auth/admins/login` 구현됨. 판매자·관리자 로그아웃은 미정
 6. 공연 등록(DRAFT) 때 판매 정책이 비어도 되는지 (`performance` 컬럼이 NOT NULL)
 7. 이미지는 주소 문자열만 받음 — 업로드 방식 미정
 8. 환불 `reasonType`에 `SYSTEM` 포함 여부 (4부 문서는 `SYSTEM` 포함, 기능 정의서에는 없음) → `project-log.md`에서 `SYSTEM` 포함으로 결정되어 있음

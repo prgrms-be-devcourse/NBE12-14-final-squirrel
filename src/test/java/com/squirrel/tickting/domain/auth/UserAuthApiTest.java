@@ -412,7 +412,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("예매자 토큰에 관리자 계정 종류를 끼워 넣은 리프레시 토큰은 거절한다 (관리자 로그인은 아직 없다)")
+	@DisplayName("DB 에 없는 관리자 번호로 만든 리프레시 토큰은 거절한다")
 	void adminRefreshTokenIsNotAccepted() throws Exception {
 		String adminRefresh = jwtProvider.createRefreshToken(1L, AccountType.ADMIN);
 

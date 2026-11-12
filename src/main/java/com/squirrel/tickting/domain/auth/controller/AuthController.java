@@ -65,6 +65,15 @@ public class AuthController {
 		return ResponseEntity.ok(ApiResponse.success(authFacade.sellerLogin(request, response)));
 	}
 
+	@Operation(summary = "관리자 로그인", description = "관리자는 가입이 없다. 개발 때는 db/seed 의 시드 계정으로 로그인한다.")
+	@PostMapping("/auth/admins/login")
+	public ResponseEntity<ApiResponse<AuthResponse.Token>> adminLogin(
+		@Valid @RequestBody AuthRequest.Login request,
+		HttpServletResponse response
+	) {
+		return ResponseEntity.ok(ApiResponse.success(authFacade.adminLogin(request, response)));
+	}
+
 	@Operation(summary = "토큰 재발급", description = "쿠키의 리프레시 토큰으로 액세스 토큰을 다시 받는다. 리프레시 토큰도 새로 발급된다.")
 	@PostMapping("/auth/refresh")
 	public ResponseEntity<ApiResponse<AuthResponse.Token>> refresh(
