@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -48,5 +49,14 @@ public class AdminSellerBusinessController {
 		var page = sellerBusinessService.search(status, keyword, pageRequest)
 			.map(SellerBusinessResponse.Summary::from);
 		return ResponseEntity.ok(ApiResponse.success(PageResponse.from(page)));
+	}
+
+	@Operation(summary = "사업체 상세",
+		description = "승인·반려를 판단할 사업체 정보와 신청과 함께 가입한 대표 계정(이메일·휴대폰·상태)을 준다. "
+			+ "비밀번호·본인인증 값은 주지 않는다. 없는 사업체는 404.")
+	@GetMapping("/{businessId}")
+	public ResponseEntity<ApiResponse<SellerBusinessResponse.Detail>> detail(@PathVariable Long businessId) {
+		var detail = sellerBusinessService.getDetail(businessId);
+		return ResponseEntity.ok(ApiResponse.success(SellerBusinessResponse.Detail.from(detail)));
 	}
 }

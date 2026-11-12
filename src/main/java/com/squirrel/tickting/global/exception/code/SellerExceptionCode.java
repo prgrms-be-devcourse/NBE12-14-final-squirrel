@@ -25,7 +25,10 @@ public enum SellerExceptionCode implements ExceptionCode {
 	BUSINESS_REJECTED("SELLER004", HttpStatus.FORBIDDEN,
 		"가입 신청이 반려되었습니다. 사유를 확인하고 다시 신청해 주세요."),
 	/** 이용이 정지된 사업체 */
-	BUSINESS_SUSPENDED("SELLER005", HttpStatus.FORBIDDEN, "이용이 정지된 사업체입니다.");
+	BUSINESS_SUSPENDED("SELLER005", HttpStatus.FORBIDDEN, "이용이 정지된 사업체입니다."),
+
+	/** 관리자가 조회·처리하려는 사업체가 없음 */
+	BUSINESS_NOT_FOUND("SELLER006", HttpStatus.NOT_FOUND, "존재하지 않는 사업체입니다.");
 
 	private final String code;
 	private final HttpStatus status;
