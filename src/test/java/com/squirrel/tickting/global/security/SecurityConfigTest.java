@@ -83,8 +83,14 @@ class SecurityConfigTest {
 			return "ok";
 		}
 
-		@PostMapping({"/api/v1/performances", "/api/v1/schedules/{id}/bookings"})
+		@PostMapping({"/api/v1/performances", "/api/v1/schedules/{id}/bookings", "/api/v1/payments/confirm",
+			"/api/v1/bookings/{id}/cancel", "/api/v1/bookings/{id}/payments"})
 		String loggedInWrite() {
+			return "ok";
+		}
+
+		@GetMapping({"/api/v1/users/me", "/api/v1/bookings/{id}"})
+		String userOnlyRead() {
 			return "ok";
 		}
 	}
@@ -237,6 +243,47 @@ class SecurityConfigTest {
 		mockMvc.perform(get("/api/v1/performances").header("Authorization", "Bearer not-a-jwt"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH201"));
+	}
+
+	@Test
+	@DisplayName("예매자 전용 경로는 판매자·관리자 토큰으로 호출하면 403 AUTH100 이다 (번호가 같아도 남의 예매가 보이지 않게)")
+	void userOnlyPathsRejectSellerAndAdmin() throws Exception {
+		List<String> tokens = List.of(
+			bearer(1L, AccountType.SELLER, "OWNER", 1L),
+			bearer(2L, AccountType.SELLER, "STAFF", 1L),
+			bearer(1L, AccountType.ADMIN, null, null));
+
+		for (String token : tokens) {
+			for (var request : List.of(
+				get("/api/v1/users/me"),
+				get("/api/v1/bookings"),
+				get("/api/v1/bookings/1"),
+				post("/api/v1/schedules/31/bookings"),
+				post("/api/v1/bookings/1/payments"),
+				post("/api/v1/bookings/1/cancel"),
+				post("/api/v1/payments/confirm"))) {
+				mockMvc.perform(request.header("Authorization", token))
+					.andExpect(status().isForbidden())
+					.andExpect(jsonPath("$.code").value("AUTH100"));
+			}
+		}
+	}
+
+	@Test
+	@DisplayName("예매자는 예매자 전용 경로를 호출할 수 있다")
+	void userCanCallUserOnlyPaths() throws Exception {
+		String token = bearer(5L, AccountType.USER, null, null);
+
+		for (var request : List.of(
+			get("/api/v1/users/me"),
+			get("/api/v1/bookings"),
+			get("/api/v1/bookings/1"),
+			post("/api/v1/schedules/31/bookings"),
+			post("/api/v1/bookings/1/payments"),
+			post("/api/v1/bookings/1/cancel"),
+			post("/api/v1/payments/confirm"))) {
+			mockMvc.perform(request.header("Authorization", token)).andExpect(status().isOk());
+		}
 	}
 
 	@Test
