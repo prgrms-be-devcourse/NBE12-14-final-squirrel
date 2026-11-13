@@ -100,7 +100,7 @@
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
-| ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 미구현 |
+| ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
 | ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 미구현 |
 | ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 미구현 |
@@ -359,7 +359,7 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 }
 ```
 
-**에러**: 409 `SELLER000` 이메일 중복 · 409 `SELLER001` 사업자번호 중복 · 400 `SELLER002` 대표자명 불일치 · 400 `AUTH300` 본인인증 실패 · 400 `COMMON000`
+**에러**: 409 `SELLER000` 이메일 중복 · 409 `SELLER001` 사업자번호 중복(반려된 사업체의 번호도 포함, 재신청 불가) · 400 `SELLER002` 대표자명 불일치 · 400 `AUTH300` 본인인증 실패 · 400 `COMMON000`
 
 ### AUTH-10 판매자 로그인 — `POST /api/v1/auth/sellers/login` (공개, 구현됨)
 
@@ -1668,7 +1668,16 @@ Body 없음. 처리 관리자·시각을 기록하고 감사 로그를 남깁니
 
 **에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 사업체 없음 · 409 `SELLER007` 이미 처리된 사업체 · 400 `COMMON000` 번호가 숫자가 아님
 
-### ADM-03 사업체 반려 — `POST /api/v1/admin/seller-businesses/{businessId}/reject`
+### ADM-03 사업체 반려 — `POST /api/v1/admin/seller-businesses/{businessId}/reject` (구현됨)
+
+승인(ADM-02)과 같은 구조입니다. 처리 관리자·시각을 기록하고 감사 로그를 남기며, 상태 변경과 로그는 한 트랜잭션입니다.
+
+- **승인 대기(`PENDING`)만 반려**할 수 있습니다. 이미 승인·반려·정지된 사업체는 409입니다. **이미 승인한 사업체를 반려로 되돌릴 수는 없습니다.** (운영 중 문제는 정지로 다룹니다)
+- `reason`은 필수이고 공백뿐이면 안 되며 **최대 500자**입니다. 앞뒤 공백은 잘라서 저장하고, 응답의 `rejectReason`도 저장된 값입니다.
+- **반려된 사업체는 같은 사업자번호로 다시 신청할 수 없습니다.** (재신청을 지원하지 않기로 했습니다. 가입의 사업자번호 중복 검사가 상태와 상관없이 막아서 `SELLER001`이 납니다) 반려된 사업체의 대표는 로그인할 때 `SELLER004`를 받고, 이의가 있으면 문의합니다. 문의 방법은 나중에 정합니다.
+- 반려 사유는 관리자만 상세 조회(ADM-07)에서 볼 수 있습니다. 로그인이 막혀 있어서 판매자에게는 보이지 않습니다.
+- 감사 로그는 행동 `REJECT`, 변경 전 `{"status":"PENDING"}`, 변경 후 `{"status":"REJECTED","rejectReason":"..."}`로 남깁니다. `business_id`는 비웁니다.
+- 승인과 같이 행을 잠그지 않습니다. (ADM-02의 "동시 처리" 참고)
 
 **요청**
 
@@ -1692,7 +1701,7 @@ Body 없음. 처리 관리자·시각을 기록하고 감사 로그를 남깁니
 }
 ```
 
-**에러**: ADM-02와 같음
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 사업체 없음 · 409 `SELLER007` 이미 처리된 사업체 · 400 `COMMON000` 사유가 없거나 공백뿐이거나 500자를 넘음, 번호가 숫자가 아님
 
 ### ADM-04 공연장 생성 — `POST /api/v1/admin/venues`
 

@@ -127,6 +127,30 @@ public class AdminSellerBusinessResponse {
 		}
 	}
 
+	/** 반려 결과. 바뀐 상태와 저장된 반려 사유, 처리 시각을 준다. */
+	@Builder
+	@Schema(name = "SellerBusinessRejection", description = "사업체 반려 결과")
+	public record Rejection(
+		@Schema(description = "사업체 번호")
+		Long businessId,
+		@Schema(description = "반려 후 상태", example = "REJECTED")
+		SellerBusinessStatus status,
+		@Schema(description = "저장된 반려 사유 (앞뒤 공백을 자른 값)")
+		String rejectReason,
+		@Schema(description = "반려 일시")
+		LocalDateTime reviewedAt
+	) {
+
+		public static Rejection from(SellerBusiness business) {
+			return Rejection.builder()
+				.businessId(business.getId())
+				.status(business.getStatus())
+				.rejectReason(business.getRejectReason())
+				.reviewedAt(business.getReviewedAt())
+				.build();
+		}
+	}
+
 	@Builder
 	@Schema(name = "SellerBusinessOwner", description = "사업체 대표 계정")
 	public record Owner(

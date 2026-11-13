@@ -50,11 +50,29 @@ public class SellerBusinessService {
 	 */
 	@Transactional
 	public SellerBusiness approve(Long adminId, Long businessId) {
+		SellerBusiness business = getPendingBusiness(businessId);
+		business.approve(adminId);
+		return business;
+	}
+
+	/**
+	 * 사업체 반려. 승인과 같이 승인 대기(PENDING)만 반려할 수 있고, 이미 승인한 사업체는 반려로 되돌리지 않는다.
+	 * 반려된 사업체는 같은 사업자번호로 다시 신청할 수 없다. (가입의 사업자번호 중복 검사가 상태와 상관없이 막는다)
+	 * 사유의 앞뒤 공백은 잘라서 저장한다.
+	 */
+	@Transactional
+	public SellerBusiness reject(Long adminId, Long businessId, String reason) {
+		SellerBusiness business = getPendingBusiness(businessId);
+		business.reject(adminId, reason.strip());
+		return business;
+	}
+
+	/** 승인·반려 대상이다. 승인 대기가 아니면 이미 처리된 것이다. */
+	private SellerBusiness getPendingBusiness(Long businessId) {
 		SellerBusiness business = getBusiness(businessId);
 		if (business.getStatus() != SellerBusinessStatus.PENDING) {
 			throw new BusinessException(SellerExceptionCode.BUSINESS_ALREADY_REVIEWED);
 		}
-		business.approve(adminId);
 		return business;
 	}
 
