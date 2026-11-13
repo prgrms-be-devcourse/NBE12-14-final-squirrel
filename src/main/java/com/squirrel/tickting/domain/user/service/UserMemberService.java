@@ -88,6 +88,18 @@ public class UserMemberService {
 			.orElseThrow(() -> new BusinessException(UserExceptionCode.USER_NOT_FOUND));
 	}
 
+	/**
+	 * 내 정보 수정. 닉네임·프로필 이미지를 받은 값으로 통째로 바꾼다. 탈퇴한 회원이면 USER_NOT_FOUND.
+	 * 바뀐 값은 변경 감지로 저장되고, 수정 일시(updated_at)는 Auditing 이 커밋할 때 채운다.
+	 * 정지된 회원도 막지 않는다. 닉네임·사진은 되돌릴 수 있는 값이고, 로그인과 재발급에서 이미 막힌다.
+	 */
+	@Transactional
+	public UserMember updateMe(Long userId, String nickname, String profileImg) {
+		UserMember user = getMe(userId);
+		user.updateProfile(nickname, profileImg);
+		return user;
+	}
+
 	public CustomUserDetails toAccount(UserMember user) {
 		return new CustomUserDetails(user.getId(), AccountType.USER, null, null);
 	}

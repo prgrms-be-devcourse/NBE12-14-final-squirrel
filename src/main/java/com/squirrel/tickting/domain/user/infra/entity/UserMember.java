@@ -62,6 +62,15 @@ public class UserMember extends SoftDeletableEntity {
 		return status == UserStatus.ACTIVE && !isDeleted();
 	}
 
+	/**
+	 * 내 정보 수정. 받은 값으로 통째로 바꾼다. 값 검증(닉네임 필수, 이미지 주소 형식)은 요청 DTO 가 맡는다.
+	 * profileImg 가 null 이면 사진 없음으로 저장된다.
+	 */
+	public void updateProfile(String nickname, String profileImg) {
+		this.nickname = nickname.trim();
+		this.profileImg = profileImg;
+	}
+
 	public void suspend() {
 		this.status = UserStatus.SUSPENDED;
 	}
