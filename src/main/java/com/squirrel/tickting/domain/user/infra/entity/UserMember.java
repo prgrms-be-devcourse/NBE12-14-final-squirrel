@@ -62,6 +62,19 @@ public class UserMember extends SoftDeletableEntity {
 		return status == UserStatus.ACTIVE && !isDeleted();
 	}
 
+	/**
+	 * 내 정보 수정. 보낸 값만 바꾸려고 null 은 "그대로 둔다"로 본다.
+	 * 그러면 null 로는 프로필 이미지를 지울 수 없어서, 빈 문자열을 "지운다"로 정했다.
+	 */
+	public void updateProfile(String nickname, String profileImg) {
+		if (nickname != null) {
+			this.nickname = nickname.trim();
+		}
+		if (profileImg != null) {
+			this.profileImg = profileImg.isEmpty() ? null : profileImg;
+		}
+	}
+
 	public void suspend() {
 		this.status = UserStatus.SUSPENDED;
 	}

@@ -1,15 +1,19 @@
 package com.squirrel.tickting.domain.user.controller;
 
+import com.squirrel.tickting.domain.user.dto.UserRequest;
 import com.squirrel.tickting.domain.user.dto.UserResponse;
 import com.squirrel.tickting.domain.user.service.UserMemberService;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,5 +33,17 @@ public class UserController {
 	) {
 		UserResponse.Me me = UserResponse.Me.from(userMemberService.getMe(account.getId()));
 		return ResponseEntity.ok(ApiResponse.success(me));
+	}
+
+	@Operation(summary = "내 정보 수정",
+		description = "보낸 필드만 바꾼다. 닉네임·프로필 이미지만 바꿀 수 있고, profileImg 에 빈 문자열을 보내면 지운다.")
+	@PatchMapping("/me")
+	public ResponseEntity<ApiResponse<UserResponse.UpdatedMe>> updateMe(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@Valid @RequestBody UserRequest.UpdateMe request
+	) {
+		UserResponse.UpdatedMe updated = UserResponse.UpdatedMe.from(
+			userMemberService.updateMe(account.getId(), request.nickname(), request.profileImg()));
+		return ResponseEntity.ok(ApiResponse.success(updated));
 	}
 }

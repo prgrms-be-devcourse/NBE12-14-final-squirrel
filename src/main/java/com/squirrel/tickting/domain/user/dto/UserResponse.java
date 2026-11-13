@@ -49,4 +49,28 @@ public class UserResponse {
 				.build();
 		}
 	}
+
+	/** 내 정보 수정 결과. 바꿀 수 있는 값과 수정 일시만 준다. (API 명세 AUTH-07) */
+	@Builder
+	@Schema(name = "UserUpdatedMe", description = "수정된 내 정보")
+	public record UpdatedMe(
+		@Schema(description = "회원 번호")
+		Long userId,
+		@Schema(description = "닉네임", example = "길동이2")
+		String nickname,
+		@Schema(description = "프로필 이미지 주소. 없으면 null")
+		String profileImg,
+		@Schema(description = "수정 일시")
+		LocalDateTime updatedAt
+	) {
+
+		public static UpdatedMe from(UserMember user) {
+			return UpdatedMe.builder()
+				.userId(user.getId())
+				.nickname(user.getNickname())
+				.profileImg(user.getProfileImg())
+				.updatedAt(user.getUpdatedAt())
+				.build();
+		}
+	}
 }
