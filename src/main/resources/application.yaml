@@ -25,6 +25,12 @@ spring:
       pageable:
         # 클라이언트가 size 를 크게 넣어 한 번에 다 긁어가는 것을 막는다.
         max-page-size: 50
+  session:
+    # v2 로그인(Redis 세션). 마지막 요청 후 이 시간이 지나면 세션이 사라진다. (요청이 올 때마다 연장된다)
+    timeout: 30m
+    data:
+      redis:
+        namespace: tickting:session
 
 app:
   cookie:

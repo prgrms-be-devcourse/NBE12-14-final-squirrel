@@ -1,5 +1,6 @@
 package com.squirrel.tickting.global.security;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -9,8 +10,9 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 /**
- * 요청마다 JWT 에서 꺼내는 로그인 사용자 정보.
- * 컨트롤러에서는 @AuthenticationPrincipal CustomUserDetails 로 받는다.
+ * 로그인한 사용자 정보. v1 은 요청마다 JWT 에서 꺼내고, v2 는 Redis 세션에 저장해 둔 값을 꺼낸다.
+ * 컨트롤러에서는 어느 방식이든 @AuthenticationPrincipal CustomUserDetails 로 받는다.
+ * Redis 세션에 저장되므로 Serializable 이다. (필드를 바꾸면 serialVersionUID 도 올린다. 저장된 세션은 읽지 못하게 되어 다시 로그인한다)
  *
  * 권한(authorities)은 아래처럼 만든다.
  *  - 예매자: ROLE_USER
@@ -20,7 +22,9 @@ import org.springframework.security.core.userdetails.UserDetails;
  * hasRole('SELLER_OWNER') 는 대표만 통과한다.
  */
 @Getter
-public class CustomUserDetails implements UserDetails {
+public class CustomUserDetails implements UserDetails, Serializable {
+
+	private static final long serialVersionUID = 1L;
 
 	private final Long id;
 	private final AccountType accountType;
@@ -50,7 +54,7 @@ public class CustomUserDetails implements UserDetails {
 		return accountType == AccountType.ADMIN;
 	}
 
-	/** 토큰 인증이라 비밀번호는 들고 있지 않는다. */
+	/** 로그인할 때만 비밀번호를 확인하고, 토큰이나 세션에는 비밀번호를 담지 않는다. */
 	@Override
 	public String getPassword() {
 		return null;
