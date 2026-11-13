@@ -83,11 +83,10 @@
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
 | SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 미구현 |
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 미구현 |
-| SLR-07 | 판매 정책 설정 | PUT `/api/v1/seller/performances/{performanceId}/sale-policy` | 미구현 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
-| SLR-11 | 구역별 등급 지정 | PUT `/api/v1/seller/performances/{performanceId}/zone-grades` | 미구현 |
+| SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 미구현 |
 | SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 미구현 |
 | SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 미구현 |
 | SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 미구현 |
@@ -95,8 +94,12 @@
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 미구현 |
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
+| SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 미구현 |
+| SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
+| SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 미구현 |
+| SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
-| ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 미구현 |
+| ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 미구현 |
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
 | ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 미구현 |
@@ -582,7 +585,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`,
 }
 ```
 
-등급 미지정 구역은 `grade`·`color`·`price`가 `null`, 판매 제외. **에러**: 404 회차 없음
+`INTENTIONALLY_UNSOLD` 구역은 `grade`·`color`·`price`가 `null`이고 판매 제외입니다. 공개 공연에는 `UNSET` 구역이 없습니다. **에러**: 404 회차 없음
 
 ### PFM-04 구역 좌석 상세 — `GET /api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` (공개)
 
@@ -930,13 +933,14 @@ Query: `keyword`, `region`, `page`, `size`
 
 `DRAFT`로 생성.
 
-DRAFT에서는 판매 정책(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)을 비워 둘 수 있습니다. PUBLISHED 전환 전에 모두 설정되어 있는지 서비스에서 검증합니다.
+DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)를 비워 둘 수 있습니다. 공연 등록 시 취소 규정은 기본 규정 또는 로그인한 사업체 소유 규정 중 하나를 선택합니다. 공연장에 속한 모든 구역은 `UNSET` 상태로 초기화합니다. PUBLISHED 전환 전에 판매 필드가 모두 설정되어 있고 `UNSET` 구역이 없는지 검증합니다.
 
 **요청**
 
 ```json
 {
   "venueId": 1,
+  "cancelPolicyId": 1,
   "title": "가상 콘서트",
   "genre": "CONCERT",
   "ageLimit": 12,
@@ -945,6 +949,11 @@ DRAFT에서는 판매 정책(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
   "posterUrl": "https://cdn.example.com/posters/12.jpg",
   "notice": "공연 시작 30분 전부터 입장 가능합니다.",
   "guide": "촬영·녹음은 금지됩니다.",
+  "saleOpenAt": null,
+  "saleCloseAt": null,
+  "maxPerPerson": null,
+  "receiveType": null,
+  "bookingFee": null,
   "images": [
     {
       "url": "https://cdn.example.com/details/12-1.jpg",
@@ -970,11 +979,13 @@ DRAFT에서는 판매 정책(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 }
 ```
 
-**에러**(코드 미정): 404 공연장 없음 · 400 사용 중지된 공연장
+**에러**(코드 미정): 404 공연장 없음 · 400 사용 중지된 공연장 · 404 취소 규정 없음/접근 불가
 
 ### SLR-03 공연 수정 — `PUT /api/v1/seller/performances/{performanceId}`
 
-요청은 SLR-02와 같은 필드 전체.
+요청은 SLR-02와 같은 필드 전체. 이미지 목록도 전체 교체합니다. 판매 필드는 공연의 일반 수정 필드이며 별도 판매 정책 API는 없습니다. `PUBLISHED` 이후에는 `cancelPolicyId`를 바꿀 수 없습니다.
+
+공연장 변경은 공연이 `DRAFT`일 때만 허용합니다. 새 공연장의 모든 회차 시간 충돌을 확인하고, 기존 구역 설정을 새 공연장 구역의 `UNSET` 상태로 초기화합니다. 판매 좌석이 이미 생성됐으면 예매·점유·판매자 보류가 없는 경우 기존 좌석을 삭제하고 `seatsGeneratedAt`을 비워 재생성할 수 있게 합니다. 예매나 사용 중인 좌석이 있으면 변경을 거부합니다.
 
 **응답 200**
 
@@ -991,7 +1002,7 @@ DRAFT에서는 판매 정책(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 }
 ```
 
-**에러**(코드 미정): 409 취소된 공연
+**에러**(코드 미정): 409 취소된 공연 · 400 판매 종료가 오픈보다 빠름 · 409 예매가 생긴 뒤 1인 최대 매수 줄이기 · 409 공개 후 공연장/취소 규정 변경 · 409 새 공연장의 회차 시간 충돌 · 409 예매/사용 중 좌석이 있는 공연장 변경
 
 ### SLR-04 공연 공개 — `POST /api/v1/seller/performances/{performanceId}/publish`
 
@@ -1007,7 +1018,7 @@ Body 없음. `DRAFT` → `PUBLISHED`.
   "data": {
     "performanceId": 12,
     "status": "PUBLISHED",
-    "unassignedZones": [
+    "intentionallyUnsoldZones": [
       {
         "zoneId": 22,
         "name": "H구역"
@@ -1017,7 +1028,7 @@ Body 없음. `DRAFT` → `PUBLISHED`.
 }
 ```
 
-**에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 정책 미설정 · 400 회차 없음
+**에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환)
 
 ### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances`
 
@@ -1081,13 +1092,11 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
       }
     ],
     "cancelPolicyId": 1,
-    "salePolicy": {
-      "saleOpenAt": "2026-11-25T20:00:00",
-      "saleCloseAt": "2026-12-20T18:00:00",
-      "maxPerPerson": 4,
-      "receiveType": "BOTH",
-      "bookingFee": 2000
-    },
+    "saleOpenAt": "2026-11-25T20:00:00",
+    "saleCloseAt": "2026-12-20T18:00:00",
+    "maxPerPerson": 4,
+    "receiveType": "BOTH",
+    "bookingFee": 2000,
     "schedules": [
       {
         "scheduleId": 31,
@@ -1101,43 +1110,6 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
   }
 }
 ```
-
-### SLR-07 판매 정책 설정 — `PUT /api/v1/seller/performances/{performanceId}/sale-policy`
-
-**요청**
-
-```json
-{
-  "saleOpenAt": "2026-11-25T20:00:00",
-  "saleCloseAt": "2026-12-20T18:00:00",
-  "maxPerPerson": 4,
-  "receiveType": "BOTH",
-  "bookingFee": 2000
-}
-```
-
-`receiveType`: `ONSITE` / `DELIVERY` / `BOTH`. 한도는 예매가 생긴 뒤 늘리기만 가능(임시).
-
-**응답 200**
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "performanceId": 12,
-    "saleOpenAt": "2026-11-25T20:00:00",
-    "saleCloseAt": "2026-12-20T18:00:00",
-    "maxPerPerson": 4,
-    "receiveType": "BOTH",
-    "bookingFee": 2000,
-    "unassignedZones": []
-  }
-}
-```
-
-**에러**(코드 미정): 400 종료가 오픈보다 빠름 · 409 예매가 생긴 뒤 한도 줄이기
 
 ### SLR-08 등급·구역 조회 — `GET /api/v1/seller/performances/{performanceId}/grades`
 
@@ -1165,6 +1137,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
         "floor": "1층",
         "sortOrder": 3,
         "seatCount": 220,
+        "assignmentStatus": "ASSIGNED",
         "gradeId": 20
       },
       {
@@ -1173,6 +1146,16 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
         "floor": "2층",
         "sortOrder": 22,
         "seatCount": 42,
+        "assignmentStatus": "INTENTIONALLY_UNSOLD",
+        "gradeId": null
+      },
+      {
+        "zoneId": 23,
+        "name": "J구역",
+        "floor": "2층",
+        "sortOrder": 23,
+        "seatCount": 40,
+        "assignmentStatus": "UNSET",
         "gradeId": null
       }
     ]
@@ -1230,14 +1213,20 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **에러**(코드 미정): 404 등급 없음 · 409 좌석 생성 후라 수정 불가
 
-### SLR-11 구역별 등급 지정 — `PUT /api/v1/seller/performances/{performanceId}/zone-grades`
+### SLR-11 구역별 상태·등급 설정 — `PATCH /api/v1/seller/performances/{performanceId}/zone-grades`
 
-`gradeId: null`이면 지정 해제(판매 제외).
+요청에 포함된 구역만 변경합니다. 빠진 구역은 기존 상태를 유지합니다. `ASSIGNED`는 `gradeId`가 필요하고, `INTENTIONALLY_UNSOLD`와 `UNSET`은 `gradeId: null`로 보냅니다. 의도적 미판매와 아직 설정하지 않은 상태를 구분합니다.
 
 **요청**
 
 ```json
-{ "assignments": [ { "zoneId": 12, "gradeId": 21 }, { "zoneId": 22, "gradeId": null } ] }
+{
+  "assignments": [
+    { "zoneId": 12, "assignmentStatus": "ASSIGNED", "gradeId": 21 },
+    { "zoneId": 22, "assignmentStatus": "INTENTIONALLY_UNSOLD", "gradeId": null },
+    { "zoneId": 23, "assignmentStatus": "UNSET", "gradeId": null }
+  ]
+}
 ```
 
 **응답 200** (SLR-08과 같은 형태)
@@ -1264,6 +1253,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
         "floor": "1층",
         "sortOrder": 3,
         "seatCount": 220,
+        "assignmentStatus": "ASSIGNED",
         "gradeId": 21
       },
       {
@@ -1272,6 +1262,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
         "floor": "2층",
         "sortOrder": 22,
         "seatCount": 42,
+        "assignmentStatus": "INTENTIONALLY_UNSOLD",
         "gradeId": null
       }
     ]
@@ -1279,7 +1270,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**(코드 미정): 400 다른 공연장의 구역 · 400 다른 공연의 등급 · 409 좌석 생성 후라 수정 불가
+**에러**(코드 미정): 400 다른 공연장의 구역 · 400 다른 공연의 등급 · 400 상태와 `gradeId` 조합 오류 · 409 좌석 생성 후라 수정 불가
 
 ### SLR-12 회차 추가 — `POST /api/v1/seller/performances/{performanceId}/schedules`
 
@@ -1337,7 +1328,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 ### SLR-14 판매 좌석 생성 — `POST /api/v1/seller/schedules/{scheduleId}/seats/generate`
 
-Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 등급 미지정 구역은 `BLOCKED`.
+Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 생성 전에 `UNSET` 구역이 없는지 확인합니다. `ASSIGNED` 구역은 `AVAILABLE`, `INTENTIONALLY_UNSOLD` 구역은 `BLOCKED`로 생성합니다.
 
 **응답 200**
 
@@ -1356,7 +1347,7 @@ Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 등급
 }
 ```
 
-**에러**(코드 미정): 409 이미 생성됨 · 400 판매 정책·등급 미설정
+**에러**(코드 미정): 409 이미 생성됨 · 400 판매 필드 미설정 · 400 `UNSET` 구역 있음
 
 ### SLR-15 회차 취소 — `POST /api/v1/seller/schedules/{scheduleId}/cancel`
 
@@ -1486,6 +1477,81 @@ Query: `status`, `page`, `size`
 
 ---
 
+### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies`
+
+서비스 기본 규정과 로그인한 사업체가 만든 규정을 조회합니다. 기본 규정은 예시로 보여 주며 수정할 수 없습니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "content": [
+      { "cancelPolicyId": 1, "name": "기본 규정", "isDefault": true },
+      { "cancelPolicyId": 8, "name": "공연장 자체 규정", "isDefault": false }
+    ]
+  }
+}
+```
+
+### SLR-20 취소 규정 상세 — `GET /api/v1/seller/cancel-policies/{cancelPolicyId}`
+
+기본 규정 또는 로그인한 사업체의 규정만 조회합니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "cancelPolicyId": 8,
+    "name": "공연장 자체 규정",
+    "isDefault": false,
+    "rules": [
+      { "daysFrom": 7, "daysTo": null, "feeRate": 0, "cancelable": true },
+      { "daysFrom": 3, "daysTo": 6, "feeRate": 10, "cancelable": true },
+      { "daysFrom": 1, "daysTo": 2, "feeRate": 20, "cancelable": true },
+      { "daysFrom": 0, "daysTo": 0, "feeRate": 0, "cancelable": false }
+    ]
+  }
+}
+```
+
+### SLR-21 취소 규정 생성 — `POST /api/v1/seller/cancel-policies`
+
+요청의 `businessId`는 받지 않고 로그인 토큰의 사업체 번호를 사용합니다. 기본 규정을 참고해 프론트에서 구간을 채울 수 있지만, 새 규정은 별도 사업체 소유 데이터로 저장합니다.
+
+**요청**
+
+```json
+{
+  "name": "공연장 자체 규정",
+  "rules": [
+    { "daysFrom": 7, "daysTo": null, "feeRate": 0, "cancelable": true },
+    { "daysFrom": 3, "daysTo": 6, "feeRate": 10, "cancelable": true },
+    { "daysFrom": 1, "daysTo": 2, "feeRate": 20, "cancelable": true },
+    { "daysFrom": 0, "daysTo": 0, "feeRate": 0, "cancelable": false }
+  ]
+}
+```
+
+**응답 201**: SLR-20 상세 응답과 같은 형태
+
+**에러**(코드 미정): 400 구간이 0일부터 제한 없음까지 겹치거나 빠짐
+
+### SLR-22 취소 규정 수정 — `PUT /api/v1/seller/cancel-policies/{cancelPolicyId}`
+
+요청은 SLR-21과 같은 필드이며, 이름과 규정 구간을 전체 교체합니다. 로그인한 사업체 소유 규정만 수정할 수 있습니다. 기본 규정과 `PUBLISHED` 공연에 적용 중인 규정은 수정할 수 없습니다. 삭제 API는 이번 범위에서 제공하지 않습니다.
+
+**응답 200**: SLR-20 상세 응답과 같은 형태
+
+**에러**(코드 미정): 404 규정 없음/다른 사업체 소유 · 409 기본 규정 또는 공개 공연에 적용 중인 규정
+
 ## 5. 관리자 (`/api/v1/admin/**`)
 
 ### ADM-01 사업체 목록·검색 — `GET /api/v1/admin/seller-businesses` (구현됨)
@@ -1574,9 +1640,16 @@ Query
 
 **에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 없는 사업체 · 400 `COMMON000` 번호가 숫자가 아님
 
-### ADM-02 사업체 승인 — `POST /api/v1/admin/seller-businesses/{businessId}/approve`
+### ADM-02 사업체 승인 — `POST /api/v1/admin/seller-businesses/{businessId}/approve` (구현됨)
 
-Body 없음. 처리 관리자·시각 기록, 감사 로그.
+Body 없음. 처리 관리자·시각을 기록하고 감사 로그를 남깁니다. 승인하면 대표 계정이 로그인할 수 있습니다.
+
+- **승인 대기(`PENDING`)만 승인**할 수 있습니다. 이미 승인·반려·정지된 사업체는 409입니다.
+- 상태 변경과 감사 로그는 **한 트랜잭션**입니다. 로그 기록이 실패하면 승인도 취소됩니다.
+- 사업체 행을 잠그지 않습니다. 관리자가 몇 명 안 되고 같은 사업체를 같은 순간에 처리할 일이 드물기 때문입니다. (아래 "동시 처리" 참고)
+- 감사 로그는 행위자 `ADMIN`, 대상 `SELLER_BUSINESS`, 행동 `APPROVE`, 변경 전 `{"status":"PENDING"}`, 변경 후 `{"status":"APPROVED"}`로 남깁니다. `business_id`는 비웁니다. 판매자 이력 화면에 관리자의 처리 로그가 섞이지 않게 하려는 것입니다.
+
+**동시 처리**: 순서대로 들어온 요청은 상태 확인이 막습니다. 두 관리자가 **같은 순간에** 승인과 반려를 누르면 나중에 저장한 쪽의 상태가 남고 감사 로그가 둘 다 남을 수 있습니다. 관리자 수와 빈도를 보고 지금은 허용하며, 문제가 되면 `UPDATE ... WHERE status = 'PENDING'` 한 문장으로 바꿉니다.
 
 **응답 200**
 
@@ -1593,7 +1666,7 @@ Body 없음. 처리 관리자·시각 기록, 감사 로그.
 }
 ```
 
-**에러**: 404 `SELLER006` 사업체 없음 · 409 이미 처리된 건(코드 미정)
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 사업체 없음 · 409 `SELLER007` 이미 처리된 사업체 · 400 `COMMON000` 번호가 숫자가 아님
 
 ### ADM-03 사업체 반려 — `POST /api/v1/admin/seller-businesses/{businessId}/reject`
 

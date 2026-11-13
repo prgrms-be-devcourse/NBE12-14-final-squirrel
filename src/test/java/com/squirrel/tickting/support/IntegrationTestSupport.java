@@ -81,7 +81,7 @@ public abstract class IntegrationTestSupport {
 	void resetDatabase() {
 		jdbc.execute("""
 			TRUNCATE TABLE user_member, user_terms_agreement, terms, seller_business, seller_member,
-			               seller_invitation, admin_member RESTART IDENTITY
+			               seller_invitation, admin_member, audit_log RESTART IDENTITY
 			""");
 		Long service = saveTerms(TermsType.SERVICE, "1.0", true);
 		Long privacy = saveTerms(TermsType.PRIVACY, "1.0", true);

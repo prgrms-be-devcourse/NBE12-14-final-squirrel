@@ -106,6 +106,27 @@ public class AdminSellerBusinessResponse {
 		}
 	}
 
+	/** 승인 결과. 바뀐 상태와 처리 시각만 준다. */
+	@Builder
+	@Schema(name = "SellerBusinessApproval", description = "사업체 승인 결과")
+	public record Approval(
+		@Schema(description = "사업체 번호")
+		Long businessId,
+		@Schema(description = "승인 후 상태", example = "APPROVED")
+		SellerBusinessStatus status,
+		@Schema(description = "승인 일시")
+		LocalDateTime reviewedAt
+	) {
+
+		public static Approval from(SellerBusiness business) {
+			return Approval.builder()
+				.businessId(business.getId())
+				.status(business.getStatus())
+				.reviewedAt(business.getReviewedAt())
+				.build();
+		}
+	}
+
 	@Builder
 	@Schema(name = "SellerBusinessOwner", description = "사업체 대표 계정")
 	public record Owner(
