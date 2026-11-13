@@ -99,7 +99,7 @@
 | SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 미구현 |
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
-| ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 미구현 |
+| ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 미구현 |
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
 | ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 미구현 |
@@ -1634,9 +1634,16 @@ Query
 
 **에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 없는 사업체 · 400 `COMMON000` 번호가 숫자가 아님
 
-### ADM-02 사업체 승인 — `POST /api/v1/admin/seller-businesses/{businessId}/approve`
+### ADM-02 사업체 승인 — `POST /api/v1/admin/seller-businesses/{businessId}/approve` (구현됨)
 
-Body 없음. 처리 관리자·시각 기록, 감사 로그.
+Body 없음. 처리 관리자·시각을 기록하고 감사 로그를 남깁니다. 승인하면 대표 계정이 로그인할 수 있습니다.
+
+- **승인 대기(`PENDING`)만 승인**할 수 있습니다. 이미 승인·반려·정지된 사업체는 409입니다.
+- 상태 변경과 감사 로그는 **한 트랜잭션**입니다. 로그 기록이 실패하면 승인도 취소됩니다.
+- 사업체 행을 잠그지 않습니다. 관리자가 몇 명 안 되고 같은 사업체를 같은 순간에 처리할 일이 드물기 때문입니다. (아래 "동시 처리" 참고)
+- 감사 로그는 행위자 `ADMIN`, 대상 `SELLER_BUSINESS`, 행동 `APPROVE`, 변경 전 `{"status":"PENDING"}`, 변경 후 `{"status":"APPROVED"}`로 남깁니다. `business_id`는 비웁니다. 판매자 이력 화면에 관리자의 처리 로그가 섞이지 않게 하려는 것입니다.
+
+**동시 처리**: 순서대로 들어온 요청은 상태 확인이 막습니다. 두 관리자가 **같은 순간에** 승인과 반려를 누르면 나중에 저장한 쪽의 상태가 남고 감사 로그가 둘 다 남을 수 있습니다. 관리자 수와 빈도를 보고 지금은 허용하며, 문제가 되면 `UPDATE ... WHERE status = 'PENDING'` 한 문장으로 바꿉니다.
 
 **응답 200**
 
@@ -1653,7 +1660,7 @@ Body 없음. 처리 관리자·시각 기록, 감사 로그.
 }
 ```
 
-**에러**: 404 `SELLER006` 사업체 없음 · 409 이미 처리된 건(코드 미정)
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 사업체 없음 · 409 `SELLER007` 이미 처리된 사업체 · 400 `COMMON000` 번호가 숫자가 아님
 
 ### ADM-03 사업체 반려 — `POST /api/v1/admin/seller-businesses/{businessId}/reject`
 

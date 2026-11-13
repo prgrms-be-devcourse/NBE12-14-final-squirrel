@@ -5,6 +5,7 @@ import com.squirrel.tickting.domain.seller.infra.entity.SellerMember;
 import com.squirrel.tickting.domain.seller.infra.repository.SellerBusinessRepository;
 import com.squirrel.tickting.domain.seller.infra.repository.SellerMemberRepository;
 import com.squirrel.tickting.domain.seller.type.SellerBusinessSearchStatus;
+import com.squirrel.tickting.domain.seller.type.SellerBusinessStatus;
 import com.squirrel.tickting.domain.seller.type.SellerRole;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.SellerExceptionCode;
@@ -35,11 +36,30 @@ public class SellerBusinessService {
 	/** 사업체 상세. 신청과 동시에 만들어진 대표 계정을 같이 돌려준다. */
 	@Transactional(readOnly = true)
 	public SellerBusinessDetail getDetail(Long businessId) {
-		SellerBusiness business = sellerBusinessRepository.findById(businessId)
-			.orElseThrow(() -> new BusinessException(SellerExceptionCode.BUSINESS_NOT_FOUND));
+		SellerBusiness business = getBusiness(businessId);
 		// 가입이 사업체와 대표를 한 트랜잭션으로 만들기 때문에 대표가 없을 수는 없지만, 없어도 상세는 볼 수 있게 null 을 허용한다.
 		SellerMember owner = sellerMemberRepository.findByBusinessIdAndRole(businessId, SellerRole.OWNER)
 			.orElse(null);
 		return new SellerBusinessDetail(business, owner);
+	}
+
+	/**
+	 * 사업체 승인. 승인 대기(PENDING)만 승인할 수 있다.
+	 * 행을 잠그지 않는다. 관리자가 몇 명 안 되고 같은 사업체를 같은 순간에 처리할 일이 드물어서다.
+	 * (같은 순간에 승인과 반려가 겹치면 나중에 저장한 쪽이 남을 수 있다. 순서대로 처리되는 경우는 아래 상태 확인이 막는다)
+	 */
+	@Transactional
+	public SellerBusiness approve(Long adminId, Long businessId) {
+		SellerBusiness business = getBusiness(businessId);
+		if (business.getStatus() != SellerBusinessStatus.PENDING) {
+			throw new BusinessException(SellerExceptionCode.BUSINESS_ALREADY_REVIEWED);
+		}
+		business.approve(adminId);
+		return business;
+	}
+
+	private SellerBusiness getBusiness(Long businessId) {
+		return sellerBusinessRepository.findById(businessId)
+			.orElseThrow(() -> new BusinessException(SellerExceptionCode.BUSINESS_NOT_FOUND));
 	}
 }

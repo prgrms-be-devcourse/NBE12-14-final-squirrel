@@ -28,7 +28,9 @@ public enum SellerExceptionCode implements ExceptionCode {
 	BUSINESS_SUSPENDED("SELLER005", HttpStatus.FORBIDDEN, "이용이 정지된 사업체입니다."),
 
 	/** 관리자가 조회·처리하려는 사업체가 없음 */
-	BUSINESS_NOT_FOUND("SELLER006", HttpStatus.NOT_FOUND, "존재하지 않는 사업체입니다.");
+	BUSINESS_NOT_FOUND("SELLER006", HttpStatus.NOT_FOUND, "존재하지 않는 사업체입니다."),
+	/** 승인·반려는 승인 대기(PENDING) 사업체에만 할 수 있다. 이미 처리된 사업체에 다시 요청함 */
+	BUSINESS_ALREADY_REVIEWED("SELLER007", HttpStatus.CONFLICT, "이미 처리된 사업체입니다.");
 
 	private final String code;
 	private final HttpStatus status;
