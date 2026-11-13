@@ -36,7 +36,7 @@ public class UserController {
 	}
 
 	@Operation(summary = "내 정보 수정",
-		description = "보낸 필드만 바꾼다. 닉네임·프로필 이미지만 바꿀 수 있고, profileImg 에 빈 문자열을 보내면 지운다.")
+		description = "닉네임·프로필 이미지를 통째로 바꾼다. 닉네임은 필수이고, profileImg 를 생략하거나 null 로 보내면 사진이 지워진다.")
 	@PatchMapping("/me")
 	public ResponseEntity<ApiResponse<UserResponse.UpdatedMe>> updateMe(
 		@AuthenticationPrincipal CustomUserDetails account,

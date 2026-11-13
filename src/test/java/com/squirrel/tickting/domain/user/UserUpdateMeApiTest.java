@@ -62,42 +62,28 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("닉네임만 보내면 프로필 이미지는 그대로 남는다")
-	void updateOnlyNickname() throws Exception {
+	@DisplayName("프로필 이미지를 빼고 보내면 사진이 지워진다 (받은 값으로 통째로 바꾼다)")
+	void omittedProfileImgIsCleared() throws Exception {
 		String token = signupAndGetBearer();
-		patchMe(token, Map.of("profileImg", IMG)).andExpect(status().isOk());
+		patchMe(token, Map.of("nickname", "tester", "profileImg", IMG)).andExpect(status().isOk());
 
 		patchMe(token, Map.of("nickname", "길동이2"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.profileImg").value(IMG));
-
-		assertThat(savedProfile())
-			.containsEntry("nickname", "길동이2")
-			.containsEntry("profile_img", IMG);
-	}
-
-	@Test
-	@DisplayName("프로필 이미지에 빈 문자열을 보내면 이미지가 지워진다")
-	void clearProfileImg() throws Exception {
-		String token = signupAndGetBearer();
-		patchMe(token, Map.of("profileImg", IMG)).andExpect(status().isOk());
-
-		patchMe(token, Map.of("profileImg", ""))
-			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.nickname").value("길동이2"))
 			.andExpect(jsonPath("$.data.profileImg").isEmpty());
 
+		assertThat(savedProfile()).containsEntry("nickname", "길동이2");
 		assertThat(savedProfile().get("profile_img")).isNull();
-		assertThat(savedProfile()).containsEntry("nickname", "tester");
 	}
 
 	@Test
-	@DisplayName("빈 본문을 보내면 아무것도 바뀌지 않고 200 이다")
-	void emptyBodyChangesNothing() throws Exception {
+	@DisplayName("닉네임 없이 보내면 400 COMMON000 이고 값은 바뀌지 않는다")
+	void nicknameIsRequired() throws Exception {
 		String token = signupAndGetBearer();
 
-		patchMe(token, Map.of())
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.nickname").value("tester"));
+		patchMe(token, Map.of("profileImg", IMG))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("COMMON000"));
 
 		assertThat(savedProfile()).containsEntry("nickname", "tester");
 		assertThat(savedProfile().get("profile_img")).isNull();
@@ -127,12 +113,12 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"javascript:alert(1)", "ftp://cdn.example.com/a.png", "profile.png", "https://cdn.example.com/a b.png"})
-	@DisplayName("프로필 이미지가 http(s) 주소가 아니면 400 COMMON000 이다")
+	@ValueSource(strings = {"", "javascript:alert(1)", "ftp://cdn.example.com/a.png", "profile.png", "https://cdn.example.com/a b.png"})
+	@DisplayName("프로필 이미지가 http(s) 주소가 아니면 400 COMMON000 이다 (지우려면 빈 문자열이 아니라 생략한다)")
 	void invalidProfileImg(String profileImg) throws Exception {
 		String token = signupAndGetBearer();
 
-		patchMe(token, Map.of("profileImg", profileImg))
+		patchMe(token, Map.of("nickname", "길동이2", "profileImg", profileImg))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("COMMON000"));
 

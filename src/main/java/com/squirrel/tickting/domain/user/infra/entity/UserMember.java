@@ -63,16 +63,12 @@ public class UserMember extends SoftDeletableEntity {
 	}
 
 	/**
-	 * 내 정보 수정. 보낸 값만 바꾸려고 null 은 "그대로 둔다"로 본다.
-	 * 그러면 null 로는 프로필 이미지를 지울 수 없어서, 빈 문자열을 "지운다"로 정했다.
+	 * 내 정보 수정. 받은 값으로 통째로 바꾼다. 값 검증(닉네임 필수, 이미지 주소 형식)은 요청 DTO 가 맡는다.
+	 * profileImg 가 null 이면 사진 없음으로 저장된다.
 	 */
 	public void updateProfile(String nickname, String profileImg) {
-		if (nickname != null) {
-			this.nickname = nickname.trim();
-		}
-		if (profileImg != null) {
-			this.profileImg = profileImg.isEmpty() ? null : profileImg;
-		}
+		this.nickname = nickname.trim();
+		this.profileImg = profileImg;
 	}
 
 	public void suspend() {
