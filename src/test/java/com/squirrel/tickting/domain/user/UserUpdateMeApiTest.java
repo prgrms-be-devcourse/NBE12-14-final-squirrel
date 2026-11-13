@@ -62,6 +62,22 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
+	@DisplayName("닉네임만 바꾸고 기존 프로필 이미지를 그대로 보내면 사진은 유지된다 (화면은 현재 값을 채워 보낸다)")
+	void changeNicknameKeepsProfileImg() throws Exception {
+		String token = signupAndGetBearer();
+		patchMe(token, Map.of("nickname", "tester", "profileImg", IMG)).andExpect(status().isOk());
+
+		patchMe(token, Map.of("nickname", "길동이2", "profileImg", IMG))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.nickname").value("길동이2"))
+			.andExpect(jsonPath("$.data.profileImg").value(IMG));
+
+		assertThat(savedProfile())
+			.containsEntry("nickname", "길동이2")
+			.containsEntry("profile_img", IMG);
+	}
+
+	@Test
 	@DisplayName("프로필 이미지를 빼고 보내면 사진이 지워진다 (받은 값으로 통째로 바꾼다)")
 	void omittedProfileImgIsCleared() throws Exception {
 		String token = signupAndGetBearer();
