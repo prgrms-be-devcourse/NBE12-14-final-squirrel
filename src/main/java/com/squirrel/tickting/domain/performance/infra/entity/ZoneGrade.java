@@ -1,7 +1,10 @@
 package com.squirrel.tickting.domain.performance.infra.entity;
 
+import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -16,8 +19,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 구역별 등급. "이 공연에서 이 구역은 이 등급"이라는 연결표다.
- * 한 공연에서 한 구역은 한 번만 지정할 수 있고, 지정하지 않은 구역은 판매하지 않는다.
+ * 공연별 구역 설정. 아직 미설정인 상태와 의도적으로 판매하지 않는 상태를 구분한다.
  */
 @Entity
 @Table(name = "zone_grade")
@@ -39,7 +41,11 @@ public class ZoneGrade {
 	@Column(nullable = false)
 	private Long zoneId;
 
-	@ManyToOne(fetch = FetchType.LAZY, optional = false)
-	@JoinColumn(name = "grade_id", nullable = false)
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "grade_id")
 	private SeatGrade grade;
+
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false, length = 30)
+	private ZoneAssignmentStatus assignmentStatus;
 }
