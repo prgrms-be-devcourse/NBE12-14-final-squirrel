@@ -79,8 +79,8 @@ FROM performance p,
 WHERE p.title IN ('작은 연극 (샘플)', '곧 오픈하는 뮤지컬 (샘플)');
 
 -- 구역별 등급. 가상 콘서트는 3,022석 전부 판매 구역이다. (VIP 500 / R 568 / S 1,196 / A 758)
-INSERT INTO zone_grade (performance_id, zone_id, grade_id)
-SELECT p.id, z.id, g.id
+INSERT INTO zone_grade (performance_id, zone_id, grade_id, assignment_status)
+SELECT p.id, z.id, g.id, 'ASSIGNED'
 FROM performance p
 JOIN venue_zone z ON z.venue_id = p.venue_id
 JOIN (VALUES ('VIP석', 'Floor석'),
@@ -94,13 +94,24 @@ JOIN seat_grade g ON g.performance_id = p.id AND g.name = m.grade_name
 WHERE p.title = '가상 콘서트 (샘플)';
 
 -- 소극장 공연: A구역 R석, B구역 S석, C구역 A석
-INSERT INTO zone_grade (performance_id, zone_id, grade_id)
-SELECT p.id, z.id, g.id
+INSERT INTO zone_grade (performance_id, zone_id, grade_id, assignment_status)
+SELECT p.id, z.id, g.id, 'ASSIGNED'
 FROM performance p
 JOIN venue_zone z ON z.venue_id = p.venue_id
 JOIN (VALUES ('R석', 'A구역'), ('S석', 'B구역'), ('A석', 'C구역')) AS m(grade_name, zone_name) ON m.zone_name = z.name
 JOIN seat_grade g ON g.performance_id = p.id AND g.name = m.grade_name
 WHERE p.title IN ('작은 연극 (샘플)', '곧 오픈하는 뮤지컬 (샘플)');
+
+-- 등급이 지정되지 않은 샘플 구역도 상태 행으로 저장한다.
+INSERT INTO zone_grade (performance_id, zone_id, grade_id, assignment_status)
+SELECT p.id,
+       vz.id,
+       NULL,
+       CASE WHEN p.status = 'DRAFT' THEN 'UNSET' ELSE 'INTENTIONALLY_UNSOLD' END
+FROM performance p
+JOIN venue_zone vz ON vz.venue_id = p.venue_id
+LEFT JOIN zone_grade zg ON zg.performance_id = p.id AND zg.zone_id = vz.id
+WHERE zg.id IS NULL;
 
 -- 회차. seats_generated_at 이 있으면 판매 좌석을 이미 만든 회차이고(다음 시드가 만든다), 비어 있으면 아직 만들기 전이다.
 INSERT INTO performance_schedule (performance_id, start_at, status, pause_reason, seats_generated_at,
