@@ -6,7 +6,7 @@ public enum SellerBusinessStatus {
 	PENDING,
 	/** 승인 */
 	APPROVED,
-	/** 반려 (사유가 남고 다시 신청할 수 있음) */
+	/** 반려 (사유가 남는다. 같은 사업자번호로는 다시 신청할 수 없다) */
 	REJECTED,
 	/** 이용 정지 */
 	SUSPENDED

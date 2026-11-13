@@ -21,9 +21,9 @@ public enum SellerExceptionCode implements ExceptionCode {
 	/** 관리자 승인 전 사업체 */
 	BUSINESS_PENDING("SELLER003", HttpStatus.FORBIDDEN,
 		"승인 대기 중인 사업체입니다. 관리자 승인 후 로그인할 수 있습니다."),
-	/** 반려된 사업체 */
+	/** 반려된 사업체. 같은 사업자번호로 다시 신청할 수 없어서 재신청 안내 대신 문의를 안내한다 */
 	BUSINESS_REJECTED("SELLER004", HttpStatus.FORBIDDEN,
-		"가입 신청이 반려되었습니다. 사유를 확인하고 다시 신청해 주세요."),
+		"가입 신청이 반려되었습니다. 이의가 있으시면 문의해 주세요."),
 	/** 이용이 정지된 사업체 */
 	BUSINESS_SUSPENDED("SELLER005", HttpStatus.FORBIDDEN, "이용이 정지된 사업체입니다."),
 

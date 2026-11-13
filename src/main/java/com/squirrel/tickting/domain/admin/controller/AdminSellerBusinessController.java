@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.admin.controller;
 
+import com.squirrel.tickting.domain.admin.dto.AdminSellerBusinessRequest;
 import com.squirrel.tickting.domain.admin.dto.AdminSellerBusinessResponse;
 import com.squirrel.tickting.domain.admin.facade.AdminSellerBusinessFacade;
 import com.squirrel.tickting.domain.seller.service.SellerBusinessService;
@@ -10,6 +11,7 @@ import com.squirrel.tickting.global.security.CustomUserDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -19,6 +21,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -75,5 +78,18 @@ public class AdminSellerBusinessController {
 		@PathVariable Long businessId
 	) {
 		return ResponseEntity.ok(ApiResponse.success(adminSellerBusinessFacade.approve(admin.getId(), businessId)));
+	}
+
+	@Operation(summary = "사업체 반려",
+		description = "승인 대기 사업체를 사유와 함께 반려한다. 반려된 사업체는 같은 사업자번호로 다시 신청할 수 없다. "
+			+ "처리한 관리자와 시각이 기록되고 감사 로그가 남는다. 이미 처리된 사업체는 409, 없으면 404.")
+	@PostMapping("/{businessId}/reject")
+	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Rejection>> reject(
+		@AuthenticationPrincipal CustomUserDetails admin,
+		@PathVariable Long businessId,
+		@Valid @RequestBody AdminSellerBusinessRequest.Reject request
+	) {
+		return ResponseEntity.ok(ApiResponse.success(
+			adminSellerBusinessFacade.reject(admin.getId(), businessId, request.reason())));
 	}
 }

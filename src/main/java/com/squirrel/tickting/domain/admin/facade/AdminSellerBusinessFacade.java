@@ -43,4 +43,22 @@ public class AdminSellerBusinessFacade {
 		});
 		return AdminSellerBusinessResponse.Approval.from(business);
 	}
+
+	/** 반려도 승인과 같이 감사 로그와 한 트랜잭션이다. 로그에는 저장된(공백을 자른) 반려 사유를 남긴다. */
+	public AdminSellerBusinessResponse.Rejection reject(Long adminId, Long businessId, String reason) {
+		SellerBusiness business = transactionTemplate.execute(status -> {
+			SellerBusiness rejected = sellerBusinessService.reject(adminId, businessId, reason);
+			auditLogService.saveHistory(AuditLogCommand.builder()
+				.actorType(ActorType.ADMIN)
+				.actorId(adminId)
+				.targetType(TARGET_TYPE)
+				.targetId(businessId)
+				.action("REJECT")
+				.before(Map.of("status", SellerBusinessStatus.PENDING))
+				.after(Map.of("status", rejected.getStatus(), "rejectReason", rejected.getRejectReason()))
+				.build());
+			return rejected;
+		});
+		return AdminSellerBusinessResponse.Rejection.from(business);
+	}
 }
