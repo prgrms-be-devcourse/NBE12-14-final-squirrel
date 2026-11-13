@@ -12,6 +12,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.RequestCacheConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,10 +21,15 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * 시큐리티 설정. 세션 없이 JWT 로만 인증한다.
+ * 시큐리티 설정. 인증은 두 방식을 모두 인정한다.
+ *  - v2 Redis 세션 (권장): /api/v2/auth/** 로 로그인하면 SESSION 쿠키가 내려가고, 쿠키로 세션을 찾아 로그인 상태를 복원한다.
+ *  - v1 JWT: Authorization: Bearer 헤더의 액세스 토큰. 헤더가 있으면 이쪽이 먼저 적용된다.
+ * 업무 API 는 경로를 바꾸지 않고 어느 방식으로 로그인했든 같은 규칙으로 접근을 판단한다.
+ *
+ * 세션은 로그인 API 가 직접 만들 때만 생긴다. JWT 요청이나 로그인 안 한 요청이 세션을 만들지 않는다.
  *
  * 경로별 접근 규칙
- *  - /api/v1/auth/**      누구나 (로그인, 가입, 토큰 재발급)
+ *  - /api/v1/auth/**, /api/v2/auth/**   누구나 (로그인, 가입, 로그아웃, v1 토큰 재발급)
  *  - Swagger, health      누구나
  *  - 공개 조회 (GET)       누구나 (약관, 공연 목록·상세, 구역 요약·좌석 상세)
  *  - 예매자 전용           예매자만 (내 정보, 좌석 점유·예매, 결제, 내 예매)
@@ -79,12 +85,16 @@ public class SecurityConfig {
 			.csrf(AbstractHttpConfigurer::disable)
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
-			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+			// 시큐리티는 세션을 만들지 않고, 있으면 쓴다. 세션은 v2 로그인 API(SessionAuthenticator)만 직접 만든다.
+			// IF_REQUIRED 로 두면 JWT 로 인증된 요청도 세션에 저장되어 Redis 가 쌓이고, 아래 requestCache 를 끄지 않으면
+			// 로그인 안 한 요청마다 세션이 생긴다.
+			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.NEVER))
+			.requestCache(RequestCacheConfigurer::disable)
 			.exceptionHandling(handling -> handling
 				.authenticationEntryPoint(new JwtAuthenticationEntryPoint(exceptionResolver))
 				.accessDeniedHandler(new JwtAccessDeniedHandler(exceptionResolver)))
 			.authorizeHttpRequests(auth -> auth
-				.requestMatchers("/api/v1/auth/**").permitAll()
+				.requestMatchers("/api/v1/auth/**", "/api/v2/auth/**").permitAll()
 				.requestMatchers("/actuator/health", "/actuator/info").permitAll()
 				.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 				.requestMatchers(HttpMethod.GET, PUBLIC_READ_PATHS).permitAll()
