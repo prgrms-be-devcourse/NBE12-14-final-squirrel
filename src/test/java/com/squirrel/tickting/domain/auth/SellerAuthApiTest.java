@@ -34,7 +34,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 		return postJson(LOGIN, loginBody(email, password)).andReturn();
 	}
 
-	/** 관리자 승인 API 가 아직 없어서, DB 의 사업체 상태를 직접 바꿔 승인·반려·정지를 흉내 낸다. */
+	/** 승인·반려·정지 상태를 빠르게 만들려고 승인 API 를 거치지 않고 DB 의 사업체 상태를 직접 바꾼다. */
 	private void setBusinessStatus(String businessNumber, String status) {
 		jdbc.update("UPDATE seller_business SET status = ? WHERE business_number = ?", status, businessNumber);
 	}

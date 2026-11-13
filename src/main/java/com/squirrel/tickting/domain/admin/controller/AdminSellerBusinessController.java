@@ -1,10 +1,12 @@
 package com.squirrel.tickting.domain.admin.controller;
 
 import com.squirrel.tickting.domain.admin.dto.AdminSellerBusinessResponse;
+import com.squirrel.tickting.domain.admin.facade.AdminSellerBusinessFacade;
 import com.squirrel.tickting.domain.seller.service.SellerBusinessService;
 import com.squirrel.tickting.domain.seller.type.SellerBusinessSearchStatus;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
+import com.squirrel.tickting.global.security.CustomUserDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,8 +15,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,6 +34,8 @@ public class AdminSellerBusinessController {
 	private static final int MAX_PAGE_SIZE = 20;
 
 	private final SellerBusinessService sellerBusinessService;
+	/** 상태를 바꾸는 승인·반려는 감사 로그와 함께 처리하므로 파사드로 부른다. 조회는 서비스를 바로 부른다. */
+	private final AdminSellerBusinessFacade adminSellerBusinessFacade;
 
 	@Operation(summary = "사업체 목록·검색",
 		description = "상호·대표자명·사업자번호에서 검색어를 부분 일치로 찾는다. 상태를 주지 않으면 승인 대기만 보이고, "
@@ -58,5 +64,16 @@ public class AdminSellerBusinessController {
 	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Detail>> detail(@PathVariable Long businessId) {
 		var detail = sellerBusinessService.getDetail(businessId);
 		return ResponseEntity.ok(ApiResponse.success(AdminSellerBusinessResponse.Detail.from(detail)));
+	}
+
+	@Operation(summary = "사업체 승인",
+		description = "승인 대기 사업체를 승인한다. 승인하면 대표 계정이 로그인할 수 있다. "
+			+ "처리한 관리자와 시각이 기록되고 감사 로그가 남는다. 이미 처리된 사업체는 409, 없으면 404.")
+	@PostMapping("/{businessId}/approve")
+	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Approval>> approve(
+		@AuthenticationPrincipal CustomUserDetails admin,
+		@PathVariable Long businessId
+	) {
+		return ResponseEntity.ok(ApiResponse.success(adminSellerBusinessFacade.approve(admin.getId(), businessId)));
 	}
 }
