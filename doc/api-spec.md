@@ -81,7 +81,7 @@
 | SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 미구현 |
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
-| SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 미구현 |
+| SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
@@ -1030,9 +1030,15 @@ Body 없음. `DRAFT` → `PUBLISHED`.
 
 **에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환)
 
-### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances`
+### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances` (구현됨)
 
 Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
+
+- 로그인한 판매자 사업체의 공연만 나옵니다. 사업체 번호는 토큰에서 꺼냅니다.
+- `status`를 주지 않으면 취소된 공연까지 모든 상태가 나옵니다.
+- 최신 등록이 먼저 나오고 등록 시각이 같으면 번호가 큰 공연이 먼저입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
+- 기본·최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기 0은 기본값으로 처리됩니다.
+- `scheduleCount`는 취소·연기된 회차를 포함한 모든 회차 수이고, 회차가 없으면 0입니다. `venueName`은 사용 중지된 공연장도 보입니다.
 
 **응답 200**
 
