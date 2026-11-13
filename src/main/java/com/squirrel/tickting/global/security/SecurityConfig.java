@@ -23,7 +23,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 /**
  * 시큐리티 설정. 인증은 두 방식을 모두 인정한다.
  *  - v2 Redis 세션 (권장): /api/v2/auth/** 로 로그인하면 SESSION 쿠키가 내려가고, 쿠키로 세션을 찾아 로그인 상태를 복원한다.
- *  - v1 JWT: Authorization: Bearer 헤더의 액세스 토큰. 헤더가 있으면 이쪽이 먼저 적용된다.
+ *  - v1 JWT (@Deprecated): Authorization: Bearer 헤더의 액세스 토큰. 헤더가 있으면 이쪽이 먼저 적용된다.
  * 업무 API 는 경로를 바꾸지 않고 어느 방식으로 로그인했든 같은 규칙으로 접근을 판단한다.
  *
  * 세션은 로그인 API 가 직접 만들 때만 생긴다. JWT 요청이나 로그인 안 한 요청이 세션을 만들지 않는다.
@@ -44,6 +44,8 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  *
  * 여기서는 "어떤 계정 종류인가"만 본다. "이 데이터가 내 것인가"는 서비스에서 토큰의 번호로 조회해서 확인한다.
  */
+// v1(JWT) 인증을 계속 인정하므로 JWT 클래스(@Deprecated)를 쓰는 것을 허용한다.
+@SuppressWarnings("removal")
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity

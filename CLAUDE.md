@@ -107,6 +107,14 @@ com.squirrel.tickting
 - **내 것인가**: 시큐리티로 확인할 수 없다. 토큰의 번호(`account.getId()`, `account.getBusinessId()`)를 조회 조건에 넣는다. (`findByIdAndBusinessId`) 요청 본문이나 경로로 사업체 번호를 받지 않는다. 남의 것은 403이 아니라 **404**로 답하고(번호가 존재하는지 알려주지 않으려고), "다른 사람의 것을 호출하면 404"인 테스트를 만든다.
 - 토큰의 역할은 발급 시점 값이다. 계정이 비활성화돼도 액세스 토큰이 만료될 때(15분)까지는 통한다. 되돌리기 어려운 작업에서 최신 상태가 중요하면 서비스에서 DB로 한 번 더 확인한다.
 
+## 인증 방식
+
+- 로그인은 **v2 Redis 세션**(`/api/v2/auth/**`)이 기본이다. 로그인하면 `SESSION` 쿠키가 내려가고, 컨트롤러에서는 JWT 때와 같이 `@AuthenticationPrincipal CustomUserDetails`로 받는다. 업무 API는 JWT(v1)와 세션을 **모두 인정**하므로 경로를 나누지 않는다.
+- **v1 JWT는 `@Deprecated(forRemoval = true)`다.** `JwtProvider`, `JwtProperties`, `JwtAuthenticationFilter`, `TokenService`를 새 코드에서 쓰면 `compileJava`가 실패한다. (`build.gradle`의 `-Werror`) 기존 v1 코드에는 `@SuppressWarnings("removal")`로 허용한 표시가 있다. v1을 새로 확장하지 않는다. 테스트 코드는 경고만 난다.
+- 시큐리티는 세션을 만들지 않는다. (`SessionCreationPolicy.NEVER`) 세션은 로그인 API(`SessionAuthenticator`)만 만든다.
+- `CustomUserDetails`는 직렬화되어 Redis 세션에 저장된다. 필드를 바꾸면 `serialVersionUID`를 올린다. (저장된 세션은 읽지 못해 다시 로그인한다)
+- 쿠키 인증이라 CSRF에 주의한다. 지금은 CSRF 토큰이 없고 `SameSite=Lax` 쿠키에만 의존한다. (알려진 빈틈, `doc/project-log.md` 참고)
+
 ## 코드 스타일
 
 - 들여쓰기는 **탭**이다. IDE 설정을 확인한다.

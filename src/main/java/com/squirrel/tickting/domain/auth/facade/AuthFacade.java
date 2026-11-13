@@ -26,6 +26,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 각 서비스는 자기 도메인만 다루고 서로 호출하지 않는다. 여러 서비스를 엮는 일은 여기서만 한다.
  * 그래서 "어느 트랜잭션에 무엇이 묶이는지"가 이 클래스 한 곳에서 보인다.
  */
+// v1(JWT) 로그인 흐름이라 TokenService(@Deprecated)를 쓰는 것을 허용한다.
+@SuppressWarnings("removal")
 @Component
 @RequiredArgsConstructor
 public class AuthFacade {
