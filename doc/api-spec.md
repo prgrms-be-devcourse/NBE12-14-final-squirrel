@@ -71,7 +71,7 @@
 | AUTH-13 | 판매자 로그인 (v2 세션) | POST `/api/v2/auth/sellers/login` | 구현됨 |
 | AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
 | AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
-| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 미구현 |
+| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 일부 구현 (목록·장르·정렬. 검색은 미구현) |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
@@ -472,9 +472,19 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 
 ## 2. 공연·좌석 조회 (예매자)
 
-### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개)
+### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개, 일부 구현)
 
-Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`, `size`
+Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`IMMINENT/LATEST/TITLE`), `region`, `keyword`, `page`, `size`
+
+- 구현됨: `genre`, `sort`, `page`, `size`. **`region`, `keyword`(검색)는 다음 작업**에서 같은 API에 붙입니다.
+- `genre`를 비우면 전체 장르, 주면 그 장르만 나옵니다.
+- `sort` (기본 `IMMINENT`). 값이 같으면 공연 번호 순으로 한 번 더 정렬해서 페이지를 넘겨도 순서가 바뀌지 않습니다.
+  - `IMMINENT` 공연 임박순: 아직 시작하지 않은 회차 중 가장 빠른 일시 오름차순. 남은 회차가 없는 공연은 맨 뒤
+  - `LATEST` 최신 등록순: 공연 등록 시각 내림차순
+  - `TITLE` 이름순: 제목 오름차순
+- `size` 기본 20, 최대 20. 페이지 번호는 0부터.
+- `firstStartAt`·`lastStartAt`은 취소된 회차를 뺀 첫·마지막 회차 일시입니다. (회차가 없으면 `null`)
+- `venueName`·`region`은 사용 중지된 공연장도 보입니다. (판매자 내 공연 목록과 같음)
 
 **응답 200**
 
@@ -508,6 +518,17 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`,
 ```
 
 `saleStatus`: `UPCOMING` / `ON_SALE` / `SOLD_OUT` / `ENDED` (계산값). `PUBLISHED` 공연만 노출.
+
+| `saleStatus` | 조건 (위에서부터 먼저 맞는 것) |
+|---|---|
+| `ENDED` | 판매 종료 시각이 지남, 또는 마지막 회차가 시작됨, 또는 취소되지 않은 회차가 없음 |
+| `UPCOMING` | 판매 오픈 시각 전 |
+| `SOLD_OUT` | 아직 시작하지 않은 회차에 판매 가능(`AVAILABLE`) 좌석이 없음. 임시 점유(`HELD`)만 남아도 매진이고, 점유가 풀리면 다시 `ON_SALE` |
+| `ON_SALE` | 그 외 |
+
+종료된 공연도 목록에 남고 `ENDED`로 표시됩니다.
+
+**에러**: 400 `COMMON000` 없는 `genre`·`sort` 값
 
 ### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개)
 
