@@ -3,6 +3,7 @@ package com.squirrel.tickting.domain.performance.infra.repository;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import java.util.Collection;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +11,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface PerformanceRepository extends JpaRepository<Performance, Long> {
+
+	/** 내 사업체의 공연. 남의 공연은 없는 것과 같게 비어서 돌아온다. */
+	Optional<Performance> findByIdAndBusinessId(Long id, Long businessId);
 
 	/**
 	 * 내 사업체의 공연 목록. 최신 등록이 먼저 나오고 등록 시각이 같으면 번호가 큰 것이 먼저다.
