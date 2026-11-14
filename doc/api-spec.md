@@ -67,6 +67,10 @@
 | AUTH-09 | 판매자 가입 신청 | POST `/api/v1/auth/sellers/signup` | 구현됨 |
 | AUTH-10 | 판매자 로그인 | POST `/api/v1/auth/sellers/login` | 구현됨 |
 | AUTH-11 | 관리자 로그인 | POST `/api/v1/auth/admins/login` | 구현됨 |
+| AUTH-12 | 예매자 로그인 (v2 세션) | POST `/api/v2/auth/users/login` | 구현됨 |
+| AUTH-13 | 판매자 로그인 (v2 세션) | POST `/api/v2/auth/sellers/login` | 구현됨 |
+| AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
+| AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 미구현 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
@@ -418,6 +422,51 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 **에러**: 401 `AUTH001` 불일치 · 401 `AUTH003` 비활성 계정
 
 > 로그인 계정 정보 조회(`GET /api/v1/me`)는 삭제했습니다. 계정 종류·역할은 로그인·재발급 응답에 이미 들어 있고, 사업체 번호는 프론트가 액세스 토큰(JWT payload)에서 읽습니다. 권한 판단은 항상 서버가 합니다.
+
+### AUTH-12~15 세션 로그인·로그아웃 (v2, 공개, 구현됨)
+
+JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인하면 `SESSION` 쿠키가 내려가고, 그 뒤에는 **경로를 바꾸지 않은 업무 API**(`/api/v1/users/me`, `/api/v1/admin/**` 등)를 쿠키만 보내서 호출합니다. 업무 API는 JWT와 세션을 모두 인정하며, 요청에 `Authorization: Bearer` 헤더가 있으면 JWT가 먼저 적용됩니다.
+
+| 항목 | v1 (JWT) | v2 (세션) |
+| --- | --- | --- |
+| 로그인 결과 | 액세스 토큰(본문) + 리프레시 쿠키 | `SESSION` 쿠키 (토큰 없음) |
+| 이후 요청 | `Authorization: Bearer {토큰}` 헤더 | 쿠키만 보냄 (브라우저가 자동으로) |
+| 로그아웃 | 없음 (토큰이 만료될 때까지 유효) | 서버가 세션을 지워서 **바로** 끊김 |
+| 만료 | 액세스 15분, 리프레시 14일 | 마지막 요청 후 **30분** (요청이 오면 연장) |
+
+- `SESSION` 쿠키는 `HttpOnly`, `SameSite=Lax`, `Path=/`이고 운영(https)에서는 `Secure`입니다. 스크립트로 읽을 수 없습니다.
+- 요청은 v1 로그인과 같고(`{ "email", "password" }`), 에러도 같습니다. 판매자는 사업체가 승인된 뒤에만 로그인되고(`SELLER003`~`SELLER005`), 로그인할 때 이미 세션이 있으면 세션 번호를 새로 바꿉니다.
+- 판매자 가입 신청(AUTH-09)은 인증이 없어서 v1의 API를 그대로 씁니다.
+- 로그아웃(`POST /api/v2/auth/logout`)은 본문이 없고 로그인 상태가 아니어도 200입니다.
+- **CSRF 토큰은 아직 없습니다.** 지금은 `SameSite=Lax` 쿠키에만 의존합니다. 운영 전에 다시 정합니다.
+
+**요청** (예매자 `/api/v2/auth/users/login`, 판매자 `/sellers/login`, 관리자 `/admins/login`)
+
+```json
+{ "email": "user@example.com", "password": "password1!" }
+```
+
+**응답 200** (`Set-Cookie: SESSION=...; Path=/; HttpOnly; SameSite=Lax`)
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "accountType": "USER",
+    "role": null
+  }
+}
+```
+
+**에러**: 401 `AUTH001` 불일치 · 401 `AUTH003` 비활성 계정 · 403 `SELLER003` 승인 대기 · 403 `SELLER004` 반려 · 403 `SELLER005` 정지 · 400 `COMMON000` 요청 값 오류
+
+**로그아웃 응답 200**
+
+```json
+{ "success": true, "code": "0000", "message": "", "data": null }
+```
 
 ---
 
