@@ -6,6 +6,9 @@ import com.squirrel.tickting.domain.venue.infra.repository.VenueSeatRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueZoneRepository;
 import com.squirrel.tickting.domain.venue.type.VenueStatus;
 import com.squirrel.tickting.global.util.LikeUtil;
+import java.util.Collection;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,5 +33,12 @@ public class VenueService {
 		// 지역이 없으면 쿼리가 "모든 지역"으로 읽도록 null 대신 빈 문자열을 넘긴다.
 		String regionCondition = region == null ? "" : region.trim();
 		return venueRepository.search(VenueStatus.ACTIVE, regionCondition, LikeUtil.containsPattern(keyword), pageable);
+	}
+
+	/** 공연장 번호별 이름. 사용 중지된 공연장도 포함한다. (이미 잡힌 공연의 장소는 계속 보여야 한다) */
+	@Transactional(readOnly = true)
+	public Map<Long, String> getNames(Collection<Long> venueIds) {
+		return venueRepository.findAllById(venueIds).stream()
+			.collect(Collectors.toMap(Venue::getId, Venue::getName));
 	}
 }
