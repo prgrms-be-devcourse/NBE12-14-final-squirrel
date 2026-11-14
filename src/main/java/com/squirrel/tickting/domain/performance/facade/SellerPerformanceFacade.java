@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.performance.facade;
 
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
+import com.squirrel.tickting.domain.performance.service.PerformanceDetail;
 import com.squirrel.tickting.domain.performance.service.PerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.venue.service.VenueService;
@@ -39,5 +40,12 @@ public class SellerPerformanceFacade {
 			performance,
 			venueNames.get(performance.getVenueId()),
 			scheduleCounts.getOrDefault(performance.getId(), 0L)));
+	}
+
+	public SellerPerformanceResponse.Detail getDetail(Long businessId, Long performanceId) {
+		PerformanceDetail detail = performanceService.getMine(businessId, performanceId);
+		Long venueId = detail.performance().getVenueId();
+		String venueName = venueService.getNames(List.of(venueId)).get(venueId);
+		return SellerPerformanceResponse.Detail.from(detail, venueName);
 	}
 }

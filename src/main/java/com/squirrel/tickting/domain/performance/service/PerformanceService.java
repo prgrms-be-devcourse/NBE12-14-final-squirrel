@@ -5,6 +5,8 @@ import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImag
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Map;
@@ -38,5 +40,16 @@ public class PerformanceService {
 		}
 		return performanceScheduleRepository.countByPerformanceIds(performanceIds).stream()
 			.collect(Collectors.toMap(count -> count.getPerformanceId(), count -> count.getScheduleCount()));
+	}
+
+	/** 내 사업체의 공연 상세. 남의 공연은 없는 공연과 같은 404로 답한다. */
+	@Transactional(readOnly = true)
+	public PerformanceDetail getMine(Long businessId, Long performanceId) {
+		Performance performance = performanceRepository.findByIdAndBusinessId(performanceId, businessId)
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.PERFORMANCE_NOT_FOUND));
+		return new PerformanceDetail(
+			performance,
+			performanceImageRepository.findByPerformanceIdOrderBySortOrder(performanceId),
+			performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId));
 	}
 }

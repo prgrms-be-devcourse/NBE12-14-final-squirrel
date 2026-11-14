@@ -16,6 +16,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,6 +50,18 @@ public class SellerPerformanceController {
 
 		PageResponse<SellerPerformanceResponse.Summary> response = PageResponse.from(
 			sellerPerformanceFacade.getList(account.getBusinessId(), status, pageRequest));
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "내 공연 상세",
+		description = "로그인한 판매자 사업체의 공연 상세다. 다른 사업체의 공연이거나 없는 공연은 모두 404 이다.")
+	@GetMapping("/{performanceId}")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.Detail>> detail(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId
+	) {
+		SellerPerformanceResponse.Detail response = sellerPerformanceFacade.getDetail(account.getBusinessId(),
+			performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }
