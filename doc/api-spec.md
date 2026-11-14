@@ -81,11 +81,11 @@
 | BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 미구현 |
 | BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 미구현 |
 | BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 미구현 |
-| SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 미구현 |
+| SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 구현됨 |
 | SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 미구현 |
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
-| SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 미구현 |
+| SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
@@ -948,9 +948,15 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED/EXPIRED`), `page`, `size
 
 ## 4. 판매자 (`/api/v1/seller/**`, 자기 사업체 리소스만 — 남의 것은 404)
 
-### SLR-01 공연장 목록 — `GET /api/v1/seller/venues`
+### SLR-01 공연장 목록 — `GET /api/v1/seller/venues` (구현됨)
 
 Query: `keyword`, `region`, `page`, `size`
+
+- 사용 중(`ACTIVE`)인 공연장만 줍니다. 사용 중지된 공연장은 빠집니다.
+- `region`은 정확히 같은 지역만 찾고, 비우면 전체 지역입니다. `keyword`는 공연장 이름에서 부분 일치로 찾으며(영문 대소문자 무시) 주소는 찾지 않습니다.
+- 정렬은 이름순이고 이름이 같으면 번호순입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
+- 기본 크기와 최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기가 0이거나 음수면 기본값(20)으로 처리됩니다.
+- 판매자(대표·담당자) 토큰만 쓸 수 있습니다. 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
 
 **응답 200**
 
@@ -1079,9 +1085,15 @@ Body 없음. `DRAFT` → `PUBLISHED`.
 
 **에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환)
 
-### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances`
+### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances` (구현됨)
 
 Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
+
+- 로그인한 판매자 사업체의 공연만 나옵니다. 사업체 번호는 토큰에서 꺼냅니다.
+- `status`를 주지 않으면 취소된 공연까지 모든 상태가 나옵니다.
+- 최신 등록이 먼저 나오고 등록 시각이 같으면 번호가 큰 공연이 먼저입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
+- 기본·최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기 0은 기본값으로 처리됩니다.
+- `scheduleCount`는 취소·연기된 회차를 포함한 모든 회차 수이고, 회차가 없으면 0입니다. `venueName`은 사용 중지된 공연장도 보입니다.
 
 **응답 200**
 
