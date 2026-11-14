@@ -98,7 +98,7 @@
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 미구현 |
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
-| SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 미구현 |
+| SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
 | SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 미구현 |
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
@@ -1538,9 +1538,16 @@ Query: `status`, `page`, `size`
 
 ---
 
-### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies`
+### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies` (구현됨)
+
+Query: `page`, `size`
 
 서비스 기본 규정과 로그인한 사업체가 만든 규정을 조회합니다. 기본 규정은 예시로 보여 주며 수정할 수 없습니다.
+
+- 사업체 번호는 토큰에서 꺼내며, 다른 사업체의 규정은 나오지 않습니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 기본 규정이 첫 페이지 맨 앞에 나오고, 내 규정은 번호가 큰(최신) 순입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다. 기본 규정도 목록의 한 항목이라 `totalElements`에 포함됩니다.
+- 기본·최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기 0은 기본값으로 처리됩니다.
+- 구간(`rules`)은 목록에 넣지 않고 상세(SLR-20)에서 줍니다.
 
 **응답 200**
 
@@ -1553,7 +1560,11 @@ Query: `status`, `page`, `size`
     "content": [
       { "cancelPolicyId": 1, "name": "기본 규정", "isDefault": true },
       { "cancelPolicyId": 8, "name": "공연장 자체 규정", "isDefault": false }
-    ]
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 2,
+    "totalPages": 1
   }
 }
 ```
