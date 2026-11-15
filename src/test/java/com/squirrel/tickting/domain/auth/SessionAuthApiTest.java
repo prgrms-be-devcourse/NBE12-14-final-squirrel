@@ -109,6 +109,43 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
+	@DisplayName("가입하면 바로 로그인되어 SESSION 쿠키가 내려가고 세션이 Redis 에 저장되며, 토큰은 내려가지 않는다")
+	void signupCreatesSession() throws Exception {
+		MvcResult result = postJson(V2 + "/users/signup", userSignupBody("user@example.com", "ci-001"))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.accountType").value("USER"))
+			.andExpect(jsonPath("$.data.accessToken").doesNotExist())
+			.andReturn();
+
+		Cookie session = sessionCookie(result);
+		assertThat(session).isNotNull();
+		assertThat(setCookieHeader(result)).contains("HttpOnly", "SameSite=Lax");
+		assertThat(result.getResponse().getContentAsString()).doesNotContain("accessToken", "refreshToken");
+		assertThat(sessionCount()).isEqualTo(1);
+		// 가입과 함께 만들어진 세션으로 바로 내 정보를 볼 수 있다
+		callMe(session).andExpect(status().isOk()).andExpect(jsonPath("$.data.email").value("user@example.com"));
+	}
+
+	@Test
+	@DisplayName("가입이 실패하면(이메일 중복, 필수 약관 미동의) 세션이 만들어지지 않고 회원도 늘지 않는다")
+	void failedSignupCreatesNoSession() throws Exception {
+		postJson(V2 + "/users/signup", userSignupBody("user@example.com", "ci-001")).andExpect(status().isCreated());
+		assertThat(sessionCount()).isEqualTo(1);
+
+		postJson(V2 + "/users/signup", userSignupBody("user@example.com", "ci-002"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("USER000"));
+
+		var withoutRequiredTerms = userSignupBody("other@example.com", "ci-003");
+		withoutRequiredTerms.put("agreedTermIds", List.of(optionalTermId));
+		postJson(V2 + "/users/signup", withoutRequiredTerms).andExpect(status().is4xxClientError());
+
+		assertThat(sessionCount()).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_member", Integer.class)).isEqualTo(1);
+	}
+
+	@Test
 	@DisplayName("로그인한 뒤 SESSION 쿠키만으로 경로를 바꾸지 않은 업무 API(내 정보)를 쓸 수 있고, 쿠키가 없으면 401 이다")
 	void cookieAuthenticatesBusinessApi() throws Exception {
 		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com", "ci-001"))
