@@ -5,8 +5,11 @@ import com.squirrel.tickting.domain.venue.infra.repository.VenueRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueSeatRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueZoneRepository;
 import com.squirrel.tickting.domain.venue.type.VenueStatus;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.VenueExceptionCode;
 import com.squirrel.tickting.global.util.LikeUtil;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -40,5 +43,20 @@ public class VenueService {
 	public Map<Long, String> getNames(Collection<Long> venueIds) {
 		return venueRepository.findAllById(venueIds).stream()
 			.collect(Collectors.toMap(Venue::getId, Venue::getName));
+	}
+
+	/**
+	 * 새 공연을 등록할 수 있는 공연장의 구역 번호 목록. 공연은 공연장의 모든 구역마다 구역 설정을 하나씩 만든다.
+	 * 사용 중지된 공연장은 선택 목록(searchActive)에서 빠지지만 번호를 직접 보낼 수 있어서 여기서 한 번 더 막는다.
+	 * 구역이 없는 공연장도 통과시킨다. (판매할 구역이 없으면 공개(SLR-04)의 "ASSIGNED 구역 1개 이상" 조건에서 막힌다)
+	 */
+	@Transactional(readOnly = true)
+	public List<Long> getActiveZoneIds(Long venueId) {
+		Venue venue = venueRepository.findById(venueId)
+			.orElseThrow(() -> new BusinessException(VenueExceptionCode.VENUE_NOT_FOUND));
+		if (venue.getStatus() != VenueStatus.ACTIVE) {
+			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE);
+		}
+		return venueZoneRepository.findIdsByVenueId(venueId);
 	}
 }
