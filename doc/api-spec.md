@@ -72,6 +72,8 @@
 | AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
 | AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 일부 구현 (목록·장르·정렬. 검색은 미구현) |
+| AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
+| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 미구현 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
@@ -86,7 +88,7 @@
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
 | SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
-| SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 미구현 |
+| SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
@@ -467,6 +469,26 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 ```json
 { "success": true, "code": "0000", "message": "", "data": null }
 ```
+
+### AUTH-16 예매자 가입 (v2 세션) — `POST /api/v2/auth/users/signup` (공개, 구현됨)
+
+요청과 검증, 에러는 AUTH-02와 같습니다. 다른 점은 **응답이 토큰 대신 `SESSION` 쿠키**라는 것입니다. 가입하면 바로 로그인되어, 받은 쿠키로 `GET /api/v1/users/me` 같은 업무 API를 호출할 수 있습니다.
+
+**응답 201** (`Set-Cookie: SESSION=...; Path=/; HttpOnly; SameSite=Lax`)
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "accountType": "USER",
+    "role": null
+  }
+}
+```
+
+가입이 실패하면(이메일 중복 `USER000`, 같은 본인인증 `USER001`, 필수 약관 미동의 등) 세션이 만들어지지 않고 회원도 저장되지 않습니다. 약관 확인, 회원 저장, 약관 동의 기록은 한 트랜잭션이고, 세션은 그 뒤에 만듭니다.
 
 ---
 
@@ -1143,7 +1165,11 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-### SLR-06 내 공연 상세 — `GET /api/v1/seller/performances/{performanceId}`
+### SLR-06 내 공연 상세 — `GET /api/v1/seller/performances/{performanceId}` (구현됨)
+
+- 로그인한 판매자 사업체의 공연만 볼 수 있습니다. 다른 사업체의 공연이거나 없는 공연은 똑같이 404 `PERFORMANCE000`입니다.
+- 작성 중(`DRAFT`)인 공연은 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)가 `null`일 수 있습니다.
+- `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다.
 
 **응답 200**
 
