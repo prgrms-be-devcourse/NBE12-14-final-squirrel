@@ -71,6 +71,8 @@
 | AUTH-13 | 판매자 로그인 (v2 세션) | POST `/api/v2/auth/sellers/login` | 구현됨 |
 | AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
 | AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
+| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 일부 구현 (목록·장르·정렬. 검색은 미구현) |
+| AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 미구현 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
@@ -86,7 +88,7 @@
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
 | SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
-| SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 미구현 |
+| SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
@@ -468,13 +470,43 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 { "success": true, "code": "0000", "message": "", "data": null }
 ```
 
+### AUTH-16 예매자 가입 (v2 세션) — `POST /api/v2/auth/users/signup` (공개, 구현됨)
+
+요청과 검증, 에러는 AUTH-02와 같습니다. 다른 점은 **응답이 토큰 대신 `SESSION` 쿠키**라는 것입니다. 가입하면 바로 로그인되어, 받은 쿠키로 `GET /api/v1/users/me` 같은 업무 API를 호출할 수 있습니다.
+
+**응답 201** (`Set-Cookie: SESSION=...; Path=/; HttpOnly; SameSite=Lax`)
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "accountType": "USER",
+    "role": null
+  }
+}
+```
+
+가입이 실패하면(이메일 중복 `USER000`, 같은 본인인증 `USER001`, 필수 약관 미동의 등) 세션이 만들어지지 않고 회원도 저장되지 않습니다. 약관 확인, 회원 저장, 약관 동의 기록은 한 트랜잭션이고, 세션은 그 뒤에 만듭니다.
+
 ---
 
 ## 2. 공연·좌석 조회 (예매자)
 
-### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개)
+### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개, 일부 구현)
 
-Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`, `size`
+Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`IMMINENT/LATEST/TITLE`), `region`, `keyword`, `page`, `size`
+
+- 구현됨: `genre`, `sort`, `page`, `size`. **`region`, `keyword`(검색)는 다음 작업**에서 같은 API에 붙입니다.
+- `genre`를 비우면 전체 장르, 주면 그 장르만 나옵니다.
+- `sort` (기본 `IMMINENT`). 값이 같으면 공연 번호 순으로 한 번 더 정렬해서 페이지를 넘겨도 순서가 바뀌지 않습니다.
+  - `IMMINENT` 공연 임박순: 아직 시작하지 않은 회차 중 가장 빠른 일시 오름차순. 남은 회차가 없는 공연은 맨 뒤
+  - `LATEST` 최신 등록순: 공연 등록 시각 내림차순
+  - `TITLE` 이름순: 제목 오름차순
+- `size` 기본 20, 최대 20. 페이지 번호는 0부터.
+- `firstStartAt`·`lastStartAt`은 취소된 회차를 뺀 첫·마지막 회차 일시입니다. (회차가 없으면 `null`)
+- `venueName`·`region`은 사용 중지된 공연장도 보입니다. (판매자 내 공연 목록과 같음)
 
 **응답 200**
 
@@ -508,6 +540,17 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`,
 ```
 
 `saleStatus`: `UPCOMING` / `ON_SALE` / `SOLD_OUT` / `ENDED` (계산값). `PUBLISHED` 공연만 노출.
+
+| `saleStatus` | 조건 (위에서부터 먼저 맞는 것) |
+|---|---|
+| `ENDED` | 판매 종료 시각이 지남, 또는 마지막 회차가 시작됨, 또는 취소되지 않은 회차가 없음 |
+| `UPCOMING` | 판매 오픈 시각 전 |
+| `SOLD_OUT` | 아직 시작하지 않은 회차에 판매 가능(`AVAILABLE`) 좌석이 없음. 임시 점유(`HELD`)만 남아도 매진이고, 점유가 풀리면 다시 `ON_SALE` |
+| `ON_SALE` | 그 외 |
+
+종료된 공연도 목록에 남고 `ENDED`로 표시됩니다.
+
+**에러**: 400 `COMMON000` 없는 `genre`·`sort` 값
 
 ### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개)
 
@@ -1122,7 +1165,11 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-### SLR-06 내 공연 상세 — `GET /api/v1/seller/performances/{performanceId}`
+### SLR-06 내 공연 상세 — `GET /api/v1/seller/performances/{performanceId}` (구현됨)
+
+- 로그인한 판매자 사업체의 공연만 볼 수 있습니다. 다른 사업체의 공연이거나 없는 공연은 똑같이 404 `PERFORMANCE000`입니다.
+- 작성 중(`DRAFT`)인 공연은 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)가 `null`일 수 있습니다.
+- `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다.
 
 **응답 200**
 
