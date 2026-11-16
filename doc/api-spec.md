@@ -71,9 +71,8 @@
 | AUTH-13 | 판매자 로그인 (v2 세션) | POST `/api/v2/auth/sellers/login` | 구현됨 |
 | AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
 | AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
-| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 일부 구현 (목록·장르·정렬. 검색은 미구현) |
+| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 구현됨 |
 | AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
-| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 미구현 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
@@ -494,12 +493,14 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 
 ## 2. 공연·좌석 조회 (예매자)
 
-### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개, 일부 구현)
+### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개, 구현됨)
 
 Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`IMMINENT/LATEST/TITLE`), `region`, `keyword`, `page`, `size`
 
-- 구현됨: `genre`, `sort`, `page`, `size`. **`region`, `keyword`(검색)는 다음 작업**에서 같은 API에 붙입니다.
+- 모든 조건은 함께 쓸 수 있고, 비우면 그 조건으로 거르지 않습니다.
 - `genre`를 비우면 전체 장르, 주면 그 장르만 나옵니다.
+- `region`: 공연장 지역과 **정확히 같은** 공연만 (`서울`, `경기` …). 앞뒤 공백은 지웁니다. 사용 중지된 공연장의 공연도 나옵니다.
+- `keyword`: **제목 또는 출연진**에 들어 있으면 나옵니다. (부분 일치, 영문 대소문자 무시, `%`·`_`는 글자 그대로)
 - `sort` (기본 `IMMINENT`). 값이 같으면 공연 번호 순으로 한 번 더 정렬해서 페이지를 넘겨도 순서가 바뀌지 않습니다.
   - `IMMINENT` 공연 임박순: 아직 시작하지 않은 회차 중 가장 빠른 일시 오름차순. 남은 회차가 없는 공연은 맨 뒤
   - `LATEST` 최신 등록순: 공연 등록 시각 내림차순

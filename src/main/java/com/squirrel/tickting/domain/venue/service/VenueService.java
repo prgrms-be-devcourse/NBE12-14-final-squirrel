@@ -57,6 +57,17 @@ public class VenueService {
 	}
 
 	/**
+	 * 지역이 정확히 같은 공연장의 번호 목록. 예매자 공연 목록의 지역 검색에서 쓴다.
+	 * getVenues 와 같이 사용 중지된 공연장도 포함한다. (이미 잡힌 공연은 공연장이 중지돼도 그 지역에서 찾을 수 있어야 한다)
+	 */
+	@Transactional(readOnly = true)
+	public List<Long> getIdsByRegion(String region) {
+		return venueRepository.findAllByRegion(region).stream()
+			.map(Venue::getId)
+			.toList();
+	}
+
+	/**
 	 * 새 공연을 등록할 수 있는 공연장의 구역 번호 목록. 공연은 공연장의 모든 구역마다 구역 설정을 하나씩 만든다.
 	 * 사용 중지된 공연장은 선택 목록(searchActive)에서 빠지지만 번호를 직접 보낼 수 있어서 여기서 한 번 더 막는다.
 	 * 구역이 없는 공연장도 통과시킨다. (판매할 구역이 없으면 공개(SLR-04)의 "ASSIGNED 구역 1개 이상" 조건에서 막힌다)
