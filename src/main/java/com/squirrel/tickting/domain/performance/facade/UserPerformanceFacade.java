@@ -1,9 +1,12 @@
 package com.squirrel.tickting.domain.performance.facade;
 
 import com.squirrel.tickting.domain.performance.dto.UserPerformanceResponse;
+import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.UserPerformanceSortType;
+import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
+import com.squirrel.tickting.domain.seller.service.SellerBusinessService;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import java.util.List;
@@ -14,8 +17,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 /**
- * 예매자의 공연 조회. 공연(performance)은 공연장을 번호로만 알고 있어서,
- * 서비스끼리 부르지 않고 이 파사드가 공연 서비스와 공연장 서비스를 엮어 응답으로 만든다. (판매자 쪽 SellerPerformanceFacade 와 같은 방식)
+ * 예매자의 공연 조회. 공연(performance)은 공연장·사업체를 번호로만 알고 있어서,
+ * 서비스끼리 부르지 않고 이 파사드가 공연 서비스와 공연장·판매자 사업체 서비스를 엮어 응답으로 만든다. (판매자 쪽 SellerPerformanceFacade 와 같은 방식)
  * 읽기만 해서 트랜잭션은 각 서비스의 읽기 전용 트랜잭션으로 충분하다.
  */
 @Component
@@ -24,6 +27,7 @@ public class UserPerformanceFacade {
 
 	private final UserPerformanceService userPerformanceService;
 	private final VenueService venueService;
+	private final SellerBusinessService sellerBusinessService;
 
 	/**
 	 * 지역은 공연장에 있어서, 지역을 고르면 그 지역의 공연장 번호 목록을 먼저 받아 공연 조회 조건으로 넘긴다.
@@ -41,5 +45,19 @@ public class UserPerformanceFacade {
 			page.getContent().stream().map(summary -> summary.row().venueId()).distinct().toList());
 
 		return page.map(summary -> UserPerformanceResponse.Summary.from(summary, venues.get(summary.row().venueId())));
+	}
+
+	/**
+	 * 공연 상세. 공연 도메인의 값은 공연 서비스가 한 번에 읽고, 공연장과 판매자 사업체는 각 서비스에서 받아 붙인다.
+	 * 둘 다 논리 FK 라 행이 없을 수 있어서, 없으면 그 부분만 비우고(null) 상세는 그대로 보여 준다.
+	 */
+	public UserPerformanceResponse.Detail getDetail(Long performanceId) {
+		UserPerformanceService.Detail detail = userPerformanceService.getPublishedDetail(performanceId);
+		Performance performance = detail.performance();
+
+		Venue venue = venueService.getVenues(List.of(performance.getVenueId())).get(performance.getVenueId());
+		SellerBusiness seller = sellerBusinessService.findBusiness(performance.getBusinessId()).orElse(null);
+
+		return UserPerformanceResponse.Detail.from(detail, venue, seller);
 	}
 }

@@ -16,6 +16,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,7 +31,7 @@ public class UserPerformanceController {
 	private static final int DEFAULT_PAGE_SIZE = 20;
 	private static final int MAX_PAGE_SIZE = 20;
 
-	/** 공연장 이름·지역을 공연장 서비스에서 받아 붙여야 해서 파사드를 부른다. */
+	/** 공연장·판매자 사업체를 각 서비스에서 받아 붙여야 해서 파사드를 부른다. */
 	private final UserPerformanceFacade userPerformanceFacade;
 
 	@Operation(summary = "공연 목록·검색",
@@ -55,5 +56,16 @@ public class UserPerformanceController {
 
 		Page<UserPerformanceResponse.Summary> page = userPerformanceFacade.getList(genre, region, keyword, sort, pageRequest);
 		return ResponseEntity.ok(ApiResponse.success(PageResponse.from(page)));
+	}
+
+	@Operation(summary = "공연 상세",
+		description = "공개된 공연 하나의 상세를 준다. 작성 중·취소된 공연은 404 다. "
+			+ "취소된 회차는 빠지고, 등급은 구역에 지정된 것만 비싼 순으로 나온다.")
+	@GetMapping("/{performanceId}")
+	public ResponseEntity<ApiResponse<UserPerformanceResponse.Detail>> detail(
+		@Parameter(description = "공연 번호")
+		@PathVariable Long performanceId
+	) {
+		return ResponseEntity.ok(ApiResponse.success(userPerformanceFacade.getDetail(performanceId)));
 	}
 }
