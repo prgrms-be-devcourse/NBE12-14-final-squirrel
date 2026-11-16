@@ -4,9 +4,11 @@ import com.squirrel.tickting.domain.performance.infra.repository.UserPerformance
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.SaleStatus;
 import com.squirrel.tickting.domain.performance.type.UserPerformanceSortType;
+import com.squirrel.tickting.global.util.LikeUtil;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -25,17 +27,21 @@ public class UserPerformanceService {
 	private final UserPerformanceRepository userPerformanceRepository;
 
 	/**
-	 * 공개된 공연 목록. 장르를 주지 않으면(null) 전체 장르다.
+	 * 공개된 공연 목록·검색. 장르를 주지 않으면(null) 전체 장르다.
+	 * venueIds 가 null 이면 공연장(지역)을 따지지 않고, 있으면 그 공연장의 공연만 찾는다. 검색어는 제목·출연진의 부분 일치다.
 	 * 현재 시각은 여기서 한 번만 구해서 쿼리(남은 좌석, 임박순)와 판매 상태 계산에 같이 쓴다.
 	 * pageable 은 페이지 번호와 크기만 쓰고, 정렬은 sortType 으로만 정한다.
 	 */
 	@Transactional(readOnly = true)
-	public Page<Summary> getPublishedList(Genre genre, UserPerformanceSortType sortType, Pageable pageable) {
+	public Page<Summary> getPublishedList(Genre genre, Collection<Long> venueIds, String keyword,
+		UserPerformanceSortType sortType, Pageable pageable) {
 		LocalDateTime now = LocalDateTime.now();
 		Collection<Genre> genres = genre == null ? EnumSet.allOf(Genre.class) : EnumSet.of(genre);
+		boolean allVenues = venueIds == null;
 		Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortType.getSort());
 
-		return userPerformanceRepository.findPublished(genres, now, sorted)
+		return userPerformanceRepository.findPublished(genres, allVenues, allVenues ? List.of() : venueIds,
+				LikeUtil.containsPattern(keyword), now, sorted)
 			.map(row -> new Summary(row, saleStatus(row, now)));
 	}
 
@@ -43,7 +49,7 @@ public class UserPerformanceService {
 		return SaleStatus.of(row.saleOpenAt(), row.saleCloseAt(), row.lastStartAt(), row.hasAvailableSeat(), now);
 	}
 
-	/** 공연 목록의 한 항목. 쿼리로 읽은 값과 그 값으로 계산한 판매 상태를 함께 담는다. (응답 DTO 가 아니라 서비스 결과) */
+	/** 공연 목록의 한 항목. 쿼리로 읽은 값과 그 값으로 계산한 판매 상태를 함께 담는다. */
 	public record Summary(UserPerformanceRepository.SummaryRow row, SaleStatus saleStatus) {
 	}
 }

@@ -98,6 +98,11 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 		return mockMvc.perform(get(URL + query)).andExpect(status().isOk()).andReturn();
 	}
 
+	/** 검색어에 %, 공백처럼 주소에 그대로 쓸 수 없는 글자가 있어서 파라미터로 넣는다. */
+	private MvcResult searchKeyword(String keyword) throws Exception {
+		return mockMvc.perform(get(URL).param("keyword", keyword)).andExpect(status().isOk()).andReturn();
+	}
+
 	// ---- 테스트 ----
 
 	@Test
@@ -261,6 +266,68 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 	private String statusOf(String body, String title) {
 		List<String> found = JsonPath.read(body, "$.data.content[?(@.title == '" + title + "')].saleStatus");
 		return found.getFirst();
+	}
+
+	@Test
+	@DisplayName("지역을 주면 그 지역 공연장의 공연만 나오고, 사용 중지된 공연장의 공연도 포함된다")
+	void filterByRegion() throws Exception {
+		venueId = saveVenue("검색 아레나", "검색시");
+		saveOnSale("검색시 공연", "CONCERT", now.plusDays(1));
+		venueId = saveVenue("검색 소극장", "검색시");
+		jdbc.update("UPDATE venue SET status = 'INACTIVE' WHERE id = ?", venueId);
+		saveOnSale("중지된 공연장 공연", "PLAY", now.plusDays(2));
+		venueId = saveVenue("다른 홀", "다른시");
+		saveOnSale("다른시 공연", "CONCERT", now.plusDays(3));
+
+		assertThat(titles(getList("?region=검색시"))).containsExactly("검색시 공연", "중지된 공연장 공연");
+		assertThat(titles(getList("?region= 검색시 "))).containsExactly("검색시 공연", "중지된 공연장 공연");
+		assertThat(titles(getList("?region=검색"))).isEmpty();
+		assertThat(titles(getList("?region=없는지역"))).isEmpty();
+	}
+
+	@Test
+	@DisplayName("검색어는 제목이나 출연진에 들어 있으면 찾고, 영문 대소문자를 가리지 않는다")
+	void searchByKeyword() throws Exception {
+		saveOnSale("Winter Concert", "CONCERT", now.plusDays(1));
+		Long cast = saveOnSale("봄 공연", "CONCERT", now.plusDays(2));
+		jdbc.update("UPDATE performance SET cast_info = '가상가수, 다른가수' WHERE id = ?", cast);
+		saveOnSale("여름 공연", "CONCERT", now.plusDays(3));
+
+		assertThat(titles(getList("?keyword=winter"))).containsExactly("Winter Concert");
+		assertThat(titles(getList("?keyword=가상가수"))).containsExactly("봄 공연");
+		assertThat(titles(getList("?keyword=공연"))).containsExactly("봄 공연", "여름 공연");
+		assertThat(titles(getList("?keyword=없는검색어"))).isEmpty();
+		assertThat(titles(searchKeyword("  "))).hasSize(3);
+	}
+
+	@Test
+	@DisplayName("검색어의 %·_ 는 와일드카드가 아니라 글자 그대로 찾는다")
+	void keywordWildcardIsLiteral() throws Exception {
+		saveOnSale("100% 라이브", "CONCERT", now.plusDays(1));
+		saveOnSale("1000 라이브", "CONCERT", now.plusDays(2));
+		saveOnSale("A_B 쇼", "CONCERT", now.plusDays(3));
+		saveOnSale("AXB 쇼", "CONCERT", now.plusDays(4));
+
+		assertThat(titles(searchKeyword("100%"))).containsExactly("100% 라이브");
+		assertThat(titles(searchKeyword("A_B"))).containsExactly("A_B 쇼");
+		assertThat(titles(searchKeyword("%"))).containsExactly("100% 라이브");
+	}
+
+	@Test
+	@DisplayName("장르·지역·검색어를 함께 주면 모두 맞는 공연만 나오고, 전체 개수도 그 기준이다")
+	void combineFilters() throws Exception {
+		venueId = saveVenue("검색 아레나", "검색시");
+		saveOnSale("가상 콘서트", "CONCERT", now.plusDays(1));
+		saveOnSale("가상 뮤지컬", "MUSICAL", now.plusDays(2));
+		saveOnSale("다른 콘서트", "CONCERT", now.plusDays(3));
+		venueId = saveVenue("다른 홀", "다른시");
+		saveOnSale("가상 콘서트 2", "CONCERT", now.plusDays(4));
+
+		mockMvc.perform(get(URL + "?genre=CONCERT&region=검색시&keyword=가상"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.totalElements").value(1))
+			.andExpect(jsonPath("$.data.content[0].title").value("가상 콘서트"))
+			.andExpect(jsonPath("$.data.content[0].region").value("검색시"));
 	}
 
 	@Test

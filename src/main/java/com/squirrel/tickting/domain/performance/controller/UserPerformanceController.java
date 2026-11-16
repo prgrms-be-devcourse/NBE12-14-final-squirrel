@@ -33,13 +33,18 @@ public class UserPerformanceController {
 	/** 공연장 이름·지역을 공연장 서비스에서 받아 붙여야 해서 파사드를 부른다. */
 	private final UserPerformanceFacade userPerformanceFacade;
 
-	@Operation(summary = "공연 목록",
+	@Operation(summary = "공연 목록·검색",
 		description = "공개된 공연을 보여 준다. 장르를 주지 않으면 전체, 주면 그 장르만 나온다. "
+			+ "지역(region)은 공연장 지역과 정확히 같은 것만, 검색어(keyword)는 제목·출연진에 들어 있는 것을 찾는다. "
 			+ "정렬은 IMMINENT(공연 임박순, 기본) · LATEST(최신 등록순) · TITLE(이름순)이고, 한 번에 최대 20개까지 준다.")
 	@GetMapping
 	public ResponseEntity<ApiResponse<PageResponse<UserPerformanceResponse.Summary>>> list(
 		@Parameter(description = "장르. 비우면 전체")
 		@RequestParam(required = false) Genre genre,
+		@Parameter(description = "공연장 지역 (정확히 일치). 비우면 전체", example = "서울")
+		@RequestParam(required = false) String region,
+		@Parameter(description = "검색어. 제목·출연진 부분 일치, 대소문자 무시. 비우면 전체")
+		@RequestParam(required = false) String keyword,
 		@Parameter(description = "정렬. 기본 IMMINENT")
 		@RequestParam(defaultValue = "IMMINENT") UserPerformanceSortType sort,
 		@PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
@@ -48,7 +53,7 @@ public class UserPerformanceController {
 		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(),
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
-		Page<UserPerformanceResponse.Summary> page = userPerformanceFacade.getList(genre, sort, pageRequest);
+		Page<UserPerformanceResponse.Summary> page = userPerformanceFacade.getList(genre, region, keyword, sort, pageRequest);
 		return ResponseEntity.ok(ApiResponse.success(PageResponse.from(page)));
 	}
 }
