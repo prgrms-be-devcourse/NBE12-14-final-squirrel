@@ -14,6 +14,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -45,6 +46,19 @@ public class SellerCancelPolicyController {
 		var page = cancelPolicyService.searchVisible(account.getBusinessId(), pageRequest)
 			.map(CancelPolicyResponse.Summary::from);
 		PageResponse<CancelPolicyResponse.Summary> response = PageResponse.from(page);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "취소 규정 상세",
+		description = "서비스 기본 규정이나 로그인한 판매자 사업체의 규정 하나와 그 구간이다. 구간은 공연에서 먼 구간부터 준다. "
+			+ "다른 사업체의 규정은 없는 규정과 같은 404다. 판매자 토큰만 쓸 수 있다.")
+	@GetMapping("/{cancelPolicyId}")
+	public ResponseEntity<ApiResponse<CancelPolicyResponse.Detail>> detail(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long cancelPolicyId
+	) {
+		CancelPolicyResponse.Detail response = CancelPolicyResponse.Detail.from(
+			cancelPolicyService.getVisibleDetail(cancelPolicyId, account.getBusinessId()));
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }
