@@ -1,8 +1,7 @@
 package com.squirrel.tickting.domain.performance.controller;
 
-import com.squirrel.tickting.domain.performance.dto.CancelPolicyRequest;
-import com.squirrel.tickting.domain.performance.dto.CancelPolicyResponse;
-import com.squirrel.tickting.domain.performance.service.CancelPolicyDetail;
+import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyRequest;
+import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyResponse;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
@@ -41,7 +40,7 @@ public class SellerCancelPolicyController {
 		description = "서비스 기본 규정과 로그인한 판매자 사업체의 규정 목록이다. 기본 규정이 첫 페이지 맨 앞에 나오고 "
 			+ "내 규정은 최신순이다(정렬은 고정). 한 번에 최대 20개까지 준다. 판매자 토큰만 쓸 수 있다.")
 	@GetMapping
-	public ResponseEntity<ApiResponse<PageResponse<CancelPolicyResponse.Summary>>> list(
+	public ResponseEntity<ApiResponse<PageResponse<SellerCancelPolicyResponse.Summary>>> list(
 		@AuthenticationPrincipal CustomUserDetails account,
 		@PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
 	) {
@@ -50,8 +49,8 @@ public class SellerCancelPolicyController {
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
 		var page = cancelPolicyService.searchVisible(account.getBusinessId(), pageRequest)
-			.map(CancelPolicyResponse.Summary::from);
-		PageResponse<CancelPolicyResponse.Summary> response = PageResponse.from(page);
+			.map(SellerCancelPolicyResponse.Summary::from);
+		PageResponse<SellerCancelPolicyResponse.Summary> response = PageResponse.from(page);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
@@ -59,11 +58,11 @@ public class SellerCancelPolicyController {
 		description = "서비스 기본 규정이나 로그인한 판매자 사업체의 규정 하나와 그 구간이다. 구간은 공연에서 먼 구간부터 준다. "
 			+ "다른 사업체의 규정은 없는 규정과 같은 404다. 판매자 토큰만 쓸 수 있다.")
 	@GetMapping("/{cancelPolicyId}")
-	public ResponseEntity<ApiResponse<CancelPolicyResponse.Detail>> detail(
+	public ResponseEntity<ApiResponse<SellerCancelPolicyResponse.Detail>> detail(
 		@AuthenticationPrincipal CustomUserDetails account,
 		@PathVariable Long cancelPolicyId
 	) {
-		CancelPolicyResponse.Detail response = CancelPolicyResponse.Detail.from(
+		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(
 			cancelPolicyService.getVisibleDetail(cancelPolicyId, account.getBusinessId()));
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
@@ -72,12 +71,12 @@ public class SellerCancelPolicyController {
 		description = "로그인한 판매자 사업체의 취소 규정을 만든다. 구간은 순서와 상관없이 보내도 되고, 응답은 상세와 같은 모양"
 			+ "(공연에서 먼 구간부터)이다. 같은 사업체 안에서 같은 이름은 쓸 수 없다. 판매자 토큰만 쓸 수 있다.")
 	@PostMapping
-	public ResponseEntity<ApiResponse<CancelPolicyResponse.Detail>> create(
+	public ResponseEntity<ApiResponse<SellerCancelPolicyResponse.Detail>> create(
 		@AuthenticationPrincipal CustomUserDetails account,
-		@Valid @RequestBody CancelPolicyRequest.Save request
+		@Valid @RequestBody SellerCancelPolicyRequest.Save request
 	) {
-		CancelPolicyDetail created = cancelPolicyService.create(account.getBusinessId(), request.toCommand());
-		CancelPolicyResponse.Detail response = CancelPolicyResponse.Detail.from(created);
+		CancelPolicyService.Detail created = cancelPolicyService.create(account.getBusinessId(), request.toCommand());
+		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(created);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 }

@@ -6,8 +6,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.domain.performance.service.GradeService;
-import com.squirrel.tickting.domain.performance.service.PerformanceDetail;
-import com.squirrel.tickting.domain.performance.service.PerformanceService;
+import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import java.util.List;
@@ -27,7 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class SellerPerformanceFacade {
 
-	private final PerformanceService performanceService;
+	private final SellerPerformanceService sellerPerformanceService;
 	private final VenueService venueService;
 	private final CancelPolicyService cancelPolicyService;
 	private final GradeService gradeService;
@@ -45,7 +44,7 @@ public class SellerPerformanceFacade {
 		CancelPolicy cancelPolicy = cancelPolicyService.getVisible(request.cancelPolicyId(), businessId);
 
 		Performance performance = transactionTemplate.execute(status -> {
-			Performance created = performanceService.create(businessId, createdBy, request.venueId(), cancelPolicy,
+			Performance created = sellerPerformanceService.create(businessId, createdBy, request.venueId(), cancelPolicy,
 				request.toCommand());
 			gradeService.initializeZones(created, zoneIds);
 			return created;
@@ -56,10 +55,10 @@ public class SellerPerformanceFacade {
 	/** 목록의 회차 수·공연장 이름은 공연마다 조회하지 않고 번호 목록으로 한 번에 읽는다. */
 	public Page<SellerPerformanceResponse.Summary> getList(Long businessId, PerformanceStatus status,
 		Pageable pageable) {
-		Page<Performance> page = performanceService.searchMine(businessId, status, pageable);
+		Page<Performance> page = sellerPerformanceService.searchMine(businessId, status, pageable);
 		List<Performance> performances = page.getContent();
 
-		Map<Long, Long> scheduleCounts = performanceService.countSchedules(
+		Map<Long, Long> scheduleCounts = sellerPerformanceService.countSchedules(
 			performances.stream().map(Performance::getId).toList());
 		Map<Long, String> venueNames = venueService.getNames(
 			performances.stream().map(Performance::getVenueId).distinct().toList());
@@ -71,7 +70,7 @@ public class SellerPerformanceFacade {
 	}
 
 	public SellerPerformanceResponse.Detail getDetail(Long businessId, Long performanceId) {
-		PerformanceDetail detail = performanceService.getMine(businessId, performanceId);
+		SellerPerformanceService.Detail detail = sellerPerformanceService.getMine(businessId, performanceId);
 		Long venueId = detail.performance().getVenueId();
 		String venueName = venueService.getNames(List.of(venueId)).get(venueId);
 		return SellerPerformanceResponse.Detail.from(detail, venueName);
