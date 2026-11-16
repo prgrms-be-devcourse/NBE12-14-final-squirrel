@@ -43,6 +43,16 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * 공개 조회라도 Authorization 헤더에 잘못된 토큰을 보내면 401 이다. (토큰이 만료됐을 때 프론트가 재발급하게 하려는 것)
  *
  * 여기서는 "어떤 계정 종류인가"만 본다. "이 데이터가 내 것인가"는 서비스에서 토큰의 번호로 조회해서 확인한다.
+ *
+ * TODO: Redis 세션(v2)이 충분히 자리 잡아 v1 JWT 를 더 쓰지 않게 되면 JWT 호환을 지운다.
+ *  지우는 시점은 프론트가 v2 로그인으로 모두 옮겨 가고 운영에서 문제없이 쓰는 것을 확인한 뒤에 팀에서 정한다.
+ *  이 파일에서 할 일
+ *   1) addFilterBefore(JwtAuthenticationFilter ...) 와 JwtProvider 파라미터를 지운다.
+ *   2) @EnableConfigurationProperties 에서 JwtProperties 를 빼고, 클래스의 @SuppressWarnings("removal") 도 지운다.
+ *   3) JwtAuthenticationEntryPoint, JwtAccessDeniedHandler 는 세션 인증의 401·403 응답에도 쓰므로 지우지 않고 이름에서 Jwt 를 뺀다.
+ *   4) 위 클래스 설명의 "두 방식을 모두 인정", "v1 JWT", 잘못된 토큰이면 401 이라는 줄을 고친다.
+ *  나머지 JWT 전용 코드(JwtProvider, JwtProperties, JwtAuthenticationFilter, TokenService, 리프레시 쿠키, v1 로그인·재발급 API)는
+ *  @Deprecated 가 붙은 것을 따라 지우고, 그 뒤 build.gradle 의 -Werror 도 필요 없으면 정리한다.
  */
 // v1(JWT) 인증을 계속 인정하므로 JWT 클래스(@Deprecated)를 쓰는 것을 허용한다.
 @SuppressWarnings("removal")
@@ -104,6 +114,7 @@ public class SecurityConfig {
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.requestMatchers("/api/v1/seller/**").hasRole("SELLER")
 				.anyRequest().authenticated())
+			// TODO: v1(JWT)을 지울 때 이 필터 등록도 지운다. (위 클래스 설명의 TODO 참고)
 			.addFilterBefore(new JwtAuthenticationFilter(jwtProvider, exceptionResolver),
 				UsernamePasswordAuthenticationFilter.class);
 		return http.build();
