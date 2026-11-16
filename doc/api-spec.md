@@ -71,9 +71,9 @@
 | AUTH-13 | 판매자 로그인 (v2 세션) | POST `/api/v2/auth/sellers/login` | 구현됨 |
 | AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
 | AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
+| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 구현됨 |
 | AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
-| PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 미구현 |
-| PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
+| PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 구현됨 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 미구현 |
@@ -82,12 +82,12 @@
 | BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 미구현 |
 | BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 미구현 |
 | BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 미구현 |
-| SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 미구현 |
-| SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 미구현 |
+| SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 구현됨 |
+| SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 구현됨 |
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
-| SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 미구현 |
-| SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 미구현 |
+| SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
+| SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
@@ -99,10 +99,10 @@
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 미구현 |
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
-| SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 미구현 |
-| SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
-| SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 미구현 |
-| SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
+| SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
+| SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
+| SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 구현됨 |
+| SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -493,9 +493,21 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 
 ## 2. 공연·좌석 조회 (예매자)
 
-### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개)
+### PFM-01 공연 목록·검색 — `GET /api/v1/performances` (공개, 구현됨)
 
-Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`, `size`
+Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`IMMINENT/LATEST/TITLE`), `region`, `keyword`, `page`, `size`
+
+- 모든 조건은 함께 쓸 수 있고, 비우면 그 조건으로 거르지 않습니다.
+- `genre`를 비우면 전체 장르, 주면 그 장르만 나옵니다.
+- `region`: 공연장 지역과 **정확히 같은** 공연만 (`서울`, `경기` …). 앞뒤 공백은 지웁니다. 사용 중지된 공연장의 공연도 나옵니다.
+- `keyword`: **제목 또는 출연진**에 들어 있으면 나옵니다. (부분 일치, 영문 대소문자 무시, `%`·`_`는 글자 그대로)
+- `sort` (기본 `IMMINENT`). 값이 같으면 공연 번호 순으로 한 번 더 정렬해서 페이지를 넘겨도 순서가 바뀌지 않습니다.
+  - `IMMINENT` 공연 임박순: 아직 시작하지 않은 회차 중 가장 빠른 일시 오름차순. 남은 회차가 없는 공연은 맨 뒤
+  - `LATEST` 최신 등록순: 공연 등록 시각 내림차순
+  - `TITLE` 이름순: 제목 오름차순
+- `size` 기본 20, 최대 20. 페이지 번호는 0부터.
+- `firstStartAt`·`lastStartAt`은 취소된 회차를 뺀 첫·마지막 회차 일시입니다. (회차가 없으면 `null`)
+- `venueName`·`region`은 사용 중지된 공연장도 보입니다. (판매자 내 공연 목록과 같음)
 
 **응답 200**
 
@@ -530,7 +542,27 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`,
 
 `saleStatus`: `UPCOMING` / `ON_SALE` / `SOLD_OUT` / `ENDED` (계산값). `PUBLISHED` 공연만 노출.
 
-### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개)
+| `saleStatus` | 조건 (위에서부터 먼저 맞는 것) |
+|---|---|
+| `ENDED` | 판매 종료 시각이 지남, 또는 마지막 회차가 시작됨, 또는 취소되지 않은 회차가 없음 |
+| `UPCOMING` | 판매 오픈 시각 전 |
+| `SOLD_OUT` | 아직 시작하지 않은 회차에 판매 가능(`AVAILABLE`) 좌석이 없음. 임시 점유(`HELD`)만 남아도 매진이고, 점유가 풀리면 다시 `ON_SALE` |
+| `ON_SALE` | 그 외 |
+
+종료된 공연도 목록에 남고 `ENDED`로 표시됩니다.
+
+**에러**: 400 `COMMON000` 없는 `genre`·`sort` 값
+
+### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개, 구현됨)
+
+- 공개(`PUBLISHED`)된 공연만 볼 수 있습니다. 작성 중·취소된 공연은 없는 공연과 같은 404입니다.
+- `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
+  - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
+  - 일시 중지(`PAUSED`)·연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다.
+- `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다.
+- `cancelPolicy`: 공연이 고른 취소 규정의 구간입니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
+- `venue`·`seller`는 정보가 없으면 `null`, `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다.
+- `seller`에는 사업체 상태·반려 사유·심사자와 판매자 계정 정보가 들어가지 않습니다. (3부 3-8)
 
 **응답 200**
 
@@ -625,7 +657,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `region`, `keyword`, `page`,
 }
 ```
 
-**에러**: 404 공연 없음 또는 `PUBLISHED`가 아님
+**에러**: 404 `PERFORMANCE000` 공연 없음 또는 `PUBLISHED`가 아님 · 400 `COMMON000` 공연 번호가 숫자가 아님
 
 ### PFM-03 구역 요약 — `GET /api/v1/schedules/{scheduleId}/zones` (공개)
 
@@ -969,9 +1001,15 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED/EXPIRED`), `page`, `size
 
 ## 4. 판매자 (`/api/v1/seller/**`, 자기 사업체 리소스만 — 남의 것은 404)
 
-### SLR-01 공연장 목록 — `GET /api/v1/seller/venues`
+### SLR-01 공연장 목록 — `GET /api/v1/seller/venues` (구현됨)
 
 Query: `keyword`, `region`, `page`, `size`
+
+- 사용 중(`ACTIVE`)인 공연장만 줍니다. 사용 중지된 공연장은 빠집니다.
+- `region`은 정확히 같은 지역만 찾고, 비우면 전체 지역입니다. `keyword`는 공연장 이름에서 부분 일치로 찾으며(영문 대소문자 무시) 주소는 찾지 않습니다.
+- 정렬은 이름순이고 이름이 같으면 번호순입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
+- 기본 크기와 최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기가 0이거나 음수면 기본값(20)으로 처리됩니다.
+- 판매자(대표·담당자) 토큰만 쓸 수 있습니다. 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
 
 **응답 200**
 
@@ -999,7 +1037,7 @@ Query: `keyword`, `region`, `page`, `size`
 }
 ```
 
-### SLR-02 공연 등록 — `POST /api/v1/seller/performances`
+### SLR-02 공연 등록 — `POST /api/v1/seller/performances` (구현됨)
 
 `DRAFT`로 생성.
 
@@ -1049,7 +1087,36 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 }
 ```
 
-**에러**(코드 미정): 404 공연장 없음 · 400 사용 중지된 공연장 · 404 취소 규정 없음/접근 불가
+- 사업체 번호와 등록자는 본문으로 받지 않고 토큰에서 꺼냅니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 구역이 없는 공연장도 등록은 됩니다. (공개할 때 `ASSIGNED` 구역 1개 이상 조건에서 막힙니다)
+- 문자열은 앞뒤 공백을 지우고 저장합니다. 선택 입력(`castInfo`, `notice`, `guide`)이 공백뿐이면 비운(`null`) 것으로 저장합니다.
+
+**입력 규칙**
+
+| 필드 | 규칙 |
+| --- | --- |
+| `venueId`, `cancelPolicyId` | 필수 |
+| `title` | 필수, 공백만 불가, 200자 이하. 같은 이름의 공연을 여러 개 만들 수 있음 |
+| `genre` | 필수, `CONCERT` / `MUSICAL` / `PLAY` / `CLASSIC` / `ETC` (대문자 그대로) |
+| `ageLimit` | 필수, 0~100 |
+| `runningTime` | 필수, 1~1440(분) |
+| `castInfo`, `notice`, `guide` | 선택, 길이 제한 없음, 줄바꿈 허용 |
+| `posterUrl` | 필수, `http://` 또는 `https://`로 시작하고 공백 없음, 2048자 이하 |
+| `saleOpenAt`, `saleCloseAt` | 선택. 둘 다 있으면 종료가 오픈보다 늦어야 함(같은 시각도 400). 과거 시각인지는 공개(SLR-04)에서 봄 |
+| `maxPerPerson` | 선택, 1~5 (임시) |
+| `receiveType` | 선택, `ONSITE` / `DELIVERY` / `BOTH` |
+| `bookingFee` | 선택, 0~10,000원 (임시) |
+| `images` | 선택(없거나 빈 배열이면 이미지 없이 저장), 장수 제한 없음(임시). `url`은 포스터와 같은 규칙, `sortOrder`는 필수·0 이상·같은 요청 안에서 겹치면 안 됨 |
+
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 입력 규칙 위반, 정해지지 않은 장르·수령 방법, 이미지 순서값 중복 |
+| 400 | `PERFORMANCE001` | 판매 종료가 판매 오픈보다 늦지 않음 |
+| 400 | `VENUE001` | 사용 중지된 공연장 |
+| 404 | `VENUE000` | 공연장 없음 |
+| 404 | `PERFORMANCE100` | 취소 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
 
 ### SLR-03 공연 수정 — `PUT /api/v1/seller/performances/{performanceId}`
 
@@ -1098,11 +1165,17 @@ Body 없음. `DRAFT` → `PUBLISHED`.
 }
 ```
 
-**에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환)
+**에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환) · 400 `ASSIGNED` 구역 없음(모든 구역이 의도적 미판매)
 
-### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances`
+### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances` (구현됨)
 
 Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
+
+- 로그인한 판매자 사업체의 공연만 나옵니다. 사업체 번호는 토큰에서 꺼냅니다.
+- `status`를 주지 않으면 취소된 공연까지 모든 상태가 나옵니다.
+- 최신 등록이 먼저 나오고 등록 시각이 같으면 번호가 큰 공연이 먼저입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
+- 기본·최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기 0은 기본값으로 처리됩니다.
+- `scheduleCount`는 취소·연기된 회차를 포함한 모든 회차 수이고, 회차가 없으면 0입니다. `venueName`은 사용 중지된 공연장도 보입니다.
 
 **응답 200**
 
@@ -1131,7 +1204,11 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-### SLR-06 내 공연 상세 — `GET /api/v1/seller/performances/{performanceId}`
+### SLR-06 내 공연 상세 — `GET /api/v1/seller/performances/{performanceId}` (구현됨)
+
+- 로그인한 판매자 사업체의 공연만 볼 수 있습니다. 다른 사업체의 공연이거나 없는 공연은 똑같이 404 `PERFORMANCE000`입니다.
+- 작성 중(`DRAFT`)인 공연은 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)가 `null`일 수 있습니다.
+- `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다.
 
 **응답 200**
 
@@ -1547,9 +1624,17 @@ Query: `status`, `page`, `size`
 
 ---
 
-### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies`
+### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies` (구현됨)
+
+Query: `page`, `size`
 
 서비스 기본 규정과 로그인한 사업체가 만든 규정을 조회합니다. 기본 규정은 예시로 보여 주며 수정할 수 없습니다.
+
+- 사업체 번호는 토큰에서 꺼내며, 다른 사업체의 규정은 나오지 않습니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 기본 규정이 첫 페이지 맨 앞에 나오고, 내 규정은 번호가 큰(최신) 순입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다. 기본 규정도 목록의 한 항목이라 `totalElements`에 포함됩니다.
+- 기본·최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기 0은 기본값으로 처리됩니다.
+- 구간(`rules`)은 목록에 넣지 않고 상세(SLR-20)에서 줍니다.
+- `editable`은 지금 이 규정을 수정(SLR-22)할 수 있는지입니다. 기본 규정과, 공개(`PUBLISHED`)·취소(`CANCELED`)된 공연이 쓰는 규정은 `false`입니다. 조회한 시점의 안내라서, 그사이 공연이 공개되면 수정할 때 409가 날 수 있습니다.
 
 **응답 200**
 
@@ -1560,16 +1645,25 @@ Query: `status`, `page`, `size`
   "message": "",
   "data": {
     "content": [
-      { "cancelPolicyId": 1, "name": "기본 규정", "isDefault": true },
-      { "cancelPolicyId": 8, "name": "공연장 자체 규정", "isDefault": false }
-    ]
+      { "cancelPolicyId": 1, "name": "기본 규정", "isDefault": true, "editable": false },
+      { "cancelPolicyId": 8, "name": "공연장 자체 규정", "isDefault": false, "editable": true }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 2,
+    "totalPages": 1
   }
 }
 ```
 
-### SLR-20 취소 규정 상세 — `GET /api/v1/seller/cancel-policies/{cancelPolicyId}`
+### SLR-20 취소 규정 상세 — `GET /api/v1/seller/cancel-policies/{cancelPolicyId}` (구현됨)
 
 기본 규정 또는 로그인한 사업체의 규정만 조회합니다.
+
+- 사업체 번호는 토큰에서 꺼냅니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 다른 사업체의 규정은 없는 규정과 같은 404입니다. (번호가 있는지 알려주지 않으려고)
+- `rules`는 저장 순서와 상관없이 `daysFrom`이 큰 순(공연에서 먼 구간부터)입니다. `daysTo`가 `null`이면 제한 없음, `cancelable`이 `false`면 그 구간에는 취소할 수 없습니다.
+- `editable`은 목록(SLR-19)과 같은 기준으로 지금 수정할 수 있는지를 알려 줍니다.
 
 **응답 200**
 
@@ -1582,6 +1676,7 @@ Query: `status`, `page`, `size`
     "cancelPolicyId": 8,
     "name": "공연장 자체 규정",
     "isDefault": false,
+    "editable": true,
     "rules": [
       { "daysFrom": 7, "daysTo": null, "feeRate": 0, "cancelable": true },
       { "daysFrom": 3, "daysTo": 6, "feeRate": 10, "cancelable": true },
@@ -1592,9 +1687,22 @@ Query: `status`, `page`, `size`
 }
 ```
 
-### SLR-21 취소 규정 생성 — `POST /api/v1/seller/cancel-policies`
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 규정 번호가 숫자가 아님 |
+| 404 | `PERFORMANCE100` | 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
+
+### SLR-21 취소 규정 생성 — `POST /api/v1/seller/cancel-policies` (구현됨)
 
 요청의 `businessId`는 받지 않고 로그인 토큰의 사업체 번호를 사용합니다. 기본 규정을 참고해 프론트에서 구간을 채울 수 있지만, 새 규정은 별도 사업체 소유 데이터로 저장합니다.
+
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 구간은 **양끝 날짜를 포함**합니다. `3~6`은 공연 3·4·5·6일 전이고, `1~1`처럼 하루짜리 구간도 됩니다.
+- 구간은 순서와 상관없이 보내도 됩니다. 응답은 SLR-20처럼 `daysFrom`이 큰 순입니다.
+- 모든 구간을 취소 불가(`cancelable: false`)로 둔 규정도 저장됩니다. 수수료율끼리의 크기도 서버가 검사하지 않습니다. (판매자 판단이며, 필요하면 프론트가 경고합니다)
+- 취소 불가 구간의 `feeRate`는 그대로 저장하고 수수료 계산에서는 쓰지 않습니다.
 
 **요청**
 
@@ -1610,17 +1718,53 @@ Query: `status`, `page`, `size`
 }
 ```
 
+| 필드 | 규칙 |
+| --- | --- |
+| `name` | 필수, 공백만 불가, 앞뒤 공백을 지우고 저장, 50자 이하. 같은 사업체 안에서 대소문자를 무시하고 겹치면 안 되고, 기본 규정 이름(`기본 규정`)도 쓸 수 없음. 다른 사업체와는 겹쳐도 됨 |
+| `rules` | 필수, 1~10개 |
+| `rules[].daysFrom` | 필수, 0~90 |
+| `rules[].daysTo` | 선택(`null`이면 제한 없음), 0~90 |
+| `rules[].feeRate` | 필수, 0~100(%) |
+| `rules[].cancelable` | 필수 |
+
+**구간끼리의 규칙** (`daysFrom` 순으로 정렬해서 봄. 어기면 400 `PERFORMANCE101`)
+
+1. 구간마다 `daysTo`는 `daysFrom`보다 작을 수 없음
+2. 가장 가까운 구간은 0일 전(공연 당일)부터 시작
+3. 제한 없음(`daysTo: null`) 구간은 하나이고 가장 먼 구간
+4. 빈 날짜나 겹치는 날짜가 없음 (`다음 daysFrom = 앞 daysTo + 1`)
+
 **응답 201**: SLR-20 상세 응답과 같은 형태
 
-**에러**(코드 미정): 400 구간이 0일부터 제한 없음까지 겹치거나 빠짐
+**에러**
 
-### SLR-22 취소 규정 수정 — `PUT /api/v1/seller/cancel-policies/{cancelPolicyId}`
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 입력 규칙 위반(이름 누락·길이, 구간 개수, 일수·수수료율 범위, 빠진 값) |
+| 400 | `PERFORMANCE101` | 구간끼리의 규칙 위반 (이유는 메시지로 구분) |
+| 409 | `PERFORMANCE104` | 같은 사업체에 같은 이름의 규정이 있음, 또는 기본 규정과 같은 이름 |
 
-요청은 SLR-21과 같은 필드이며, 이름과 규정 구간을 전체 교체합니다. 로그인한 사업체 소유 규정만 수정할 수 있습니다. 기본 규정과 `PUBLISHED` 공연에 적용 중인 규정은 수정할 수 없습니다. 삭제 API는 이번 범위에서 제공하지 않습니다.
+### SLR-22 취소 규정 수정 — `PUT /api/v1/seller/cancel-policies/{cancelPolicyId}` (구현됨)
 
-**응답 200**: SLR-20 상세 응답과 같은 형태
+요청은 SLR-21과 같은 필드와 규칙이며, 이름과 규정 구간을 전체 교체합니다. 로그인한 사업체 소유 규정만 수정할 수 있습니다. 기본 규정과, 공개(`PUBLISHED`)되었거나 취소(`CANCELED`)된 공연에 적용 중인 규정은 수정할 수 없습니다. 작성 중(`DRAFT`) 공연만 쓰는 규정은 수정할 수 있고, 그 공연들에는 바뀐 내용이 적용됩니다. 삭제 API는 이번 범위에서 제공하지 않습니다.
 
-**에러**(코드 미정): 404 규정 없음/다른 사업체 소유 · 409 기본 규정 또는 공개 공연에 적용 중인 규정
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 취소된 공연이 쓰는 규정도 잠그는 이유: 판매자가 "그 공연에서 어떤 기준으로 수수료를 뗐는지" 볼 수 있는 곳은 공연의 규정뿐이라, 취소 뒤에 규정이 바뀌면 화면이 실제 기준과 달라지기 때문입니다. 잠긴 규정도 공연 등록(SLR-02)에서 계속 고를 수 있고, 내용을 바꾸려면 새 규정을 만듭니다.
+- 이름은 자기 자신과는 겹쳐도 됩니다. (같은 이름으로 다시 보내거나 대소문자만 바꿔도 200)
+- 같은 값으로 보내도 200입니다.
+
+**응답 200**: SLR-20 상세 응답과 같은 형태 (`editable`은 `true`)
+
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 입력 규칙 위반(SLR-21과 같음), 규정 번호가 숫자가 아님 |
+| 400 | `PERFORMANCE101` | 구간끼리의 규칙 위반 (SLR-21과 같음) |
+| 404 | `PERFORMANCE100` | 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
+| 409 | `PERFORMANCE102` | 서비스 기본 규정 |
+| 409 | `PERFORMANCE103` | 공개되었거나 취소된 공연이 쓰는 규정 |
+| 409 | `PERFORMANCE104` | 같은 사업체의 다른 규정이나 기본 규정과 같은 이름 |
 
 ## 5. 관리자 (`/api/v1/admin/**`)
 
