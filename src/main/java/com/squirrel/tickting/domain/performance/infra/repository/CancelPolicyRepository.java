@@ -39,4 +39,17 @@ public interface CancelPolicyRepository extends JpaRepository<CancelPolicy, Long
 		  AND (c.businessId IS NULL OR c.businessId = :businessId)
 		""")
 	Optional<CancelPolicy> findVisible(@Param("id") Long id, @Param("businessId") Long businessId);
+
+	/**
+	 * 내 사업체 규정이나 서비스 기본 규정 중에 대소문자를 무시하고 같은 이름이 있는가.
+	 * 나중에 만들 UNIQUE (business_id, lower(name)) 와 기준이 같도록 Java 가 아니라 DB 의 LOWER 로 비교한다.
+	 * 기본 규정은 사업체 번호가 비어 있어 그 UNIQUE 로는 못 막으므로 여기서만 확인한다.
+	 */
+	@Query("""
+		SELECT COUNT(c) > 0
+		FROM CancelPolicy c
+		WHERE (c.businessId IS NULL OR c.businessId = :businessId)
+		  AND LOWER(c.name) = LOWER(:name)
+		""")
+	boolean existsVisibleName(@Param("businessId") Long businessId, @Param("name") String name);
 }
