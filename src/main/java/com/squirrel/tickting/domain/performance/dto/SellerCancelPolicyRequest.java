@@ -1,6 +1,6 @@
 package com.squirrel.tickting.domain.performance.dto;
 
-import com.squirrel.tickting.domain.performance.service.CancelPolicySaveCommand;
+import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -11,9 +11,9 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /** 판매자의 취소 규정 요청. 생성(SLR-21)과 수정(SLR-22)이 같은 본문을 쓴다. */
-public class CancelPolicyRequest {
+public class SellerCancelPolicyRequest {
 
-	private CancelPolicyRequest() {
+	private SellerCancelPolicyRequest() {
 	}
 
 	/**
@@ -39,12 +39,12 @@ public class CancelPolicyRequest {
 			name = name == null ? null : name.trim();
 		}
 
-		public CancelPolicySaveCommand toCommand() {
-			List<CancelPolicySaveCommand.Rule> ruleCommands = rules.stream()
-				.map(rule -> new CancelPolicySaveCommand.Rule(
+		public CancelPolicyService.SaveCommand toCommand() {
+			List<CancelPolicyService.SaveCommand.Rule> ruleCommands = rules.stream()
+				.map(rule -> new CancelPolicyService.SaveCommand.Rule(
 					rule.daysFrom(), rule.daysTo(), rule.feeRate(), rule.cancelable()))
 				.toList();
-			return new CancelPolicySaveCommand(name, ruleCommands);
+			return new CancelPolicyService.SaveCommand(name, ruleCommands);
 		}
 	}
 

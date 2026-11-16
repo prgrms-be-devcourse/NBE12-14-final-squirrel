@@ -2,14 +2,14 @@ package com.squirrel.tickting.domain.performance.dto;
 
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
-import com.squirrel.tickting.domain.performance.service.CancelPolicyDetail;
+import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import lombok.Builder;
 
-public class CancelPolicyResponse {
+public class SellerCancelPolicyResponse {
 
-	private CancelPolicyResponse() {
+	private SellerCancelPolicyResponse() {
 	}
 
 	/** 취소 규정 목록의 한 줄. 공연 등록 때 고르는 용도라 구간은 넣지 않고, 구간은 상세에서 본다. */
@@ -36,7 +36,7 @@ public class CancelPolicyResponse {
 
 	/** 취소 규정 상세. 규정 생성·수정(SLR-21·22)도 이 모양으로 응답한다. */
 	@Builder
-	@Schema(name = "CancelPolicyDetail", description = "취소 규정 상세")
+	@Schema(name = "CancelPolicyService.Detail", description = "취소 규정 상세")
 	public record Detail(
 		@Schema(description = "취소 규정 번호")
 		Long cancelPolicyId,
@@ -48,7 +48,7 @@ public class CancelPolicyResponse {
 		List<Rule> rules
 	) {
 
-		public static Detail from(CancelPolicyDetail detail) {
+		public static Detail from(CancelPolicyService.Detail detail) {
 			CancelPolicy policy = detail.policy();
 			return Detail.builder()
 				.cancelPolicyId(policy.getId())

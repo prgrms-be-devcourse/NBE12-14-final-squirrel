@@ -45,10 +45,10 @@ public class CancelPolicyService {
 
 	/** 볼 수 있는 규정 하나와 그 구간들. 남의 규정·없는 규정은 getVisible 과 같은 404 다. */
 	@Transactional(readOnly = true)
-	public CancelPolicyDetail getVisibleDetail(Long cancelPolicyId, Long businessId) {
+	public Detail getVisibleDetail(Long cancelPolicyId, Long businessId) {
 		CancelPolicy policy = getVisible(cancelPolicyId, businessId);
 		List<CancelPolicyRule> rules = cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(policy.getId());
-		return new CancelPolicyDetail(policy, rules);
+		return new Detail(policy, rules);
 	}
 
 	/**
@@ -57,8 +57,8 @@ public class CancelPolicyService {
 	 * 아직 없어서 DB 관련 TODO 로 남겨 두었다.
 	 */
 	@Transactional
-	public CancelPolicyDetail create(Long businessId, CancelPolicySaveCommand command) {
-		List<CancelPolicySaveCommand.Rule> sorted = sortAndValidate(command.rules());
+	public Detail create(Long businessId, SaveCommand command) {
+		List<SaveCommand.Rule> sorted = sortAndValidate(command.rules());
 		if (cancelPolicyRepository.existsVisibleName(businessId, command.name())) {
 			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
 		}
@@ -77,7 +77,7 @@ public class CancelPolicyService {
 				.cancelable(rule.cancelable())
 				.build())
 			.toList());
-		return new CancelPolicyDetail(policy, rules);
+		return new Detail(policy, rules);
 	}
 
 	/**
@@ -85,12 +85,12 @@ public class CancelPolicyService {
 	 * 구간은 양끝 날짜를 포함하므로 이웃한 구간은 "다음 시작 = 앞 끝 + 1" 이어야 빈 날짜도 겹치는 날짜도 없다.
 	 * 입력 순서는 자유라 프론트가 정렬을 빠뜨려도 400 이 나지 않게 서버가 정렬한다.
 	 */
-	private List<CancelPolicySaveCommand.Rule> sortAndValidate(List<CancelPolicySaveCommand.Rule> rules) {
-		List<CancelPolicySaveCommand.Rule> sorted = rules.stream()
-			.sorted(Comparator.comparingInt(CancelPolicySaveCommand.Rule::daysFrom))
+	private List<SaveCommand.Rule> sortAndValidate(List<SaveCommand.Rule> rules) {
+		List<SaveCommand.Rule> sorted = rules.stream()
+			.sorted(Comparator.comparingInt(SaveCommand.Rule::daysFrom))
 			.toList();
 
-		for (CancelPolicySaveCommand.Rule rule : sorted) {
+		for (SaveCommand.Rule rule : sorted) {
 			if (rule.daysTo() != null && rule.daysTo() < rule.daysFrom()) {
 				throw rulesInvalid(RULE_REVERSED);
 			}
@@ -115,5 +115,33 @@ public class CancelPolicyService {
 
 	private BusinessException rulesInvalid(String message) {
 		return new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_RULES_INVALID, message);
+	}
+
+	/**
+	 * 취소 규정 상세 조회 결과. 규정 엔티티에는 구간 목록이 없어서 서비스 트랜잭션 안에서 구간을 함께 읽어 담는다.
+	 * 규정 생성·수정(SLR-21·22)도 같은 모양으로 응답하므로 이 결과를 다시 쓴다.
+	 */
+	public record Detail(
+		CancelPolicy policy,
+		List<CancelPolicyRule> rules
+	) {
+	}
+
+	/**
+	 * 취소 규정 생성·수정(SLR-21·22)에 넣는 값. 서비스가 요청 DTO(SellerCancelPolicyRequest)를 모르게 하려고 따로 둔다.
+	 * 사업체 번호는 요청이 아니라 토큰 값이라 서비스 메서드의 인자로 따로 받는다.
+	 */
+	public record SaveCommand(
+		String name,
+		List<Rule> rules
+	) {
+
+		public SaveCommand {
+			rules = List.copyOf(rules);
+		}
+
+		/** 구간 하나. 공연 daysFrom 일 전 이상 ~ daysTo 일 전 이하(양끝 포함), daysTo 가 null 이면 제한 없음 */
+		public record Rule(int daysFrom, Integer daysTo, int feeRate, boolean cancelable) {
+		}
 	}
 }

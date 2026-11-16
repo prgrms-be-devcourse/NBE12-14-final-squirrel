@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.performance.dto;
 
+import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
@@ -106,7 +107,7 @@ public class UserPerformanceResponse {
 		@Schema(description = "좌석 등급. 구역에 지정된 등급만, 비싼 순")
 		List<Grade> grades,
 		@Schema(description = "취소 규정 구간. 공연에서 먼 구간부터(daysFrom 큰 순)")
-		List<CancelPolicyResponse.Rule> cancelPolicy,
+		List<CancelRule> cancelPolicy,
 		@Schema(description = "모든 공연에 공통인 안내")
 		CommonGuide commonGuide,
 		@Schema(description = "판매자 정보. 사업체 정보가 없으면 null")
@@ -131,7 +132,7 @@ public class UserPerformanceResponse {
 				.sale(Sale.from(performance))
 				.schedules(detail.schedules().stream().map(Schedule::from).toList())
 				.grades(detail.grades().stream().map(Grade::from).toList())
-				.cancelPolicy(detail.cancelRules().stream().map(CancelPolicyResponse.Rule::from).toList())
+				.cancelPolicy(detail.cancelRules().stream().map(CancelRule::from).toList())
 				.commonGuide(CommonGuide.from(detail.commonGuides()))
 				.seller(seller == null ? null : Seller.from(seller))
 				.build();
@@ -246,6 +247,30 @@ public class UserPerformanceResponse {
 				.name(grade.getName())
 				.price(grade.getPrice())
 				.color(grade.getColor())
+				.build();
+		}
+	}
+
+	/** 취소 규정 구간. 판매자 응답과 모양이 같아도 따로 두어, 판매자 쪽 응답이 바뀌어도 예매자 응답이 함께 바뀌지 않게 한다. */
+	@Builder
+	@Schema(name = "UserPerformanceCancelRule", description = "취소 규정 구간")
+	public record CancelRule(
+		@Schema(description = "공연 며칠 전부터", example = "3")
+		Integer daysFrom,
+		@Schema(description = "공연 며칠 전까지. null 이면 제한 없음", example = "6")
+		Integer daysTo,
+		@Schema(description = "취소 수수료율(%)", example = "10")
+		Integer feeRate,
+		@Schema(description = "false 면 이 구간에는 취소할 수 없다")
+		boolean cancelable
+	) {
+
+		public static CancelRule from(CancelPolicyRule rule) {
+			return CancelRule.builder()
+				.daysFrom(rule.getDaysFrom())
+				.daysTo(rule.getDaysTo())
+				.feeRate(rule.getFeeRate())
+				.cancelable(rule.isCancelable())
 				.build();
 		}
 	}
