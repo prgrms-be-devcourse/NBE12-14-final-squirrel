@@ -1,10 +1,9 @@
 package com.squirrel.tickting.domain.performance.facade;
 
-import com.squirrel.tickting.domain.performance.dto.PerformanceResponse;
-import com.squirrel.tickting.domain.performance.service.PerformanceQueryService;
-import com.squirrel.tickting.domain.performance.service.PerformanceSummary;
+import com.squirrel.tickting.domain.performance.dto.UserPerformanceResponse;
+import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
-import com.squirrel.tickting.domain.performance.type.PerformanceSortType;
+import com.squirrel.tickting.domain.performance.type.UserPerformanceSortType;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import java.util.Map;
@@ -20,18 +19,18 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @RequiredArgsConstructor
-public class PerformanceFacade {
+public class UserPerformanceFacade {
 
-	private final PerformanceQueryService performanceQueryService;
+	private final UserPerformanceService userPerformanceService;
 	private final VenueService venueService;
 
 	/** 공연장은 공연마다 조회하지 않고, 한 페이지에 나온 공연장 번호 목록으로 한 번에 읽는다. */
-	public Page<PerformanceResponse.Summary> getList(Genre genre, PerformanceSortType sortType, Pageable pageable) {
-		Page<PerformanceSummary> page = performanceQueryService.getPublishedList(genre, sortType, pageable);
+	public Page<UserPerformanceResponse.Summary> getList(Genre genre, UserPerformanceSortType sortType, Pageable pageable) {
+		Page<UserPerformanceService.Summary> page =userPerformanceService.getPublishedList(genre, sortType, pageable);
 
 		Map<Long, Venue> venues = venueService.getVenues(
 			page.getContent().stream().map(summary -> summary.row().venueId()).distinct().toList());
 
-		return page.map(summary -> PerformanceResponse.Summary.from(summary, venues.get(summary.row().venueId())));
+		return page.map(summary -> UserPerformanceResponse.Summary.from(summary, venues.get(summary.row().venueId())));
 	}
 }

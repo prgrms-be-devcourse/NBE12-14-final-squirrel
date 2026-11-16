@@ -12,11 +12,11 @@ import org.springframework.data.jpa.domain.JpaSort;
  * 값이 같은 공연끼리 순서가 매번 바뀌면 페이지를 넘길 때 같은 공연이 두 번 나오거나 빠진다.
  * 그래서 모든 기준의 마지막에 공연 번호를 붙여 순서를 하나로 고정한다.
  *
- * 정렬 조건은 PerformanceQueryRepository.findPublished 쿼리의 별칭(p: 공연, s: 회차)을 쓴다.
+ * 정렬 조건은 UserPerformanceRepository.findPublished 쿼리의 별칭(p: 공연, s: 회차)을 쓴다.
  */
 @Getter
 @RequiredArgsConstructor
-public enum PerformanceSortType {
+public enum UserPerformanceSortType {
 
 	/**
 	 * 공연 임박순. "첫 회차"가 아니라 아직 시작하지 않은 회차 중 가장 빠른 일시를 본다.
