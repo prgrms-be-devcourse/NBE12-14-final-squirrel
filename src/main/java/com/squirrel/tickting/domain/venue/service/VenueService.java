@@ -8,6 +8,7 @@ import com.squirrel.tickting.domain.venue.type.VenueStatus;
 import com.squirrel.tickting.global.util.LikeUtil;
 import java.util.Collection;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -40,5 +41,15 @@ public class VenueService {
 	public Map<Long, String> getNames(Collection<Long> venueIds) {
 		return venueRepository.findAllById(venueIds).stream()
 			.collect(Collectors.toMap(Venue::getId, Venue::getName));
+	}
+
+	/**
+	 * 공연장 번호별 공연장. 예매자 공연 목록처럼 이름 말고 지역까지 필요한 곳에서 쓴다.
+	 * getNames 와 같이 사용 중지된 공연장도 포함하고, 번호 목록으로 한 번에 읽어 공연마다 조회하지 않게 한다.
+	 */
+	@Transactional(readOnly = true)
+	public Map<Long, Venue> getVenues(Collection<Long> venueIds) {
+		return venueRepository.findAllById(venueIds).stream()
+			.collect(Collectors.toMap(Venue::getId, Function.identity()));
 	}
 }
