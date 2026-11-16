@@ -17,9 +17,12 @@ import java.util.List;
 /** 판매자의 공연 요청. 등록(SLR-02)과 수정(SLR-03)이 같은 본문을 쓴다. */
 public class SellerPerformanceRequest {
 
-	/** 포스터와 상세 이미지 주소는 https 로 시작하고 공백이 없어야 한다. */
-	private static final String HTTPS_URL = "^https://\\S+$";
-	private static final String HTTPS_URL_MESSAGE = "이미지 주소는 https:// 로 시작하고 공백이 없어야 합니다.";
+	/**
+	 * 포스터와 상세 이미지 주소는 http 또는 https 로 시작하고 공백이 없어야 한다.
+	 * 화면이 그대로 이미지 주소로 쓰므로 javascript: 같은 값을 막는다. 내 정보 수정의 profileImg 와 같은 규칙이다.
+	 */
+	private static final String IMAGE_URL = "^https?://\\S+$";
+	private static final String IMAGE_URL_MESSAGE = "이미지 주소는 http 또는 https 주소로 입력해 주세요.";
 
 	private SellerPerformanceRequest() {
 	}
@@ -65,7 +68,7 @@ public class SellerPerformanceRequest {
 
 		@NotBlank(message = "포스터 주소를 입력해 주세요.")
 		@Size(max = 2048, message = "포스터 주소는 2048자 이하로 입력해 주세요.")
-		@Pattern(regexp = HTTPS_URL, message = HTTPS_URL_MESSAGE)
+		@Pattern(regexp = IMAGE_URL, message = IMAGE_URL_MESSAGE)
 		@Schema(description = "포스터 주소", example = "https://cdn.example.com/posters/12.jpg")
 		String posterUrl,
 
@@ -137,7 +140,7 @@ public class SellerPerformanceRequest {
 
 		@NotBlank(message = "이미지 주소를 입력해 주세요.")
 		@Size(max = 2048, message = "이미지 주소는 2048자 이하로 입력해 주세요.")
-		@Pattern(regexp = HTTPS_URL, message = HTTPS_URL_MESSAGE)
+		@Pattern(regexp = IMAGE_URL, message = IMAGE_URL_MESSAGE)
 		@Schema(description = "이미지 주소", example = "https://cdn.example.com/details/12-1.jpg")
 		String url,
 

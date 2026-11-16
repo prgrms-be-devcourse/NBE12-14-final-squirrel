@@ -1091,7 +1091,7 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 | `ageLimit` | 필수, 0~100 |
 | `runningTime` | 필수, 1~1440(분) |
 | `castInfo`, `notice`, `guide` | 선택, 길이 제한 없음, 줄바꿈 허용 |
-| `posterUrl` | 필수, `https://`로 시작하고 공백 없음, 2048자 이하 |
+| `posterUrl` | 필수, `http://` 또는 `https://`로 시작하고 공백 없음, 2048자 이하 |
 | `saleOpenAt`, `saleCloseAt` | 선택. 둘 다 있으면 종료가 오픈보다 늦어야 함(같은 시각도 400). 과거 시각인지는 공개(SLR-04)에서 봄 |
 | `maxPerPerson` | 선택, 1~5 (임시) |
 | `receiveType` | 선택, `ONSITE` / `DELIVERY` / `BOTH` |

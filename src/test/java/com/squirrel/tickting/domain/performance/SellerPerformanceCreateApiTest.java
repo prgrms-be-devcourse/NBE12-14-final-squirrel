@@ -292,10 +292,10 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("포스터·이미지 주소가 https 가 아니거나 공백을 품거나 2048자를 넘으면 400 이다")
+	@DisplayName("포스터·이미지 주소가 http(s) 가 아니거나 공백을 품거나 2048자를 넘으면 400 이다")
 	void urlFormat() throws Exception {
 		Long venueId = insertVenue("ACTIVE", 1);
-		for (String url : List.of("http://cdn.example.com/a.jpg", "https://cdn.example.com/a b.jpg",
+		for (String url : List.of("ftp://cdn.example.com/a.jpg", "javascript:alert(1)", "https://cdn.example.com/a b.jpg",
 			"https://" + "a".repeat(2041))) {
 			Map<String, Object> poster = requiredBody(venueId, defaultPolicyId());
 			poster.put("posterUrl", url);
@@ -306,6 +306,16 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 			expectBadRequest(image, "COMMON000");
 		}
 		assertThat(countPerformances()).isZero();
+	}
+
+	@Test
+	@DisplayName("포스터·이미지 주소는 http 주소도 받는다")
+	void httpUrlAccepted() throws Exception {
+		Long venueId = insertVenue("ACTIVE", 1);
+		Map<String, Object> body = requiredBody(venueId, defaultPolicyId());
+		body.put("posterUrl", "http://cdn.example.com/posters/12.jpg");
+		body.put("images", List.of(Map.of("url", "http://cdn.example.com/details/12-1.jpg", "sortOrder", 1)));
+		register(staffToken(), body).andExpect(status().isCreated());
 	}
 
 	@Test
