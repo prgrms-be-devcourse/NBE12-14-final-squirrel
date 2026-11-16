@@ -101,7 +101,7 @@
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 미구현 |
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
-| SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
+| SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 미구현 |
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
@@ -1645,9 +1645,14 @@ Query: `page`, `size`
 }
 ```
 
-### SLR-20 취소 규정 상세 — `GET /api/v1/seller/cancel-policies/{cancelPolicyId}`
+### SLR-20 취소 규정 상세 — `GET /api/v1/seller/cancel-policies/{cancelPolicyId}` (구현됨)
 
 기본 규정 또는 로그인한 사업체의 규정만 조회합니다.
+
+- 사업체 번호는 토큰에서 꺼냅니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 다른 사업체의 규정은 없는 규정과 같은 404입니다. (번호가 있는지 알려주지 않으려고)
+- `rules`는 저장 순서와 상관없이 `daysFrom`이 큰 순(공연에서 먼 구간부터)입니다. `daysTo`가 `null`이면 제한 없음, `cancelable`이 `false`면 그 구간에는 취소할 수 없습니다.
+- 수정할 수 있는지(`editable`)는 아직 응답에 없습니다. 규정 수정(SLR-22)을 구현할 때 목록·상세에 같이 넣습니다.
 
 **응답 200**
 
@@ -1669,6 +1674,13 @@ Query: `page`, `size`
   }
 }
 ```
+
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 규정 번호가 숫자가 아님 |
+| 404 | `PERFORMANCE100` | 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
 
 ### SLR-21 취소 규정 생성 — `POST /api/v1/seller/cancel-policies`
 

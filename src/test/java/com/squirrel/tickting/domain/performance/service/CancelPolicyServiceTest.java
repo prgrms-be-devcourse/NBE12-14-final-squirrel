@@ -2,13 +2,16 @@ package com.squirrel.tickting.domain.performance.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
+import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,5 +52,32 @@ class CancelPolicyServiceTest {
 		assertThatThrownBy(() -> cancelPolicyService.getVisible(20L, 7L))
 			.isInstanceOf(BusinessException.class)
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_NOT_FOUND);
+	}
+
+	@Test
+	@DisplayName("상세는 볼 수 있는 규정과 그 규정의 구간을 함께 돌려준다")
+	void detailReturnsPolicyWithRules() {
+		CancelPolicy mine = CancelPolicy.builder().id(10L).businessId(7L).name("내 규정").build();
+		List<CancelPolicyRule> rules = List.of(
+			CancelPolicyRule.builder().policy(mine).daysFrom(1).feeRate(0).cancelable(true).build(),
+			CancelPolicyRule.builder().policy(mine).daysFrom(0).daysTo(0).feeRate(0).cancelable(false).build());
+		when(cancelPolicyRepository.findVisible(10L, 7L)).thenReturn(Optional.of(mine));
+		when(cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(10L)).thenReturn(rules);
+
+		CancelPolicyDetail detail = cancelPolicyService.getVisibleDetail(10L, 7L);
+
+		assertThat(detail.policy()).isSameAs(mine);
+		assertThat(detail.rules()).isSameAs(rules);
+	}
+
+	@Test
+	@DisplayName("상세도 볼 수 없는 규정이면 404 PERFORMANCE100 이고 구간을 읽지 않는다")
+	void detailOfNotVisibleIsNotFound() {
+		when(cancelPolicyRepository.findVisible(20L, 7L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> cancelPolicyService.getVisibleDetail(20L, 7L))
+			.isInstanceOf(BusinessException.class)
+			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_NOT_FOUND);
+		verifyNoInteractions(cancelPolicyRuleRepository);
 	}
 }
