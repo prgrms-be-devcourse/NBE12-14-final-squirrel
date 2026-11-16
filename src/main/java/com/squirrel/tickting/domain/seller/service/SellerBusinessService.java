@@ -10,6 +10,7 @@ import com.squirrel.tickting.domain.seller.type.SellerRole;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.SellerExceptionCode;
 import com.squirrel.tickting.global.util.LikeUtil;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -41,6 +42,15 @@ public class SellerBusinessService {
 		SellerMember owner = sellerMemberRepository.findByBusinessIdAndRole(businessId, SellerRole.OWNER)
 			.orElse(null);
 		return new SellerBusinessDetail(business, owner);
+	}
+
+	/**
+	 * 사업체 하나. 없으면 비어서 돌아온다. (예외를 던지지 않는다)
+	 * 예매자 공연 상세의 판매자 정보처럼, 사업체 행이 없어도(논리 FK) 화면 전체가 실패하면 안 되는 곳에서 쓴다.
+	 */
+	@Transactional(readOnly = true)
+	public Optional<SellerBusiness> findBusiness(Long businessId) {
+		return sellerBusinessRepository.findById(businessId);
 	}
 
 	/**

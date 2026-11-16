@@ -73,7 +73,7 @@
 | AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 구현됨 |
 | AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
-| PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 미구현 |
+| PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 구현됨 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 미구현 |
@@ -553,7 +553,16 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`IMMINENT/LATEST/TITL
 
 **에러**: 400 `COMMON000` 없는 `genre`·`sort` 값
 
-### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개)
+### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개, 구현됨)
+
+- 공개(`PUBLISHED`)된 공연만 볼 수 있습니다. 작성 중·취소된 공연은 없는 공연과 같은 404입니다.
+- `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
+  - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
+  - 일시 중지(`PAUSED`)·연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다.
+- `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다.
+- `cancelPolicy`: 공연이 고른 취소 규정의 구간입니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
+- `venue`·`seller`는 정보가 없으면 `null`, `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다.
+- `seller`에는 사업체 상태·반려 사유·심사자와 판매자 계정 정보가 들어가지 않습니다. (3부 3-8)
 
 **응답 200**
 
@@ -648,7 +657,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`IMMINENT/LATEST/TITL
 }
 ```
 
-**에러**: 404 공연 없음 또는 `PUBLISHED`가 아님
+**에러**: 404 `PERFORMANCE000` 공연 없음 또는 `PUBLISHED`가 아님 · 400 `COMMON000` 공연 번호가 숫자가 아님
 
 ### PFM-03 구역 요약 — `GET /api/v1/schedules/{scheduleId}/zones` (공개)
 

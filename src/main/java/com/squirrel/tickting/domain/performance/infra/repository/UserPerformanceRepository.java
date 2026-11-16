@@ -1,9 +1,12 @@
 package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
+import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
@@ -72,6 +75,38 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 		@Param("now") LocalDateTime now,
 		Pageable pageable
 	);
+
+	/** 공개(PUBLISHED)된 공연 하나. 작성 중·취소된 공연은 없는 공연과 같게 비어서 돌아온다. */
+	@Query("""
+		SELECT p
+		FROM Performance p
+		WHERE p.id = :performanceId
+		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
+		""")
+	Optional<Performance> findPublishedById(@Param("performanceId") Long performanceId);
+
+	/** 판매 가능(AVAILABLE) 좌석이 하나라도 있는 회차 번호. 회차마다 따로 조회하지 않으려고 번호 목록으로 한 번에 찾는다. */
+	@Query("""
+		SELECT DISTINCT seat.scheduleId
+		FROM ScheduleSeat seat
+		WHERE seat.scheduleId IN :scheduleIds
+		  AND seat.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE
+		""")
+	List<Long> findScheduleIdsWithAvailableSeat(@Param("scheduleIds") Collection<Long> scheduleIds);
+
+	/**
+	 * 구역에 지정(ASSIGNED)된 등급. 어느 구역에도 붙지 않은 등급은 실제로 팔리지 않는 가격이라 보여 주지 않는다.
+	 * 여러 구역에 붙은 등급도 한 번만 나오고, 비싼 등급부터(가격이 같으면 번호순) 보여 준다.
+	 */
+	@Query("""
+		SELECT DISTINCT g
+		FROM ZoneGrade zg
+		JOIN zg.grade g
+		WHERE zg.performance.id = :performanceId
+		  AND zg.assignmentStatus = com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus.ASSIGNED
+		ORDER BY g.price DESC, g.id ASC
+		""")
+	List<SeatGrade> findAssignedGrades(@Param("performanceId") Long performanceId);
 
 	/**
 	 * 공연 목록 쿼리의 한 행. 엔티티를 통째로 읽으면 목록에 안 쓰는 긴 글(공지·안내)까지 읽어서, 필요한 값만 받는다.
