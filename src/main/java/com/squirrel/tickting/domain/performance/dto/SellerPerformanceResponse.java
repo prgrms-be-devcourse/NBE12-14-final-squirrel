@@ -19,6 +19,30 @@ public class SellerPerformanceResponse {
 	private SellerPerformanceResponse() {
 	}
 
+	/** 공연 등록 결과. 나머지 값은 판매자가 방금 보낸 값이라 번호와 상태만 돌려주고, 전체는 상세(SLR-06)에서 본다. */
+	@Builder
+	@Schema(name = "SellerPerformanceCreated", description = "공연 등록 결과")
+	public record Created(
+		@Schema(description = "공연 번호")
+		Long performanceId,
+		@Schema(description = "공연 상태. 등록 직후에는 항상 DRAFT", example = "DRAFT")
+		PerformanceStatus status,
+		@Schema(description = "공연장 번호")
+		Long venueId,
+		@Schema(description = "등록 일시")
+		LocalDateTime createdAt
+	) {
+
+		public static Created from(Performance performance) {
+			return Created.builder()
+				.performanceId(performance.getId())
+				.status(performance.getStatus())
+				.venueId(performance.getVenueId())
+				.createdAt(performance.getCreatedAt())
+				.build();
+		}
+	}
+
 	/** 내 공연 목록의 한 줄. 상세에서 보는 값은 넣지 않고 목록에서 고를 때 필요한 것만 둔다. */
 	@Builder
 	@Schema(name = "SellerPerformanceSummary", description = "내 공연 목록 항목")

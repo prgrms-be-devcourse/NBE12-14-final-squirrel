@@ -84,7 +84,7 @@
 | BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 미구현 |
 | BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 미구현 |
 | SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 구현됨 |
-| SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 미구현 |
+| SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 구현됨 |
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 미구현 |
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
 | SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
@@ -1027,7 +1027,7 @@ Query: `keyword`, `region`, `page`, `size`
 }
 ```
 
-### SLR-02 공연 등록 — `POST /api/v1/seller/performances`
+### SLR-02 공연 등록 — `POST /api/v1/seller/performances` (구현됨)
 
 `DRAFT`로 생성.
 
@@ -1077,7 +1077,36 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 }
 ```
 
-**에러**(코드 미정): 404 공연장 없음 · 400 사용 중지된 공연장 · 404 취소 규정 없음/접근 불가
+- 사업체 번호와 등록자는 본문으로 받지 않고 토큰에서 꺼냅니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 구역이 없는 공연장도 등록은 됩니다. (공개할 때 `ASSIGNED` 구역 1개 이상 조건에서 막힙니다)
+- 문자열은 앞뒤 공백을 지우고 저장합니다. 선택 입력(`castInfo`, `notice`, `guide`)이 공백뿐이면 비운(`null`) 것으로 저장합니다.
+
+**입력 규칙**
+
+| 필드 | 규칙 |
+| --- | --- |
+| `venueId`, `cancelPolicyId` | 필수 |
+| `title` | 필수, 공백만 불가, 200자 이하. 같은 이름의 공연을 여러 개 만들 수 있음 |
+| `genre` | 필수, `CONCERT` / `MUSICAL` / `PLAY` / `CLASSIC` / `ETC` (대문자 그대로) |
+| `ageLimit` | 필수, 0~100 |
+| `runningTime` | 필수, 1~1440(분) |
+| `castInfo`, `notice`, `guide` | 선택, 길이 제한 없음, 줄바꿈 허용 |
+| `posterUrl` | 필수, `http://` 또는 `https://`로 시작하고 공백 없음, 2048자 이하 |
+| `saleOpenAt`, `saleCloseAt` | 선택. 둘 다 있으면 종료가 오픈보다 늦어야 함(같은 시각도 400). 과거 시각인지는 공개(SLR-04)에서 봄 |
+| `maxPerPerson` | 선택, 1~5 (임시) |
+| `receiveType` | 선택, `ONSITE` / `DELIVERY` / `BOTH` |
+| `bookingFee` | 선택, 0~10,000원 (임시) |
+| `images` | 선택(없거나 빈 배열이면 이미지 없이 저장), 장수 제한 없음(임시). `url`은 포스터와 같은 규칙, `sortOrder`는 필수·0 이상·같은 요청 안에서 겹치면 안 됨 |
+
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 입력 규칙 위반, 정해지지 않은 장르·수령 방법, 이미지 순서값 중복 |
+| 400 | `PERFORMANCE001` | 판매 종료가 판매 오픈보다 늦지 않음 |
+| 400 | `VENUE001` | 사용 중지된 공연장 |
+| 404 | `VENUE000` | 공연장 없음 |
+| 404 | `PERFORMANCE100` | 취소 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
 
 ### SLR-03 공연 수정 — `PUT /api/v1/seller/performances/{performanceId}`
 
