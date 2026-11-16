@@ -23,7 +23,14 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  *
  * @Component 로 등록하지 않는다. 등록하면 서블릿 필터로 한 번 더 실행된다.
  * SecurityConfig 에서 직접 만들어 시큐리티 필터 체인에만 넣는다.
+ *
+ * JWT 방식(v1). 새 코드는 Redis 세션 방식(v2)을 쓴다. 이 클래스를 새로 사용하면 빌드가 실패한다.
+ * 기존 v1 코드에서 쓰는 곳에는 @SuppressWarnings("removal") 로 허용한 표시가 있다.
+ *
+ * @deprecated v2(Redis 세션) 도입으로 쓰지 않는다. v1 을 없애는 날 함께 지운다.
  */
+@Deprecated(since = "2026-11-14", forRemoval = true)
+@SuppressWarnings("removal")
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private static final String BEARER_PREFIX = "Bearer ";

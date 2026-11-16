@@ -6,7 +6,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * application.yaml 의 jwt.* 설정.
  * secret 은 HS 서명용이라 32바이트 이상이어야 한다. (짧으면 앱이 뜨지 않는다)
+ *
+ * JWT 방식(v1). 새 코드는 Redis 세션 방식(v2)을 쓴다. 이 클래스를 새로 사용하면 빌드가 실패한다.
+ * 기존 v1 코드에서 쓰는 곳에는 @SuppressWarnings("removal") 로 허용한 표시가 있다.
+ *
+ * @deprecated v2(Redis 세션) 도입으로 쓰지 않는다. v1 을 없애는 날 함께 지운다.
  */
+@Deprecated(since = "2026-11-14", forRemoval = true)
 @ConfigurationProperties(prefix = "jwt")
 public record JwtProperties(
 	String secret,

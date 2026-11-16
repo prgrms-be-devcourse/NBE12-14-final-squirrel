@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
  * SameSite 를 지정하려고 jakarta Cookie 대신 Spring ResponseCookie 를 쓴다.
  * 액세스 토큰은 쿠키가 아니라 응답 본문으로 내리고, 요청 헤더(Authorization)로 받는다.
  */
+// v1(JWT) 리프레시 쿠키용이라 JwtProperties(@Deprecated)를 쓰는 것을 허용한다.
+@SuppressWarnings("removal")
 @Component
 @RequiredArgsConstructor
 public class CookieUtil {

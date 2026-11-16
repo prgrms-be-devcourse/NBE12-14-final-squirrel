@@ -25,7 +25,14 @@ import org.springframework.stereotype.Component;
  *  - kind: access 또는 refresh. refresh 토큰으로 API 를 호출하거나 그 반대가 되지 않게 구분한다.
  *
  * 검증에 실패하면 BusinessException(AuthExceptionCode)을 던진다.
+ *
+ * JWT 방식(v1). 새 코드는 Redis 세션 방식(v2)을 쓴다. 이 클래스를 새로 사용하면 빌드가 실패한다.
+ * 기존 v1 코드에서 쓰는 곳에는 @SuppressWarnings("removal") 로 허용한 표시가 있다.
+ *
+ * @deprecated v2(Redis 세션) 도입으로 쓰지 않는다. v1 을 없애는 날 함께 지운다.
  */
+@Deprecated(since = "2026-11-14", forRemoval = true)
+@SuppressWarnings("removal")
 @Component
 public class JwtProvider {
 

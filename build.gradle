@@ -52,3 +52,9 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+// @Deprecated(forRemoval = true) 로 표시한 코드(JWT v1 전용 클래스 등)를 새로 쓰면 빌드가 실패하게 한다.
+// 기존에 쓰던 곳은 @SuppressWarnings("removal") 로 허용한 표시를 남겼다. 테스트 코드는 경고만 나온다.
+tasks.named('compileJava') {
+	options.compilerArgs += ['-Xlint:removal', '-Werror']
+}
