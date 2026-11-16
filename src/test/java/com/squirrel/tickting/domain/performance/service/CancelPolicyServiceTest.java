@@ -13,9 +13,9 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
+import com.squirrel.tickting.domain.performance.service.CancelPolicyService.SaveCommand.Rule;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
-import com.squirrel.tickting.domain.performance.service.CancelPolicySaveCommand.Rule;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -76,7 +76,7 @@ class CancelPolicyServiceTest {
 		when(cancelPolicyRepository.findVisible(10L, 7L)).thenReturn(Optional.of(mine));
 		when(cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(10L)).thenReturn(rules);
 
-		CancelPolicyDetail detail = cancelPolicyService.getVisibleDetail(10L, 7L);
+		CancelPolicyService.Detail detail = cancelPolicyService.getVisibleDetail(10L, 7L);
 
 		assertThat(detail.policy()).isSameAs(mine);
 		assertThat(detail.rules()).isSameAs(rules);
@@ -108,10 +108,10 @@ class CancelPolicyServiceTest {
 	@DisplayName("생성하면 토큰의 사업체 규정으로 저장하고, 구간은 입력 순서와 상관없이 공연에서 먼 구간부터 돌려준다")
 	void createSortsRulesFarthestFirst() {
 		saveReturnsArgument();
-		CancelPolicySaveCommand command = new CancelPolicySaveCommand("내 규정",
+		CancelPolicyService.SaveCommand command = new CancelPolicyService.SaveCommand("내 규정",
 			List.of(rule(1, 2), new Rule(7, null, 0, true), new Rule(0, 0, 0, false), new Rule(3, 6, 10, true)));
 
-		CancelPolicyDetail detail = cancelPolicyService.create(7L, command);
+		CancelPolicyService.Detail detail = cancelPolicyService.create(7L, command);
 
 		assertThat(detail.policy().getBusinessId()).isEqualTo(7L);
 		assertThat(detail.policy().getName()).isEqualTo("내 규정");
@@ -126,10 +126,10 @@ class CancelPolicyServiceTest {
 	@DisplayName("하루짜리 구간(양끝 포함)과 모든 구간이 취소 불가인 규정도 만들 수 있다")
 	void createAllowsOneDayRulesAndAllNotCancelable() {
 		saveReturnsArgument();
-		CancelPolicySaveCommand command = new CancelPolicySaveCommand("취소 불가 규정",
+		CancelPolicyService.SaveCommand command = new CancelPolicyService.SaveCommand("취소 불가 규정",
 			List.of(new Rule(0, 0, 0, false), new Rule(1, 1, 0, false), new Rule(2, null, 0, false)));
 
-		CancelPolicyDetail detail = cancelPolicyService.create(7L, command);
+		CancelPolicyService.Detail detail = cancelPolicyService.create(7L, command);
 
 		assertThat(detail.rules()).extracting(CancelPolicyRule::getDaysFrom).containsExactly(2, 1, 0);
 	}
@@ -139,7 +139,7 @@ class CancelPolicyServiceTest {
 	void createAllowsSingleUnlimitedRule() {
 		saveReturnsArgument();
 
-		CancelPolicyDetail detail = cancelPolicyService.create(7L, new CancelPolicySaveCommand("한 구간", List.of(rule(0, null))));
+		CancelPolicyService.Detail detail = cancelPolicyService.create(7L, new CancelPolicyService.SaveCommand("한 구간", List.of(rule(0, null))));
 
 		assertThat(detail.rules()).hasSize(1);
 	}
@@ -162,7 +162,7 @@ class CancelPolicyServiceTest {
 	@MethodSource("invalidRules")
 	@DisplayName("구간끼리의 규칙을 어기면 400 PERFORMANCE101 이고 이유는 메시지로 알려 주며, 이름 확인과 저장은 하지 않는다")
 	void invalidRulesAreRejectedBeforeNameCheck(String reason, List<Rule> rules, String message) {
-		assertThatThrownBy(() -> cancelPolicyService.create(7L, new CancelPolicySaveCommand("내 규정", rules)))
+		assertThatThrownBy(() -> cancelPolicyService.create(7L, new CancelPolicyService.SaveCommand("내 규정", rules)))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage(message)
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_RULES_INVALID);
@@ -175,7 +175,7 @@ class CancelPolicyServiceTest {
 		when(cancelPolicyRepository.existsVisibleName(7L, "기본 규정")).thenReturn(true);
 
 		assertThatThrownBy(() -> cancelPolicyService.create(7L,
-			new CancelPolicySaveCommand("기본 규정", List.of(rule(0, null)))))
+			new CancelPolicyService.SaveCommand("기본 규정", List.of(rule(0, null)))))
 			.isInstanceOf(BusinessException.class)
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
 		verify(cancelPolicyRepository, never()).save(any());
