@@ -11,10 +11,10 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 /**
- * 예매자 화면용 공연 조회. 판매자 쪽 PerformanceRepository 와 나눈 것은, 같은 파일을 두 사람이 동시에 고치면 충돌이 나기 때문이다.
+ * 예매자(User) 화면용 공연 조회. 공연 도메인을 판매자와 함께 쓰므로, 같은 파일을 동시에 고치지 않게 역할 이름을 붙여 나눈다.
  * 저장·삭제는 하지 않으므로 JpaRepository 가 아니라 Repository 를 상속해 조회 메서드만 연다.
  */
-public interface PerformanceQueryRepository extends Repository<Performance, Long> {
+public interface UserPerformanceRepository extends Repository<Performance, Long> {
 
 	/**
 	 * 공개(PUBLISHED)된 공연 목록. 회차·판매 좌석은 같은 공연 도메인이라 한 쿼리로 모으고, 공연장은 읽지 않는다.
@@ -23,12 +23,13 @@ public interface PerformanceQueryRepository extends Repository<Performance, Long
 	 *   - 매진 판단은 아직 시작하지 않은 회차의 AVAILABLE 좌석만 본다. 임시 점유(HELD)만 남았으면 지금은 살 수 없으니 매진이고,
 	 *     점유가 풀려 AVAILABLE 로 돌아오면 다음 조회부터 다시 판매 중이 된다. (상태를 저장하지 않고 계산하므로 따로 되돌릴 일이 없다)
 	 *   - genres: 장르를 고르지 않으면 호출하는 쪽이 모든 장르를 넘긴다. (PostgreSQL 에서 null 파라미터가 타입 오류를 내는 것을 피하려고)
-	 *   - 정렬은 pageable 의 Sort 로 붙인다. 정렬 조건은 PerformanceSortType 에만 있고, 이 쿼리의 별칭 p, s 와 :now 를 쓴다.
+	 *   - 정렬은 pageable 의 Sort 로 붙인다. 정렬 조건은 UserPerformanceSortType 에만 있고, 이 쿼리의 별칭 p, s 와 :now 를 쓴다.
 	 *
 	 * GROUP BY 는 공연 번호만 적는다. PostgreSQL 은 기본키로 묶으면 같은 행의 다른 컬럼을 그대로 읽게 해 준다.
+	 * 결과 record 가 이 인터페이스 안에 있어서 SELECT new 에는 점(.)이 아니라 $ 로 적는다. (Hibernate 가 클래스를 실제 이름으로 찾는다)
 	 */
 	@Query(value = """
-		SELECT new com.squirrel.tickting.domain.performance.infra.repository.PerformanceSummaryRow(
+		SELECT new com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository$SummaryRow(
 		         p.id, p.title, p.genre, p.posterUrl, p.ageLimit, p.venueId,
 		         MIN(s.startAt), MAX(s.startAt),
 		         p.saleOpenAt, p.saleCloseAt,
@@ -55,9 +56,32 @@ public interface PerformanceQueryRepository extends Repository<Performance, Long
 			WHERE p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
 			  AND p.genre IN :genres
 			""")
-	Page<PerformanceSummaryRow> findPublished(
+	Page<SummaryRow> findPublished(
 		@Param("genres") Collection<Genre> genres,
 		@Param("now") LocalDateTime now,
 		Pageable pageable
 	);
+
+	/**
+	 * 공연 목록 쿼리의 한 행. 엔티티를 통째로 읽으면 목록에 안 쓰는 긴 글(공지·안내)까지 읽어서, 필요한 값만 받는다.
+	 * 공연장은 다른 도메인이라 번호(venueId)만 담고, 이름·지역은 파사드가 공연장 서비스에서 받아 붙인다.
+	 *
+	 * @param firstStartAt     취소되지 않은 회차 중 가장 이른 공연 일시. 회차가 없으면 null
+	 * @param lastStartAt      취소되지 않은 회차 중 가장 늦은 공연 일시. 회차가 없으면 null
+	 * @param hasAvailableSeat 아직 시작하지 않은 회차에 판매 가능 좌석이 하나라도 있는지 (매진 판단용)
+	 */
+	record SummaryRow(
+		Long performanceId,
+		String title,
+		Genre genre,
+		String posterUrl,
+		Integer ageLimit,
+		Long venueId,
+		LocalDateTime firstStartAt,
+		LocalDateTime lastStartAt,
+		LocalDateTime saleOpenAt,
+		LocalDateTime saleCloseAt,
+		boolean hasAvailableSeat
+	) {
+	}
 }
