@@ -1,7 +1,7 @@
 package com.squirrel.tickting.domain.performance.dto;
 
-import com.squirrel.tickting.domain.performance.infra.repository.PerformanceSummaryRow;
-import com.squirrel.tickting.domain.performance.service.PerformanceSummary;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository;
+import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.SaleStatus;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
@@ -9,14 +9,14 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import lombok.Builder;
 
-public class PerformanceResponse {
+public class UserPerformanceResponse {
 
-	private PerformanceResponse() {
+	private UserPerformanceResponse() {
 	}
 
 	/** 공연 목록의 한 항목. (API 명세 PFM-01) 판매 종료 시각은 판매 상태 계산에만 쓰고 내리지 않는다. */
 	@Builder
-	@Schema(name = "PerformanceSummary", description = "공연 목록 항목")
+	@Schema(name = "UserPerformanceSummary", description = "공연 목록 항목")
 	public record Summary(
 		@Schema(description = "공연 번호")
 		Long performanceId,
@@ -46,8 +46,8 @@ public class PerformanceResponse {
 		 * 공연장은 논리 FK 라 DB 가 존재를 보장하지 않는다. 공연장 행이 없어도 목록 전체가 실패하지 않도록
 		 * 이름·지역만 비우고(null) 나머지는 그대로 보여 준다.
 		 */
-		public static Summary from(PerformanceSummary summary, Venue venue) {
-			PerformanceSummaryRow row = summary.row();
+		public static Summary from(UserPerformanceService.Summary summary, Venue venue) {
+			UserPerformanceRepository.SummaryRow row = summary.row();
 			return Summary.builder()
 				.performanceId(row.performanceId())
 				.title(row.title())

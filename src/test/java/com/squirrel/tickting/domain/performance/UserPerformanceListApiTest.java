@@ -21,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
  * MockMvc 는 테스트와 같은 스레드에서 돌아서, 요청도 이 테스트의 트랜잭션 안에서 실행되고 넣은 데이터를 읽는다.
  */
 @Transactional
-class PerformanceListApiTest extends IntegrationTestSupport {
+class UserPerformanceListApiTest extends IntegrationTestSupport {
 
 	private static final String URL = "/api/v1/performances";
 
