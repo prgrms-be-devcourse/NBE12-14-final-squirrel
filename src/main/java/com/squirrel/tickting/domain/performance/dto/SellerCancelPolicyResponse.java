@@ -21,22 +21,26 @@ public class SellerCancelPolicyResponse {
 		@Schema(description = "규정명", example = "기본 규정")
 		String name,
 		@Schema(description = "서비스 기본 규정이면 true. 기본 규정은 예시로만 보여 주며 수정할 수 없다")
-		boolean isDefault
+		boolean isDefault,
+		@Schema(description = "지금 수정(SLR-22)할 수 있으면 true. 기본 규정과 공개·취소된 공연이 쓰는 규정은 false. 조회 시점의 안내라 수정할 때 서버가 다시 확인한다")
+		boolean editable
 	) {
 
-		public static Summary from(CancelPolicy policy) {
+		public static Summary from(CancelPolicyService.Summary summary) {
+			CancelPolicy policy = summary.policy();
 			return Summary.builder()
 				.cancelPolicyId(policy.getId())
 				.name(policy.getName())
 				// 사업체 번호가 비어 있는 규정이 서비스 기본 규정이다.
 				.isDefault(policy.getBusinessId() == null)
+				.editable(summary.editable())
 				.build();
 		}
 	}
 
 	/** 취소 규정 상세. 규정 생성·수정(SLR-21·22)도 이 모양으로 응답한다. */
 	@Builder
-	@Schema(name = "CancelPolicyService.Detail", description = "취소 규정 상세")
+	@Schema(name = "CancelPolicyDetail", description = "취소 규정 상세")
 	public record Detail(
 		@Schema(description = "취소 규정 번호")
 		Long cancelPolicyId,
@@ -44,6 +48,8 @@ public class SellerCancelPolicyResponse {
 		String name,
 		@Schema(description = "서비스 기본 규정이면 true. 기본 규정은 예시로만 보여 주며 수정할 수 없다")
 		boolean isDefault,
+		@Schema(description = "지금 수정(SLR-22)할 수 있으면 true. 기본 규정과 공개·취소된 공연이 쓰는 규정은 false. 조회 시점의 안내라 수정할 때 서버가 다시 확인한다")
+		boolean editable,
 		@Schema(description = "구간. 공연에서 먼 구간부터(daysFrom 큰 순)")
 		List<Rule> rules
 	) {
@@ -54,6 +60,7 @@ public class SellerCancelPolicyResponse {
 				.cancelPolicyId(policy.getId())
 				.name(policy.getName())
 				.isDefault(policy.getBusinessId() == null)
+				.editable(detail.editable())
 				.rules(detail.rules().stream().map(Rule::from).toList())
 				.build();
 		}

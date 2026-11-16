@@ -19,6 +19,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,7 +39,8 @@ public class SellerCancelPolicyController {
 	/** 사업체 번호를 경로나 쿼리로 받지 않고 토큰에서 꺼낸다. 받으면 남의 사업체 번호를 넣어 볼 수 있기 때문이다. */
 	@Operation(summary = "취소 규정 목록",
 		description = "서비스 기본 규정과 로그인한 판매자 사업체의 규정 목록이다. 기본 규정이 첫 페이지 맨 앞에 나오고 "
-			+ "내 규정은 최신순이다(정렬은 고정). 한 번에 최대 20개까지 준다. 판매자 토큰만 쓸 수 있다.")
+			+ "내 규정은 최신순이다(정렬은 고정). 한 번에 최대 20개까지 주고, 항목마다 지금 수정할 수 있는지(editable)를 준다. "
+			+ "판매자 토큰만 쓸 수 있다.")
 	@GetMapping
 	public ResponseEntity<ApiResponse<PageResponse<SellerCancelPolicyResponse.Summary>>> list(
 		@AuthenticationPrincipal CustomUserDetails account,
@@ -78,5 +80,20 @@ public class SellerCancelPolicyController {
 		CancelPolicyService.Detail created = cancelPolicyService.create(account.getBusinessId(), request.toCommand());
 		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(created);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "취소 규정 수정",
+		description = "로그인한 판매자 사업체 규정의 이름과 구간을 전체 교체한다. 기본 규정과, 공개되었거나 취소된 공연이 쓰는 규정은 "
+			+ "수정할 수 없다(409). 다른 사업체의 규정은 없는 규정과 같은 404다. 판매자 토큰만 쓸 수 있다.")
+	@PutMapping("/{cancelPolicyId}")
+	public ResponseEntity<ApiResponse<SellerCancelPolicyResponse.Detail>> update(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long cancelPolicyId,
+		@Valid @RequestBody SellerCancelPolicyRequest.Save request
+	) {
+		CancelPolicyService.Detail updated = cancelPolicyService.update(cancelPolicyId, account.getBusinessId(),
+			request.toCommand());
+		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(updated);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

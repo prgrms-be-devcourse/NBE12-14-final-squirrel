@@ -96,10 +96,11 @@ class SellerCancelPolicyCreateApiTest extends IntegrationTestSupport {
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.data.name").value("공연장 자체 규정"))
 			.andExpect(jsonPath("$.data.isDefault").value(false))
+			.andExpect(jsonPath("$.data.editable").value(true))
 			.andReturn().getResponse().getContentAsString();
 
 		Map<String, Object> data = JsonPath.read(response, "$.data");
-		assertThat(data.keySet()).containsExactlyInAnyOrder("cancelPolicyId", "name", "isDefault", "rules");
+		assertThat(data.keySet()).containsExactlyInAnyOrder("cancelPolicyId", "name", "isDefault", "editable", "rules");
 		List<Integer> daysFrom = JsonPath.read(response, "$.data.rules[*].daysFrom");
 		assertThat(daysFrom).containsExactly(7, 3, 1, 0);
 		Map<String, Object> sameDay = JsonPath.read(response, "$.data.rules[3]");

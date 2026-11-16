@@ -76,8 +76,9 @@ class SellerCancelPolicyListApiTest extends IntegrationTestSupport {
 		Map<String, Object> first = JsonPath.read(body, "$.data.content[0]");
 
 		assertThat(names(result)).containsExactly(DEFAULT_POLICY, "나중에 만든 규정", "먼저 만든 규정");
-		assertThat(first.keySet()).containsExactlyInAnyOrder("cancelPolicyId", "name", "isDefault");
+		assertThat(first.keySet()).containsExactlyInAnyOrder("cancelPolicyId", "name", "isDefault", "editable");
 		assertThat(first.get("isDefault")).isEqualTo(true);
+		assertThat(first.get("editable")).isEqualTo(false);
 		assertThat(JsonPath.<Boolean>read(body, "$.data.content[1].isDefault")).isFalse();
 		assertThat(JsonPath.<Integer>read(body, "$.data.totalElements")).isEqualTo(3);
 	}

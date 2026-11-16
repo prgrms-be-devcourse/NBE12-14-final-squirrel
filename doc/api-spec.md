@@ -102,7 +102,7 @@
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 구현됨 |
-| SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
+| SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -1634,6 +1634,7 @@ Query: `page`, `size`
 - 기본 규정이 첫 페이지 맨 앞에 나오고, 내 규정은 번호가 큰(최신) 순입니다. 정렬은 고정이라 `sort`를 보내도 무시합니다. 기본 규정도 목록의 한 항목이라 `totalElements`에 포함됩니다.
 - 기본·최대 크기는 20입니다. 크기가 20을 넘으면 에러가 아니라 20으로 줄어들고, 크기 0은 기본값으로 처리됩니다.
 - 구간(`rules`)은 목록에 넣지 않고 상세(SLR-20)에서 줍니다.
+- `editable`은 지금 이 규정을 수정(SLR-22)할 수 있는지입니다. 기본 규정과, 공개(`PUBLISHED`)·취소(`CANCELED`)된 공연이 쓰는 규정은 `false`입니다. 조회한 시점의 안내라서, 그사이 공연이 공개되면 수정할 때 409가 날 수 있습니다.
 
 **응답 200**
 
@@ -1644,8 +1645,8 @@ Query: `page`, `size`
   "message": "",
   "data": {
     "content": [
-      { "cancelPolicyId": 1, "name": "기본 규정", "isDefault": true },
-      { "cancelPolicyId": 8, "name": "공연장 자체 규정", "isDefault": false }
+      { "cancelPolicyId": 1, "name": "기본 규정", "isDefault": true, "editable": false },
+      { "cancelPolicyId": 8, "name": "공연장 자체 규정", "isDefault": false, "editable": true }
     ],
     "page": 0,
     "size": 20,
@@ -1662,7 +1663,7 @@ Query: `page`, `size`
 - 사업체 번호는 토큰에서 꺼냅니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
 - 다른 사업체의 규정은 없는 규정과 같은 404입니다. (번호가 있는지 알려주지 않으려고)
 - `rules`는 저장 순서와 상관없이 `daysFrom`이 큰 순(공연에서 먼 구간부터)입니다. `daysTo`가 `null`이면 제한 없음, `cancelable`이 `false`면 그 구간에는 취소할 수 없습니다.
-- 수정할 수 있는지(`editable`)는 아직 응답에 없습니다. 규정 수정(SLR-22)을 구현할 때 목록·상세에 같이 넣습니다.
+- `editable`은 목록(SLR-19)과 같은 기준으로 지금 수정할 수 있는지를 알려 줍니다.
 
 **응답 200**
 
@@ -1675,6 +1676,7 @@ Query: `page`, `size`
     "cancelPolicyId": 8,
     "name": "공연장 자체 규정",
     "isDefault": false,
+    "editable": true,
     "rules": [
       { "daysFrom": 7, "daysTo": null, "feeRate": 0, "cancelable": true },
       { "daysFrom": 3, "daysTo": 6, "feeRate": 10, "cancelable": true },
@@ -1742,13 +1744,27 @@ Query: `page`, `size`
 | 400 | `PERFORMANCE101` | 구간끼리의 규칙 위반 (이유는 메시지로 구분) |
 | 409 | `PERFORMANCE104` | 같은 사업체에 같은 이름의 규정이 있음, 또는 기본 규정과 같은 이름 |
 
-### SLR-22 취소 규정 수정 — `PUT /api/v1/seller/cancel-policies/{cancelPolicyId}`
+### SLR-22 취소 규정 수정 — `PUT /api/v1/seller/cancel-policies/{cancelPolicyId}` (구현됨)
 
-요청은 SLR-21과 같은 필드이며, 이름과 규정 구간을 전체 교체합니다. 로그인한 사업체 소유 규정만 수정할 수 있습니다. 기본 규정과 `PUBLISHED` 공연에 적용 중인 규정은 수정할 수 없습니다. 삭제 API는 이번 범위에서 제공하지 않습니다.
+요청은 SLR-21과 같은 필드와 규칙이며, 이름과 규정 구간을 전체 교체합니다. 로그인한 사업체 소유 규정만 수정할 수 있습니다. 기본 규정과, 공개(`PUBLISHED`)되었거나 취소(`CANCELED`)된 공연에 적용 중인 규정은 수정할 수 없습니다. 작성 중(`DRAFT`) 공연만 쓰는 규정은 수정할 수 있고, 그 공연들에는 바뀐 내용이 적용됩니다. 삭제 API는 이번 범위에서 제공하지 않습니다.
 
-**응답 200**: SLR-20 상세 응답과 같은 형태
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 취소된 공연이 쓰는 규정도 잠그는 이유: 판매자가 "그 공연에서 어떤 기준으로 수수료를 뗐는지" 볼 수 있는 곳은 공연의 규정뿐이라, 취소 뒤에 규정이 바뀌면 화면이 실제 기준과 달라지기 때문입니다. 잠긴 규정도 공연 등록(SLR-02)에서 계속 고를 수 있고, 내용을 바꾸려면 새 규정을 만듭니다.
+- 이름은 자기 자신과는 겹쳐도 됩니다. (같은 이름으로 다시 보내거나 대소문자만 바꿔도 200)
+- 같은 값으로 보내도 200입니다.
 
-**에러**(코드 미정): 404 규정 없음/다른 사업체 소유 · 409 기본 규정 또는 공개 공연에 적용 중인 규정
+**응답 200**: SLR-20 상세 응답과 같은 형태 (`editable`은 `true`)
+
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 입력 규칙 위반(SLR-21과 같음), 규정 번호가 숫자가 아님 |
+| 400 | `PERFORMANCE101` | 구간끼리의 규칙 위반 (SLR-21과 같음) |
+| 404 | `PERFORMANCE100` | 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
+| 409 | `PERFORMANCE102` | 서비스 기본 규정 |
+| 409 | `PERFORMANCE103` | 공개되었거나 취소된 공연이 쓰는 규정 |
+| 409 | `PERFORMANCE104` | 같은 사업체의 다른 규정이나 기본 규정과 같은 이름 |
 
 ## 5. 관리자 (`/api/v1/admin/**`)
 
