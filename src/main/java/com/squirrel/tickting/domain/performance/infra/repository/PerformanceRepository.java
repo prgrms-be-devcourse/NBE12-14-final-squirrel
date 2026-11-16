@@ -3,6 +3,7 @@ package com.squirrel.tickting.domain.performance.infra.repository;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -38,5 +39,32 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 		@Param("businessId") Long businessId,
 		@Param("statuses") Collection<PerformanceStatus> statuses,
 		Pageable pageable
+	);
+
+	/** 이 취소 규정을 쓰는 공연 중에 주어진 상태가 있는가. 규정 수정(SLR-22)의 잠금 검사와 상세의 editable 계산에 쓴다. */
+	@Query("""
+		SELECT COUNT(p) > 0
+		FROM Performance p
+		WHERE p.cancelPolicy.id = :cancelPolicyId
+		  AND p.status IN :statuses
+		""")
+	boolean existsByCancelPolicyAndStatuses(
+		@Param("cancelPolicyId") Long cancelPolicyId,
+		@Param("statuses") Collection<PerformanceStatus> statuses
+	);
+
+	/**
+	 * 주어진 규정들 중에 주어진 상태의 공연이 쓰는 규정 번호. 규정 목록의 editable 을 한 페이지에 쿼리 한 번으로 계산한다.
+	 * 규정마다 따로 묻지 않으려는 것이고, 조건은 existsByCancelPolicyAndStatuses 와 같아야 한다.
+	 */
+	@Query("""
+		SELECT DISTINCT p.cancelPolicy.id
+		FROM Performance p
+		WHERE p.cancelPolicy.id IN :cancelPolicyIds
+		  AND p.status IN :statuses
+		""")
+	List<Long> findCancelPolicyIdsInUse(
+		@Param("cancelPolicyIds") Collection<Long> cancelPolicyIds,
+		@Param("statuses") Collection<PerformanceStatus> statuses
 	);
 }

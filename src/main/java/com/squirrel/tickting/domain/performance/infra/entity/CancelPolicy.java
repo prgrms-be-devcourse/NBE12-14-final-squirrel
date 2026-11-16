@@ -35,4 +35,9 @@ public class CancelPolicy extends CreatedTimeEntity {
 
 	@Column(nullable = false, length = 100)
 	private String name;
+
+	/** 규정 수정(SLR-22). 구간은 따로 지우고 새로 저장하므로 여기서는 이름만 바꾼다. */
+	public void rename(String name) {
+		this.name = name;
+	}
 }

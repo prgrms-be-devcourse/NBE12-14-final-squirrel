@@ -77,10 +77,11 @@ class SellerCancelPolicyDetailApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.data.cancelPolicyId").value(policyId))
 			.andExpect(jsonPath("$.data.name").value("공연장 자체 규정"))
 			.andExpect(jsonPath("$.data.isDefault").value(false))
+			.andExpect(jsonPath("$.data.editable").value(true))
 			.andReturn().getResponse().getContentAsString();
 
 		Map<String, Object> data = JsonPath.read(body, "$.data");
-		assertThat(data.keySet()).containsExactlyInAnyOrder("cancelPolicyId", "name", "isDefault", "rules");
+		assertThat(data.keySet()).containsExactlyInAnyOrder("cancelPolicyId", "name", "isDefault", "editable", "rules");
 		List<Integer> daysFrom = JsonPath.read(body, "$.data.rules[*].daysFrom");
 		assertThat(daysFrom).containsExactly(7, 1, 0);
 
@@ -97,6 +98,7 @@ class SellerCancelPolicyDetailApiTest extends IntegrationTestSupport {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.name").value("기본 규정"))
 			.andExpect(jsonPath("$.data.isDefault").value(true))
+			.andExpect(jsonPath("$.data.editable").value(false))
 			.andReturn().getResponse().getContentAsString();
 
 		List<Integer> daysFrom = JsonPath.read(body, "$.data.rules[*].daysFrom");
