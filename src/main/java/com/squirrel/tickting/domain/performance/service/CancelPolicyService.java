@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRep
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
+import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -16,6 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class CancelPolicyService {
+
+	// 구간 관계 오류는 코드(PERFORMANCE101) 하나에 메시지로 이유를 나눈다.
+	static final String RULE_REVERSED = "구간의 끝 일수는 시작 일수보다 작을 수 없습니다.";
+	static final String RULE_NOT_FROM_TODAY = "구간은 공연 당일(0일 전)부터 시작해야 합니다.";
+	static final String RULE_UNLIMITED_NOT_LAST = "제한 없음 구간은 하나만, 가장 먼 구간에 두어야 합니다.";
+	static final String RULE_GAP_OR_OVERLAP = "구간 사이에 빈 날짜나 겹치는 날짜가 있습니다.";
 
 	private final CancelPolicyRepository cancelPolicyRepository;
 	private final CancelPolicyRuleRepository cancelPolicyRuleRepository;
@@ -42,5 +49,71 @@ public class CancelPolicyService {
 		CancelPolicy policy = getVisible(cancelPolicyId, businessId);
 		List<CancelPolicyRule> rules = cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(policy.getId());
 		return new CancelPolicyDetail(policy, rules);
+	}
+
+	/**
+	 * 내 사업체 규정을 만든다. DB 를 보지 않는 구간 검사를 먼저 하고 이름 중복을 확인한다.
+	 * 같은 이름의 동시 생성은 이 확인을 함께 통과할 수 있다. 마지막 방어선인 UNIQUE (business_id, lower(name)) 는
+	 * 아직 없어서 DB 관련 TODO 로 남겨 두었다.
+	 */
+	@Transactional
+	public CancelPolicyDetail create(Long businessId, CancelPolicySaveCommand command) {
+		List<CancelPolicySaveCommand.Rule> sorted = sortAndValidate(command.rules());
+		if (cancelPolicyRepository.existsVisibleName(businessId, command.name())) {
+			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
+		}
+
+		CancelPolicy policy = cancelPolicyRepository.save(CancelPolicy.builder()
+			.businessId(businessId)
+			.name(command.name())
+			.build());
+		// 응답은 상세(SLR-20)와 같이 공연에서 먼 구간부터라 거꾸로 저장해서 그대로 돌려준다.
+		List<CancelPolicyRule> rules = cancelPolicyRuleRepository.saveAll(sorted.reversed().stream()
+			.map(rule -> CancelPolicyRule.builder()
+				.policy(policy)
+				.daysFrom(rule.daysFrom())
+				.daysTo(rule.daysTo())
+				.feeRate(rule.feeRate())
+				.cancelable(rule.cancelable())
+				.build())
+			.toList());
+		return new CancelPolicyDetail(policy, rules);
+	}
+
+	/**
+	 * 구간을 공연에 가까운 순(daysFrom 작은 순)으로 정렬하고, 모든 취소 시점이 정확히 한 구간에 걸리는지 본다.
+	 * 구간은 양끝 날짜를 포함하므로 이웃한 구간은 "다음 시작 = 앞 끝 + 1" 이어야 빈 날짜도 겹치는 날짜도 없다.
+	 * 입력 순서는 자유라 프론트가 정렬을 빠뜨려도 400 이 나지 않게 서버가 정렬한다.
+	 */
+	private List<CancelPolicySaveCommand.Rule> sortAndValidate(List<CancelPolicySaveCommand.Rule> rules) {
+		List<CancelPolicySaveCommand.Rule> sorted = rules.stream()
+			.sorted(Comparator.comparingInt(CancelPolicySaveCommand.Rule::daysFrom))
+			.toList();
+
+		for (CancelPolicySaveCommand.Rule rule : sorted) {
+			if (rule.daysTo() != null && rule.daysTo() < rule.daysFrom()) {
+				throw rulesInvalid(RULE_REVERSED);
+			}
+		}
+		if (sorted.getFirst().daysFrom() != 0) {
+			throw rulesInvalid(RULE_NOT_FROM_TODAY);
+		}
+		for (int i = 0; i < sorted.size() - 1; i++) {
+			Integer daysTo = sorted.get(i).daysTo();
+			if (daysTo == null) {
+				throw rulesInvalid(RULE_UNLIMITED_NOT_LAST);
+			}
+			if (sorted.get(i + 1).daysFrom() != daysTo + 1) {
+				throw rulesInvalid(RULE_GAP_OR_OVERLAP);
+			}
+		}
+		if (sorted.getLast().daysTo() != null) {
+			throw rulesInvalid(RULE_UNLIMITED_NOT_LAST);
+		}
+		return sorted;
+	}
+
+	private BusinessException rulesInvalid(String message) {
+		return new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_RULES_INVALID, message);
 	}
 }

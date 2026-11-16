@@ -101,7 +101,7 @@
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
-| SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 미구현 |
+| SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 미구현 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
@@ -1683,9 +1683,15 @@ Query: `page`, `size`
 | 400 | `COMMON000` | 규정 번호가 숫자가 아님 |
 | 404 | `PERFORMANCE100` | 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
 
-### SLR-21 취소 규정 생성 — `POST /api/v1/seller/cancel-policies`
+### SLR-21 취소 규정 생성 — `POST /api/v1/seller/cancel-policies` (구현됨)
 
 요청의 `businessId`는 받지 않고 로그인 토큰의 사업체 번호를 사용합니다. 기본 규정을 참고해 프론트에서 구간을 채울 수 있지만, 새 규정은 별도 사업체 소유 데이터로 저장합니다.
+
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 구간은 **양끝 날짜를 포함**합니다. `3~6`은 공연 3·4·5·6일 전이고, `1~1`처럼 하루짜리 구간도 됩니다.
+- 구간은 순서와 상관없이 보내도 됩니다. 응답은 SLR-20처럼 `daysFrom`이 큰 순입니다.
+- 모든 구간을 취소 불가(`cancelable: false`)로 둔 규정도 저장됩니다. 수수료율끼리의 크기도 서버가 검사하지 않습니다. (판매자 판단이며, 필요하면 프론트가 경고합니다)
+- 취소 불가 구간의 `feeRate`는 그대로 저장하고 수수료 계산에서는 쓰지 않습니다.
 
 **요청**
 
@@ -1701,9 +1707,31 @@ Query: `page`, `size`
 }
 ```
 
+| 필드 | 규칙 |
+| --- | --- |
+| `name` | 필수, 공백만 불가, 앞뒤 공백을 지우고 저장, 50자 이하. 같은 사업체 안에서 대소문자를 무시하고 겹치면 안 되고, 기본 규정 이름(`기본 규정`)도 쓸 수 없음. 다른 사업체와는 겹쳐도 됨 |
+| `rules` | 필수, 1~10개 |
+| `rules[].daysFrom` | 필수, 0~90 |
+| `rules[].daysTo` | 선택(`null`이면 제한 없음), 0~90 |
+| `rules[].feeRate` | 필수, 0~100(%) |
+| `rules[].cancelable` | 필수 |
+
+**구간끼리의 규칙** (`daysFrom` 순으로 정렬해서 봄. 어기면 400 `PERFORMANCE101`)
+
+1. 구간마다 `daysTo`는 `daysFrom`보다 작을 수 없음
+2. 가장 가까운 구간은 0일 전(공연 당일)부터 시작
+3. 제한 없음(`daysTo: null`) 구간은 하나이고 가장 먼 구간
+4. 빈 날짜나 겹치는 날짜가 없음 (`다음 daysFrom = 앞 daysTo + 1`)
+
 **응답 201**: SLR-20 상세 응답과 같은 형태
 
-**에러**(코드 미정): 400 구간이 0일부터 제한 없음까지 겹치거나 빠짐
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `COMMON000` | 입력 규칙 위반(이름 누락·길이, 구간 개수, 일수·수수료율 범위, 빠진 값) |
+| 400 | `PERFORMANCE101` | 구간끼리의 규칙 위반 (이유는 메시지로 구분) |
+| 409 | `PERFORMANCE104` | 같은 사업체에 같은 이름의 규정이 있음, 또는 기본 규정과 같은 이름 |
 
 ### SLR-22 취소 규정 수정 — `PUT /api/v1/seller/cancel-policies/{cancelPolicyId}`
 
