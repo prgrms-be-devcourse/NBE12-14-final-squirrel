@@ -21,6 +21,8 @@ export function Header() {
 
   const genre = searchParams.get("genre");
   const onList = pathname === "/performances";
+  // 판매자·관리자 화면에서는 예매자용 검색창과 장르 탭을 숨긴다
+  const consoleArea = pathname.startsWith("/seller") || pathname.startsWith("/admin");
 
   async function logout() {
     try {
@@ -62,7 +64,7 @@ export function Header() {
           tick<span className="text-accent">ting</span>
         </Link>
 
-        <form onSubmit={search} className="relative hidden max-w-xl flex-1 sm:block">
+        <form onSubmit={search} className={`relative hidden max-w-xl flex-1 sm:block ${consoleArea ? "!hidden" : ""}`}>
           <input
             className="input h-12 rounded-full pr-14 pl-6"
             placeholder="공연 제목이나 출연진을 검색하세요"
@@ -122,7 +124,7 @@ export function Header() {
         </div>
       </div>
 
-      <nav className="mx-auto max-w-6xl overflow-x-auto px-4 no-scrollbar sm:px-6" aria-label="공연 메뉴">
+      <nav className={`mx-auto max-w-6xl overflow-x-auto px-4 no-scrollbar sm:px-6 ${consoleArea ? "!hidden" : ""}`} aria-label="공연 메뉴">
         <ul className="flex gap-8 text-[15px]">
           {tabs.map((tab) => (
             <li key={tab.href}>

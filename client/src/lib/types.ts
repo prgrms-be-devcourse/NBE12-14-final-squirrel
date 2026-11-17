@@ -255,3 +255,157 @@ export type BusinessSummary = {
   createdAt: string;
   reviewedAt: string | null;
 };
+
+// ---------- 판매자 ----------
+
+export type VenueItem = {
+  venueId: number;
+  name: string;
+  address: string;
+  region: string;
+  totalSeats: number;
+  layoutKey: string;
+};
+
+export type PerformanceStatus = "DRAFT" | "PUBLISHED" | "CANCELED";
+export type ScheduleStatus = "ON_SALE" | "PAUSED" | "POSTPONED" | "CANCELED";
+
+export type SellerSchedule = {
+  scheduleId: number;
+  startAt: string;
+  status: ScheduleStatus;
+  seatsGeneratedAt: string | null;
+};
+
+export type SellerPerformanceDetail = {
+  performanceId: number;
+  status: PerformanceStatus;
+  venue: { venueId: number; name: string };
+  title: string;
+  genre: Genre;
+  ageLimit: number;
+  runningTime: number;
+  castInfo: string | null;
+  posterUrl: string | null;
+  notice: string | null;
+  guide: string | null;
+  images: { url: string; sortOrder: number }[];
+  cancelPolicyId: number;
+  saleOpenAt: string | null;
+  saleCloseAt: string | null;
+  maxPerPerson: number | null;
+  receiveType: ReceiveType | null;
+  bookingFee: number | null;
+  schedules: SellerSchedule[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PerformanceForm = {
+  venueId: number;
+  cancelPolicyId: number;
+  title: string;
+  genre: Genre;
+  ageLimit: number;
+  runningTime: number;
+  castInfo: string | null;
+  posterUrl: string;
+  notice: string | null;
+  guide: string | null;
+  saleOpenAt: string | null;
+  saleCloseAt: string | null;
+  maxPerPerson: number | null;
+  receiveType: ReceiveType | null;
+  bookingFee: number | null;
+  images: { url: string; sortOrder: number }[];
+};
+
+export type Grade = { gradeId: number; name: string; price: number; color: string };
+
+export type ZoneAssignmentStatus = "ASSIGNED" | "INTENTIONALLY_UNSOLD" | "UNSET";
+
+export type ZoneAssignment = {
+  zoneId: number;
+  name: string;
+  floor: string;
+  sortOrder: number;
+  seatCount: number;
+  assignmentStatus: ZoneAssignmentStatus;
+  gradeId: number | null;
+};
+
+export type GradesResponse = { locked: boolean; grades: Grade[]; zones: ZoneAssignment[] };
+
+export type SalesSchedule = {
+  scheduleId: number;
+  startAt: string;
+  status: ScheduleStatus;
+  seatsGenerated: boolean;
+  totalSeats: number;
+  soldSeats: number | null;
+  heldSeats: number | null;
+  availableSeats: number | null;
+  reservedSeats: number | null;
+  blockedSeats: number | null;
+};
+
+export type ScheduleBooking = {
+  bookingId: number;
+  bookingNo: string;
+  status: BookingStatus;
+  ordererName: string;
+  ordererPhone: string;
+  seatCount: number;
+  totalAmount: number;
+  receiveType: "ONSITE" | "DELIVERY";
+  createdAt: string;
+};
+
+export type PolicyDetail = {
+  cancelPolicyId: number;
+  name: string;
+  isDefault: boolean;
+  editable: boolean;
+  rules: CancelRule[];
+};
+
+// ---------- 관리자 ----------
+
+export type BusinessDetail = BusinessSummary & {
+  contactPhone: string;
+  contactEmail: string;
+  rejectReason: string | null;
+  reviewedBy: number | null;
+  termsAgreedAt: string;
+  owner: { memberId: number; email: string; phone: string; status: string } | null;
+};
+
+export type RefundStatus = "REQUESTED" | "DONE" | "FAILED";
+
+export type RefundItem = {
+  refundId: number;
+  bookingId: number;
+  bookingNo: string;
+  paymentId: number;
+  amount: number;
+  reasonType: "USER_CANCEL" | "PERFORMANCE_CANCEL" | "POSTPONE_CANCEL" | "SYSTEM" | "ADMIN";
+  reasonDetail: string | null;
+  status: RefundStatus;
+  retryCount: number;
+  failReason: string | null;
+  requestedAt: string;
+};
+
+export type VenueRow = {
+  label: string;
+  from: number;
+  to: number;
+};
+
+export type VenueForm = {
+  name: string;
+  address: string;
+  region: string;
+  layoutKey: string;
+  zones: { name: string; floor: string; rows: VenueRow[] }[];
+};
