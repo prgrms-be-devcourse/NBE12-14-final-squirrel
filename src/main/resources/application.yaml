@@ -33,6 +33,11 @@ spring:
         namespace: tickting:session
 
 app:
+  booking:
+    # 좌석·사용자 락을 기다리는 시간. 길수록 인기 좌석에 요청이 쌓이므로 짧게 둔다. 넘으면 COMMON004(409)
+    lock-wait: 1s
+    # 좌석을 잡고 결제를 기다려 주는 시간 (임시 정책)
+    hold-duration: 7m
   cookie:
     # 리프레시 토큰 쿠키. secure 는 안전한 쪽(true)이 기본이고 로컬 프로필에서만 낮춘다.
     secure: true

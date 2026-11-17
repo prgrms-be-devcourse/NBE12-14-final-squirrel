@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.venue.service;
 
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueSeatRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueZoneRepository;
@@ -80,5 +81,20 @@ public class VenueService {
 			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE);
 		}
 		return venueZoneRepository.findIdsByVenueId(venueId);
+	}
+
+	/**
+	 * 공연장 좌석 번호별 구역 이름·열·번호. 예매가 좌석 정보를 복사(스냅샷)해 둘 때 쓴다.
+	 * 구역은 지연 로딩이라 트랜잭션이 끝난 뒤에는 꺼낼 수 없어서 여기서 이름까지 읽어 담는다.
+	 */
+	@Transactional(readOnly = true)
+	public Map<Long, SeatLocation> getSeatLocations(Collection<Long> venueSeatIds) {
+		return venueSeatRepository.findAllWithZone(venueSeatIds).stream()
+			.collect(Collectors.toMap(VenueSeat::getId,
+				seat -> new SeatLocation(seat.getZone().getName(), seat.getRowLabel(), seat.getSeatNumber())));
+	}
+
+	/** 좌석이 있는 곳. 구역 이름, 열, 좌석 번호 */
+	public record SeatLocation(String zoneName, String rowLabel, String seatNumber) {
 	}
 }

@@ -1,5 +1,6 @@
 package com.squirrel.tickting.global.exception;
 
+import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import com.squirrel.tickting.global.exception.code.SellerExceptionCode;
 import com.squirrel.tickting.global.exception.code.UserExceptionCode;
 import java.util.Locale;
@@ -25,7 +26,9 @@ public final class UniqueConstraintCodes {
 		"uq_user_email", UserExceptionCode.EMAIL_DUPLICATED,
 		"uq_user_ci", UserExceptionCode.ALREADY_REGISTERED,
 		"uq_seller_email", SellerExceptionCode.EMAIL_DUPLICATED,
-		"uq_seller_business_number", SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED
+		"uq_seller_business_number", SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED,
+		// 락이 뚫려 같은 좌석이 두 번 예매되려 할 때 DB 가 마지막으로 막는다. 사용자에게는 "이미 선택된 좌석"으로 알린다.
+		"uq_booking_seat_active", BookingExceptionCode.SEAT_ALREADY_TAKEN
 	);
 
 	/** PostgreSQL 메시지: duplicate key value violates unique constraint "인덱스이름" */
