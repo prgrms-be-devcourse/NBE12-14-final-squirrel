@@ -4,7 +4,6 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
-import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.GuideType;
@@ -57,18 +56,18 @@ public class UserPerformanceResponse {
 		 * 이름·지역만 비우고(null) 나머지는 그대로 보여 준다.
 		 */
 		public static Summary from(UserPerformanceService.Summary summary, Venue venue) {
-			UserPerformanceRepository.SummaryRow row = summary.row();
+			Performance performance = summary.performance();
 			return Summary.builder()
-				.performanceId(row.performanceId())
-				.title(row.title())
-				.genre(row.genre())
-				.posterUrl(row.posterUrl())
-				.ageLimit(row.ageLimit())
+				.performanceId(performance.getId())
+				.title(performance.getTitle())
+				.genre(performance.getGenre())
+				.posterUrl(performance.getPosterUrl())
+				.ageLimit(performance.getAgeLimit())
 				.venueName(venue == null ? null : venue.getName())
 				.region(venue == null ? null : venue.getRegion())
-				.firstStartAt(row.firstStartAt())
-				.lastStartAt(row.lastStartAt())
-				.saleOpenAt(row.saleOpenAt())
+				.firstStartAt(summary.firstStartAt())
+				.lastStartAt(summary.lastStartAt())
+				.saleOpenAt(performance.getSaleOpenAt())
 				.saleStatus(summary.saleStatus())
 				.build();
 		}

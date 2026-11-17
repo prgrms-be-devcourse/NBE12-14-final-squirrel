@@ -37,7 +37,7 @@ public class UserPerformanceController {
 	@Operation(summary = "공연 목록·검색",
 		description = "공개된 공연을 보여 준다. 장르를 주지 않으면 전체, 주면 그 장르만 나온다. "
 			+ "지역(region)은 공연장 지역과 정확히 같은 것만, 검색어(keyword)는 제목·출연진에 들어 있는 것을 찾는다. "
-			+ "정렬은 IMMINENT(공연 임박순, 기본) · LATEST(최신 등록순) · TITLE(이름순)이고, 한 번에 최대 20개까지 준다.")
+			+ "정렬은 지금은 LATEST(최신 등록순)만 있고, 한 번에 최대 20개까지 준다.")
 	@GetMapping
 	public ResponseEntity<ApiResponse<PageResponse<UserPerformanceResponse.Summary>>> list(
 		@Parameter(description = "장르. 비우면 전체")
@@ -46,8 +46,8 @@ public class UserPerformanceController {
 		@RequestParam(required = false) String region,
 		@Parameter(description = "검색어. 제목·출연진 부분 일치, 대소문자 무시. 비우면 전체")
 		@RequestParam(required = false) String keyword,
-		@Parameter(description = "정렬. 기본 IMMINENT")
-		@RequestParam(defaultValue = "IMMINENT") UserPerformanceSortType sort,
+		@Parameter(description = "정렬. 기본 LATEST")
+		@RequestParam(defaultValue = "LATEST") UserPerformanceSortType sort,
 		@PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
 	) {
 		// 정렬은 sort 값으로만 정한다. Pageable 이 같은 이름의 파라미터를 정렬 컬럼으로 읽어도 쓰지 않고 번호와 크기만 넘긴다.

@@ -21,6 +21,7 @@ import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.util.LikeUtil;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -51,8 +52,14 @@ public class UserPerformanceService {
 	/**
 	 * 공개된 공연 목록·검색. 장르를 주지 않으면(null) 전체 장르다.
 	 * venueIds 가 null 이면 공연장(지역)을 따지지 않고, 있으면 그 공연장의 공연만 찾는다. 검색어는 제목·출연진의 부분 일치다.
-	 * 현재 시각은 여기서 한 번만 구해서 쿼리(남은 좌석, 임박순)와 판매 상태 계산에 같이 쓴다.
 	 * pageable 은 페이지 번호와 크기만 쓰고, 정렬은 sortType 으로만 정한다.
+	 *
+	 * 첫·마지막 회차 일시와 남은 좌석은 이 페이지의 공연만 골라 회차·좌석을 한 번씩 더 읽어서 계산한다.
+	 * (공연 수와 상관없이 쿼리는 목록·개수·회차·좌석 네 번이다)
+	 *   - 취소된 회차는 공연 일시에서 뺀다. 회차가 전부 취소된 공연은 일시가 비고(null) 판매 상태가 종료다.
+	 *   - 매진 판단은 아직 시작하지 않은 회차의 AVAILABLE 좌석만 본다. 임시 점유(HELD)만 남았으면 지금은 살 수 없으니 매진이고,
+	 *     점유가 풀려 AVAILABLE 로 돌아오면 다음 조회부터 다시 판매 중이 된다. (상태를 저장하지 않고 계산하므로 따로 되돌릴 일이 없다)
+	 * 현재 시각은 여기서 한 번만 구해서 남은 좌석 판단과 판매 상태 계산에 같이 쓴다.
 	 */
 	@Transactional(readOnly = true)
 	public Page<Summary> getPublishedList(Genre genre, Collection<Long> venueIds, String keyword,
@@ -62,9 +69,22 @@ public class UserPerformanceService {
 		boolean allVenues = venueIds == null;
 		Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortType.getSort());
 
-		return userPerformanceRepository.findPublished(genres, allVenues, allVenues ? List.of() : venueIds,
-				LikeUtil.containsPattern(keyword), now, sorted)
-			.map(row -> new Summary(row, saleStatus(row, now)));
+		Page<Performance> performances = userPerformanceRepository.findPublished(genres, allVenues,
+			allVenues ? List.of() : venueIds, LikeUtil.containsPattern(keyword), sorted);
+		List<Long> performanceIds = performances.map(Performance::getId).toList();
+		Map<Long, List<PerformanceSchedule>> schedulesByPerformance = performanceIds.isEmpty() ? Map.of()
+			: userPerformanceRepository.findActiveSchedules(performanceIds).stream()
+				.collect(Collectors.groupingBy(schedule -> schedule.getPerformance().getId()));
+		List<Long> upcomingScheduleIds = schedulesByPerformance.values().stream()
+			.flatMap(List::stream)
+			.filter(schedule -> schedule.getStartAt().isAfter(now))
+			.map(PerformanceSchedule::getId)
+			.toList();
+		Set<Long> scheduleIdsWithSeat = upcomingScheduleIds.isEmpty() ? Set.of()
+			: new HashSet<>(userPerformanceRepository.findScheduleIdsWithAvailableSeat(upcomingScheduleIds));
+
+		return performances.map(performance -> summarize(performance,
+			schedulesByPerformance.getOrDefault(performance.getId(), List.of()), scheduleIdsWithSeat, now));
 	}
 
 	/**
@@ -106,12 +126,33 @@ public class UserPerformanceService {
 			commonGuides);
 	}
 
-	private SaleStatus saleStatus(UserPerformanceRepository.SummaryRow row, LocalDateTime now) {
-		return SaleStatus.of(row.saleOpenAt(), row.saleCloseAt(), row.lastStartAt(), row.hasAvailableSeat(), now);
+	/** 공연 하나의 취소되지 않은 회차로 첫·마지막 회차 일시와 판매 상태를 계산한다. 회차가 없으면 일시는 null 이다. */
+	private Summary summarize(Performance performance, List<PerformanceSchedule> schedules,
+		Set<Long> scheduleIdsWithSeat, LocalDateTime now) {
+		LocalDateTime firstStartAt = schedules.stream()
+			.map(PerformanceSchedule::getStartAt)
+			.min(Comparator.naturalOrder())
+			.orElse(null);
+		LocalDateTime lastStartAt = schedules.stream()
+			.map(PerformanceSchedule::getStartAt)
+			.max(Comparator.naturalOrder())
+			.orElse(null);
+		boolean hasAvailableSeat = schedules.stream()
+			.anyMatch(schedule -> schedule.getStartAt().isAfter(now) && scheduleIdsWithSeat.contains(schedule.getId()));
+
+		SaleStatus saleStatus = SaleStatus.of(performance.getSaleOpenAt(), performance.getSaleCloseAt(), lastStartAt,
+			hasAvailableSeat, now);
+		return new Summary(performance, firstStartAt, lastStartAt, saleStatus);
 	}
 
-	/** 공연 목록의 한 항목. 쿼리로 읽은 값과 그 값으로 계산한 판매 상태를 함께 담는다. */
-	public record Summary(UserPerformanceRepository.SummaryRow row, SaleStatus saleStatus) {
+	/**
+	 * 공연 목록의 한 항목. 공연과, 취소되지 않은 회차로 계산한 값을 함께 담는다.
+	 *
+	 * @param firstStartAt 취소되지 않은 회차 중 가장 이른 공연 일시. 회차가 없으면 null
+	 * @param lastStartAt  취소되지 않은 회차 중 가장 늦은 공연 일시. 회차가 없으면 null
+	 */
+	public record Summary(Performance performance, LocalDateTime firstStartAt, LocalDateTime lastStartAt,
+		SaleStatus saleStatus) {
 	}
 
 	/** 공연 상세. 공연장·판매자는 다른 도메인이라 담지 않고 파사드가 붙인다. */

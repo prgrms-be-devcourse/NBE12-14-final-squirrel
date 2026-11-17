@@ -42,9 +42,9 @@ public class UserPerformanceFacade {
 			userPerformanceService.getPublishedList(genre, venueIds, keyword, sortType, pageable);
 
 		Map<Long, Venue> venues = venueService.getVenues(
-			page.getContent().stream().map(summary -> summary.row().venueId()).distinct().toList());
+			page.getContent().stream().map(summary -> summary.performance().getVenueId()).distinct().toList());
 
-		return page.map(summary -> UserPerformanceResponse.Summary.from(summary, venues.get(summary.row().venueId())));
+		return page.map(summary -> UserPerformanceResponse.Summary.from(summary, venues.get(summary.performance().getVenueId())));
 	}
 
 	/**
