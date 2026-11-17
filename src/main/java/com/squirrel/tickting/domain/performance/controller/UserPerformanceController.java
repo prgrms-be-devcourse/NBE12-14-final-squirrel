@@ -55,7 +55,8 @@ public class UserPerformanceController {
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
 		Page<UserPerformanceResponse.Summary> page = userPerformanceFacade.getList(genre, region, keyword, sort, pageRequest);
-		return ResponseEntity.ok(ApiResponse.success(PageResponse.from(page)));
+		PageResponse<UserPerformanceResponse.Summary> response = PageResponse.from(page);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
 	@Operation(summary = "공연 상세",
@@ -66,6 +67,7 @@ public class UserPerformanceController {
 		@Parameter(description = "공연 번호")
 		@PathVariable Long performanceId
 	) {
-		return ResponseEntity.ok(ApiResponse.success(userPerformanceFacade.getDetail(performanceId)));
+		UserPerformanceResponse.Detail response = userPerformanceFacade.getDetail(performanceId);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }
