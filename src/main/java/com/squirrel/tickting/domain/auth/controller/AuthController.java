@@ -33,8 +33,8 @@ public class AuthController {
 		@Valid @RequestBody AuthRequest.UserSignup request,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.status(HttpStatus.CREATED)
-			.body(ApiResponse.success(authFacade.userSignup(request, response)));
+		AuthResponse.Token token = authFacade.userSignup(request, response);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(token));
 	}
 
 	@Operation(summary = "예매자 로그인")
@@ -43,7 +43,8 @@ public class AuthController {
 		@Valid @RequestBody AuthRequest.Login request,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authFacade.userLogin(request, response)));
+		AuthResponse.Token token = authFacade.userLogin(request, response);
+		return ResponseEntity.ok(ApiResponse.success(token));
 	}
 
 	@Operation(summary = "판매자(대표자) 가입 신청",
@@ -52,8 +53,8 @@ public class AuthController {
 	public ResponseEntity<ApiResponse<AuthResponse.SellerSignup>> sellerSignup(
 		@Valid @RequestBody AuthRequest.SellerSignup request
 	) {
-		return ResponseEntity.status(HttpStatus.CREATED)
-			.body(ApiResponse.success(authFacade.sellerSignup(request)));
+		AuthResponse.SellerSignup signup = authFacade.sellerSignup(request);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(signup));
 	}
 
 	@Operation(summary = "판매자 로그인", description = "사업체가 승인된 계정만 로그인할 수 있다.")
@@ -62,7 +63,8 @@ public class AuthController {
 		@Valid @RequestBody AuthRequest.Login request,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authFacade.sellerLogin(request, response)));
+		AuthResponse.Token token = authFacade.sellerLogin(request, response);
+		return ResponseEntity.ok(ApiResponse.success(token));
 	}
 
 	@Operation(summary = "관리자 로그인", description = "관리자는 가입이 없다. 개발 때는 db/seed 의 시드 계정으로 로그인한다.")
@@ -71,7 +73,8 @@ public class AuthController {
 		@Valid @RequestBody AuthRequest.Login request,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authFacade.adminLogin(request, response)));
+		AuthResponse.Token token = authFacade.adminLogin(request, response);
+		return ResponseEntity.ok(ApiResponse.success(token));
 	}
 
 	@Operation(summary = "토큰 재발급", description = "쿠키의 리프레시 토큰으로 액세스 토큰을 다시 받는다. 리프레시 토큰도 새로 발급된다.")
@@ -80,6 +83,7 @@ public class AuthController {
 		@CookieValue(name = CookieUtil.REFRESH_TOKEN_COOKIE, required = false) String refreshToken,
 		HttpServletResponse response
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authFacade.refresh(refreshToken, response)));
+		AuthResponse.Token token = authFacade.refresh(refreshToken, response);
+		return ResponseEntity.ok(ApiResponse.success(token));
 	}
 }
