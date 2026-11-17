@@ -90,7 +90,7 @@
 | SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
-| SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
+| SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
 | SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 미구현 |
 | SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 미구현 |
@@ -1355,7 +1355,14 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **에러**: 404 `PERFORMANCE000` 다른 사업체의 공연이거나 없는 공연 (번호가 있는지 알려주지 않으려고 같은 404)
 
-### SLR-09 등급 추가 — `POST /api/v1/seller/performances/{performanceId}/grades`
+### SLR-09 등급 추가 — `POST /api/v1/seller/performances/{performanceId}/grades` (구현됨)
+
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 공연당 등급 개수의 상한은 없습니다.
+- `name`: 필수, 공백만은 안 됨, 앞뒤 공백을 지우고 저장, 최대 50자. 같은 공연 안에서 **대소문자와 공백(띄어쓰기·탭·줄바꿈·전각 공백·NBSP)을 무시하면 같은 이름**이면 409입니다(`R 석`·`r석`·`R석`은 같은 이름). 저장·표시는 입력한 그대로이고 앞뒤 공백(NBSP·전각 포함)만 지웁니다.
+- `price`: 필수, 0원 이상 10,000,000원 이하(임시). 0원은 무료 좌석입니다.
+- `color`: 선택, `#RRGGBB`(6자리 16진수, 대소문자 모두 허용). 빼거나 공백만 보내면 색 없음(`null`)입니다.
+- 취소되지 않은 회차 중 하나라도 판매 좌석을 만들었으면(SLR-08의 `locked`) 추가할 수 없습니다.
+- 판정 순서: 입력 형식 400 → 공연 404 → 취소된 공연 409 → 등급명 중복 409 → `locked` 409. 다른 사업체의 공연은 취소·`locked` 상태와 상관없이 404입니다.
 
 **요청**
 
@@ -1379,7 +1386,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**(코드 미정): 409 좌석 생성 후라 수정 불가 · 409 등급명 중복
+**에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 등급명 중복 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가
 
 ### SLR-10 등급 수정 — `PUT /api/v1/seller/performances/{performanceId}/grades/{gradeId}`
 
