@@ -1,15 +1,19 @@
 package com.squirrel.tickting.domain.performance.facade;
 
+import com.squirrel.tickting.domain.performance.dto.SellerGradeResponse;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
+import com.squirrel.tickting.domain.performance.service.GradeOverview;
 import com.squirrel.tickting.domain.performance.service.GradeService;
 import com.squirrel.tickting.domain.performance.service.PerformanceDetail;
 import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.venue.service.VenueService;
+import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +23,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 판매자의 내 공연 조회·등록. 공연(performance)은 공연장을 번호로만 알고 있어서,
+ * 판매자의 내 공연 조회·등록과 등급·구역 조회. 공연(performance)은 공연장을 번호로만 알고 있어서,
  * 서비스끼리 부르지 않고 이 파사드가 공연 서비스와 공연장 서비스를 엮는다.
  * 조회는 각 서비스의 읽기 전용 트랜잭션으로 충분하고, 등록의 쓰기는 TransactionTemplate 으로 묶는다.
  */
@@ -75,5 +79,35 @@ public class SellerPerformanceFacade {
 		Long venueId = detail.performance().getVenueId();
 		String venueName = venueService.getNames(List.of(venueId)).get(venueId);
 		return SellerPerformanceResponse.Detail.from(detail, venueName);
+	}
+
+	/**
+	 * 공연의 등급·구역 설정에 공연장 구역의 이름·층·좌석 수를 붙인다. 읽기만 해서 각 서비스의 읽기 전용 트랜잭션으로 충분하다.
+	 * 구역 설정은 공연장 구역 번호로만 연결되어 있어서(논리 FK) 맞는 구역이 없으면 데이터가 깨진 것이다.
+	 * 조용히 빼면 판매자가 구역이 빠진 줄 모르므로 서버 오류로 드러낸다.
+	 */
+	public SellerGradeResponse.Overview getGrades(Long businessId, Long performanceId) {
+		GradeOverview overview = gradeService.getOverview(businessId, performanceId);
+		Map<Long, VenueZoneInfo> zoneInfos = venueService.getZoneInfos(overview.performance().getVenueId());
+
+		List<SellerGradeResponse.Zone> zones = overview.zoneGrades().stream()
+			.map(zoneGrade -> {
+				VenueZoneInfo zoneInfo = zoneInfos.get(zoneGrade.getZoneId());
+				if (zoneInfo == null) {
+					throw new IllegalStateException("구역 설정이 가리키는 공연장 구역이 없습니다. zoneId=" + zoneGrade.getZoneId());
+				}
+				return SellerGradeResponse.Zone.from(zoneGrade, zoneInfo);
+			})
+			.sorted(Comparator.comparing(SellerGradeResponse.Zone::sortOrder)
+				.thenComparing(SellerGradeResponse.Zone::zoneId))
+			.toList();
+		List<SellerGradeResponse.Grade> grades = overview.grades().stream()
+			.map(SellerGradeResponse.Grade::from)
+			.toList();
+		return SellerGradeResponse.Overview.builder()
+			.locked(overview.locked())
+			.grades(grades)
+			.zones(zones)
+			.build();
 	}
 }

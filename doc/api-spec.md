@@ -89,7 +89,7 @@
 | SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
 | SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
-| SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
+| SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 미구현 |
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
 | SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 미구현 |
@@ -1270,7 +1270,9 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-### SLR-08 등급·구역 조회 — `GET /api/v1/seller/performances/{performanceId}/grades`
+### SLR-08 등급·구역 조회 — `GET /api/v1/seller/performances/{performanceId}/grades` (구현됨)
+
+대표·담당자 모두 조회할 수 있고, 취소(`CANCELED`)된 공연도 지난 판매 설정을 확인할 수 있게 조회됩니다.
 
 **응답 200**
 
@@ -1322,7 +1324,11 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-`locked`: 판매 좌석이 생성되어 등급·가격 수정 불가한 상태.
+- `locked`: 판매 좌석이 생성되어 등급·가격·구역 설정을 수정할 수 없는 상태입니다. 취소(`CANCELED`)되지 않은 회차 중 하나라도 판매 좌석을 만들었으면(`seats_generated_at`이 있음) `true`입니다. 가격은 좌석을 만들 때 복사되므로 일부 회차만 만든 상태에서 고치면 회차끼리 가격이 어긋나기 때문입니다. 취소된 회차는 더 팔리지 않고 환불은 예매 때 저장한 가격으로 해서 세지 않습니다. SLR-09·10·11의 "좌석 생성 후라 수정 불가"(409)도 같은 기준입니다.
+- `grades`: 가격 높은 순, 가격이 같으면 번호순입니다. 등급이 없으면 빈 배열입니다.
+- `zones`: 공연의 구역 설정(`zone_grade`) 행마다 하나씩, 공연장 구역 순서(`sortOrder`)순(같으면 구역 번호순)입니다. `gradeId`는 `ASSIGNED`일 때만 있고 나머지는 `null`입니다.
+
+**에러**: 404 `PERFORMANCE000` 다른 사업체의 공연이거나 없는 공연 (번호가 있는지 알려주지 않으려고 같은 404)
 
 ### SLR-09 등급 추가 — `POST /api/v1/seller/performances/{performanceId}/grades`
 
