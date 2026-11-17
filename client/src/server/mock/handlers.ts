@@ -11,16 +11,13 @@ import type {
   SeatStatus,
   Zone,
 } from "@/lib/types";
+import { consoleRoutes } from "@/server/mock/console";
 import { fetchSpringPerformance } from "@/server/spring";
 import {
   DEFAULT_CANCEL_POLICY,
-  MOCK_CANCEL_POLICIES,
   MOCK_PERFORMANCES,
-  MOCK_SELLER_PERFORMANCES,
   MOCK_TERMS,
-  MOCK_VENUES,
   findMockPerformance,
-  initialBusinesses,
   isoLocal,
   saleStatusOfMock,
 } from "@/server/mock/data";
@@ -121,7 +118,6 @@ type MockBooking = {
   cancelPolicy: CancelRule[];
 };
 
-type BusinessRecord = ReturnType<typeof initialBusinesses>[number];
 
 type MockState = {
   seats: Map<number, Map<number, SeatRecord>>;
@@ -130,7 +126,6 @@ type MockState = {
   nextBookingSeatId: number;
   nextPaymentId: number;
   nextRefundId: number;
-  businesses: BusinessRecord[];
 };
 
 const globalState = globalThis as unknown as { __ticktingMock?: MockState };
@@ -144,7 +139,6 @@ function state(): MockState {
       nextBookingSeatId: 5001,
       nextPaymentId: 801,
       nextRefundId: 301,
-      businesses: initialBusinesses(),
     };
   }
   return globalState.__ticktingMock;
@@ -777,101 +771,9 @@ function me(ctx: MockContext): Response {
   });
 }
 
-// ---------- 판매자·관리자 ----------
-
-function sellerPerformances(ctx: MockContext): Response {
-  const session = requireSession(ctx, "SELLER");
-  if (session instanceof Response) return session;
-  const status = ctx.search.get("status");
-  const items = MOCK_SELLER_PERFORMANCES.filter((p) => !status || p.status === status);
-  return ok(pageOf(items, ctx.search));
-}
-
-function sellerCancelPolicies(ctx: MockContext): Response {
-  const session = requireSession(ctx, "SELLER");
-  if (session instanceof Response) return session;
-  return ok(pageOf(MOCK_CANCEL_POLICIES, ctx.search));
-}
-
-function sellerVenues(ctx: MockContext): Response {
-  const session = requireSession(ctx, "SELLER");
-  if (session instanceof Response) return session;
-  return ok(pageOf(MOCK_VENUES, ctx.search));
-}
-
-function adminBusinesses(ctx: MockContext): Response {
-  const session = requireSession(ctx, "ADMIN");
-  if (session instanceof Response) return session;
-  const status = ctx.search.get("status") ?? "PENDING";
-  const keyword = ctx.search.get("keyword")?.trim().toLowerCase();
-  const items = state()
-    .businesses.filter(
-      (b) =>
-        (status === "ALL" || b.status === status) &&
-        (!keyword ||
-          [b.companyName, b.representativeName, b.businessNumber].some((v) =>
-            v.toLowerCase().includes(keyword),
-          )),
-    )
-    .sort((a, b) => b.businessId - a.businessId)
-    .map((b) => ({
-      businessId: b.businessId,
-      companyName: b.companyName,
-      representativeName: b.representativeName,
-      businessNumber: b.businessNumber,
-      status: b.status,
-      createdAt: b.createdAt,
-      reviewedAt: b.reviewedAt,
-    }));
-  return ok(pageOf(items, ctx.search, 10, 20));
-}
-
-function adminBusinessDetail(ctx: MockContext, idText: string): Response {
-  const session = requireSession(ctx, "ADMIN");
-  if (session instanceof Response) return session;
-  const business = state().businesses.find((b) => b.businessId === Number(idText));
-  if (!business) return fail(404, "SELLER006", "사업체를 찾을 수 없습니다.");
-  return ok({
-    ...business,
-    reviewedBy: business.reviewedAt ? 1 : null,
-    termsAgreedAt: business.createdAt,
-    owner: { memberId: business.businessId + 4, email: "owner@example.com", phone: "01011112222", status: "ACTIVE" },
-  });
-}
-
-async function reviewBusiness(
-  ctx: MockContext,
-  idText: string,
-  action: "approve" | "reject",
-): Promise<Response> {
-  const session = requireSession(ctx, "ADMIN");
-  if (session instanceof Response) return session;
-  const business = state().businesses.find((b) => b.businessId === Number(idText));
-  if (!business) return fail(404, "SELLER006", "사업체를 찾을 수 없습니다.");
-  if (business.status !== "PENDING") return fail(409, "SELLER007", "이미 처리된 사업체입니다.");
-
-  let reason: string | null = null;
-  if (action === "reject") {
-    const body = (await ctx.json().catch(() => null)) as { reason?: string } | null;
-    reason = body?.reason?.trim() ?? "";
-    if (!reason || reason.length > 500) {
-      return fail(400, "COMMON000", "reason: 반려 사유를 500자 이내로 입력해 주세요.");
-    }
-  }
-  business.status = action === "approve" ? "APPROVED" : "REJECTED";
-  business.reviewedAt = isoLocal(new Date());
-  business.rejectReason = reason;
-  return ok({
-    businessId: business.businessId,
-    status: business.status,
-    ...(reason ? { rejectReason: reason } : {}),
-    reviewedAt: business.reviewedAt,
-  });
-}
-
 // ---------- 라우터 ----------
 
-type Handler = (ctx: MockContext, params: string[]) => Response | Promise<Response>;
+export type Handler = (ctx: MockContext, params: string[]) => Response | Promise<Response>;
 
 const ROUTES: [string, string, Handler][] = [
   ["GET", "/api/v1/terms", (ctx) => {
@@ -897,14 +799,8 @@ const ROUTES: [string, string, Handler][] = [
   ["POST", "/api/v1/bookings/:id/cancel", (ctx, [id]) => cancelBooking(ctx, id)],
   ["POST", "/api/v1/payments/confirm", (ctx) => confirmPayment(ctx)],
 
-  ["GET", "/api/v1/seller/performances", (ctx) => sellerPerformances(ctx)],
-  ["GET", "/api/v1/seller/cancel-policies", (ctx) => sellerCancelPolicies(ctx)],
-  ["GET", "/api/v1/seller/venues", (ctx) => sellerVenues(ctx)],
-
-  ["GET", "/api/v1/admin/seller-businesses", (ctx) => adminBusinesses(ctx)],
-  ["GET", "/api/v1/admin/seller-businesses/:id", (ctx, [id]) => adminBusinessDetail(ctx, id)],
-  ["POST", "/api/v1/admin/seller-businesses/:id/approve", (ctx, [id]) => reviewBusiness(ctx, id, "approve")],
-  ["POST", "/api/v1/admin/seller-businesses/:id/reject", (ctx, [id]) => reviewBusiness(ctx, id, "reject")],
+  // 판매자·관리자 화면용 목 API (console.ts)
+  ...consoleRoutes({ ok, fail, pageOf, requireSession }),
 ];
 
 function match(pattern: string, pathname: string): string[] | null {
