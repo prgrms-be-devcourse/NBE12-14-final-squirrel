@@ -72,9 +72,10 @@ com.squirrel.tickting
 - `.env`와 `docker-compose.yml`은 git에 올리지 않는다. 필요한 키 이름은 `application-local.yaml` 주석에 적는다.
 - 로그에 개인정보·토큰·키를 남기지 않는다. 비밀번호는 BCrypt, 본인인증 CI는 해시만 저장한다. 운영의 JWT 키는 로컬과 다른 값을 쓴다.
 
-## 서버가 여러 대로 늘어난다 (운영은 ALB + Auto Scaling, 로컬은 Nginx + 앱 여러 개)
+## 서버가 여러 대로 늘어난다 (로컬과 운영 모두 Nginx + 앱 여러 개)
 
 - 앱은 상태를 갖지 않는다. 로그인·대기열·잠금 정보를 서버 메모리에 두지 않고 DB나 Redis에 둔다. 어느 서버로 요청이 가도 같은 결과가 나와야 한다.
+- 내 PC에서 서버 여러 대를 띄워 확인하는 방법은 `doc/local-multi-server.md`에 있다. (앱 2대는 IntelliJ에서 8081, 8082로 띄우고 Nginx는 Docker로 켠다)
 - **여러 서버가 같은 자원을 바꾸는 흐름(좌석 점유·예매)은 Redis 분산락으로 막는다.** `DistributedLockExecutor`로 락을 먼저 잡고 **그 안에서** `TransactionTemplate`으로 트랜잭션을 열어, **커밋 뒤에** 락이 풀리게 한다. `@Transactional` 메서드 안에서 락을 잡으면 락 실행기가 거부한다. 락 이름은 여러 개를 넘기면 실행기가 정렬해서 잡는다. 락을 못 잡으면 `COMMON004`(409)다. Redis 락만 믿지 않고 DB의 **상태 조건부 UPDATE**와 **UNIQUE 인덱스**를 마지막 방어선으로 함께 둔다. (`doc/part4-booking-area.md` 4-7)
 - 외부 호출(토스 등)은 DB 트랜잭션 밖에서 한다. 외부 서비스는 인터페이스 뒤에 두고 Mock 구현부터 만든다. (`IdentityVerifier` 참고)
 
