@@ -39,8 +39,8 @@ public class AuthSessionController {
 		HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse
 	) {
-		return ResponseEntity.status(HttpStatus.CREATED)
-			.body(ApiResponse.success(authSessionFacade.userSignup(request, httpRequest, httpResponse)));
+		AuthResponse.Session session = authSessionFacade.userSignup(request, httpRequest, httpResponse);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(session));
 	}
 
 	@Operation(summary = "예매자 로그인 (세션)")
@@ -50,7 +50,8 @@ public class AuthSessionController {
 		HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authSessionFacade.userLogin(request, httpRequest, httpResponse)));
+		AuthResponse.Session session = authSessionFacade.userLogin(request, httpRequest, httpResponse);
+		return ResponseEntity.ok(ApiResponse.success(session));
 	}
 
 	@Operation(summary = "판매자 로그인 (세션)", description = "사업체가 승인된 계정만 로그인할 수 있다. 판매자 가입 신청은 v1 의 API 를 쓴다.")
@@ -60,7 +61,8 @@ public class AuthSessionController {
 		HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authSessionFacade.sellerLogin(request, httpRequest, httpResponse)));
+		AuthResponse.Session session = authSessionFacade.sellerLogin(request, httpRequest, httpResponse);
+		return ResponseEntity.ok(ApiResponse.success(session));
 	}
 
 	@Operation(summary = "관리자 로그인 (세션)", description = "관리자는 가입이 없다. 개발 때는 db/seed 의 시드 계정으로 로그인한다.")
@@ -70,7 +72,8 @@ public class AuthSessionController {
 		HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse
 	) {
-		return ResponseEntity.ok(ApiResponse.success(authSessionFacade.adminLogin(request, httpRequest, httpResponse)));
+		AuthResponse.Session session = authSessionFacade.adminLogin(request, httpRequest, httpResponse);
+		return ResponseEntity.ok(ApiResponse.success(session));
 	}
 
 	@Operation(summary = "로그아웃 (세션)",
