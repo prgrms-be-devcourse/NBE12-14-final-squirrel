@@ -50,6 +50,8 @@ public abstract class IntegrationTestSupport {
 	@DynamicPropertySource
 	static void jwtSecret(DynamicPropertyRegistry registry) {
 		registry.add("jwt.secret", TestSecrets::randomJwtSecret);
+		// 주기 작업이 테스트가 만든 데이터를 먼저 처리하지 않게 끈다. 작업이 하는 일은 파사드를 직접 불러서 확인한다.
+		registry.add("app.booking.expiry-enabled", () -> "false");
 	}
 
 	private static final Pattern REFRESH_COOKIE = Pattern.compile("refreshToken=([^;]*)");

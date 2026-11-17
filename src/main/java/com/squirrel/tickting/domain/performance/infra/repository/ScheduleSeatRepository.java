@@ -38,4 +38,20 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 		@Param("heldUntil") LocalDateTime heldUntil,
 		@Param("now") LocalDateTime now
 	);
+
+	/**
+	 * 점유 중(HELD)인 좌석만 AVAILABLE 로 되돌리고 되돌린 행 수를 돌려준다.
+	 * 상태 조건이 있어서 그 사이 결제가 끝나 SOLD 가 된 좌석은 건드리지 않는다.
+	 */
+	@Modifying(clearAutomatically = true)
+	@Query("""
+		UPDATE ScheduleSeat s
+		   SET s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE,
+		       s.heldBy = NULL,
+		       s.heldUntil = NULL,
+		       s.updatedAt = :now
+		 WHERE s.id IN :seatIds
+		   AND s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.HELD
+		""")
+	int releaseHeld(@Param("seatIds") Collection<Long> seatIds, @Param("now") LocalDateTime now);
 }

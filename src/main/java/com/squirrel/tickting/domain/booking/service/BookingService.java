@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingRepository;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingSeatRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,25 @@ public class BookingService {
 	@Transactional(readOnly = true)
 	public long countActiveSeats(Long userId, Long performanceId) {
 		return bookingSeatRepository.countActiveByUserAndPerformance(userId, performanceId);
+	}
+
+	/**
+	 * 결제 제한 시각이 지난 결제 대기 예매를 최대 batchSize 건 만료(EXPIRED) 처리하고 좌석을 비활성(active=false)으로 바꾼다.
+	 * 호출한 쪽의 트랜잭션에 참여한다. 예매 행은 이 트랜잭션이 끝날 때까지 잠기고, 다른 서버는 잠긴 행을 건너뛴다.
+	 * 좌석 도메인의 상태(HELD)는 이 서비스가 바꾸지 않고, 되돌릴 판매 좌석 번호만 돌려줘서 파사드가 같은 트랜잭션에서 되돌린다.
+	 *
+	 * @return 이번에 만료 처리한 예매들의 판매 좌석 번호. 처리할 예매가 없으면 빈 목록이다
+	 */
+	@Transactional
+	public List<Long> expireOverdue(LocalDateTime now, int batchSize) {
+		List<Long> bookingIds = bookingRepository.lockOverdueIds(now, batchSize);
+		if (bookingIds.isEmpty()) {
+			return List.of();
+		}
+		bookingRepository.markExpired(bookingIds, now);
+		List<Long> scheduleSeatIds = bookingSeatRepository.findActiveScheduleSeatIds(bookingIds);
+		bookingSeatRepository.deactivateByBookingIds(bookingIds);
+		return scheduleSeatIds;
 	}
 
 	/**

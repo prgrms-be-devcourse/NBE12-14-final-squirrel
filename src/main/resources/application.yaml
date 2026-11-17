@@ -38,6 +38,10 @@ app:
     lock-wait: 1s
     # 좌석을 잡고 결제를 기다려 주는 시간 (임시 정책)
     hold-duration: 7m
+    # 결제하지 않은 점유를 풀어 주는 작업. 주기가 길수록 풀린 좌석이 늦게 다시 보인다. 부하 테스트에서 부담이 보이면 코드 없이 바꾼다.
+    expiry-enabled: true
+    expiry-interval: 1m
+    expiry-batch-size: 500
   cookie:
     # 리프레시 토큰 쿠키. secure 는 안전한 쪽(true)이 기본이고 로컬 프로필에서만 낮춘다.
     secure: true

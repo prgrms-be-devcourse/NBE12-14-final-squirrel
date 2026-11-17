@@ -27,6 +27,7 @@ com.squirrel.tickting
     controller      # API
     service         # 비즈니스 로직 (자기 도메인만)
     facade          # 여러 도메인의 서비스를 엮는 흐름 (필요할 때만 만든다)
+    scheduler       # 주기 작업(@Scheduled). 하는 일은 서비스·파사드가 하고 여기서는 부르기만 한다
     dto             # 요청/응답 (XxxRequest, XxxResponse)
     infra/entity    # JPA 엔티티
     infra/repository
