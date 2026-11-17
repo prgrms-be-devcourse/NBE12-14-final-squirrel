@@ -4,12 +4,16 @@ import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface BookingRepository extends JpaRepository<Booking, Long> {
+
+	/** 내 예매만 찾는다. 남의 예매 번호로 조회하면 비어 있다. (번호가 존재하는지 알려주지 않으려고 호출한 쪽이 404 로 답한다) */
+	Optional<Booking> findByIdAndUserId(Long id, Long userId);
 
 	/**
 	 * 결제 제한 시각이 지난 결제 대기(PENDING) 예매를 잠그고 번호를 돌려준다. 가장 오래된 것부터 limit 건까지다.

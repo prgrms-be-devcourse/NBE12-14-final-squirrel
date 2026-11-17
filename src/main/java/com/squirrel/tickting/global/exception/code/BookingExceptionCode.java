@@ -24,7 +24,11 @@ public enum BookingExceptionCode implements ExceptionCode {
 	/** 없는 회차이거나 공개되지 않은 공연의 회차. 존재 여부를 알려주지 않으려고 같은 404로 답한다 */
 	SCHEDULE_NOT_FOUND("BOOKING004", HttpStatus.NOT_FOUND, "존재하지 않는 회차입니다."),
 	/** 없는 좌석이거나 다른 회차의 좌석 */
-	SEAT_NOT_FOUND("BOOKING005", HttpStatus.NOT_FOUND, "존재하지 않는 좌석입니다.");
+	SEAT_NOT_FOUND("BOOKING005", HttpStatus.NOT_FOUND, "존재하지 않는 좌석입니다."),
+	/** 없는 예매이거나 남의 예매. 번호가 존재하는지 알려주지 않으려고 같은 404로 답한다 */
+	BOOKING_NOT_FOUND("BOOKING006", HttpStatus.NOT_FOUND, "존재하지 않는 예매입니다."),
+	/** 결제 대기(PENDING)가 아니거나 결제 제한 시각이 지났거나 공연이 더는 공개 상태가 아님 */
+	BOOKING_NOT_PAYABLE("BOOKING007", HttpStatus.CONFLICT, "결제할 수 없는 예매입니다.");
 
 	private final String code;
 	private final HttpStatus status;

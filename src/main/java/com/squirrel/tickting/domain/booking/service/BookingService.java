@@ -6,6 +6,9 @@ import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingRepository;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingSeatRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
+import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +31,33 @@ public class BookingService {
 	@Transactional(readOnly = true)
 	public long countActiveSeats(Long userId, Long performanceId) {
 		return bookingSeatRepository.countActiveByUserAndPerformance(userId, performanceId);
+	}
+
+	/**
+	 * 결제할 수 있는 내 예매를 읽는다. 없거나 남의 예매면 같은 404, 결제 대기(PENDING)가 아니거나 결제 제한 시각이 지났으면 409 다.
+	 * 스케줄러가 아직 정리하지 않았더라도 시각이 지난 예매는 여기서 막는다. 호출한 쪽의 트랜잭션에 참여한다.
+	 */
+	@Transactional
+	public Booking getPayable(Long userId, Long bookingId, LocalDateTime now) {
+		Booking booking = bookingRepository.findByIdAndUserId(bookingId, userId)
+			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
+		if (booking.getStatus() != BookingStatus.PENDING || !booking.getExpiresAt().isAfter(now)) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE);
+		}
+		return booking;
+	}
+
+	/** 결제 준비에서 확정한 수령 방법과 배송 정보를 예매에 넣는다. 읽어 온 예매가 같은 트랜잭션에 있어서 커밋 때 저장된다. */
+	@Transactional
+	public void applyReceiveInfo(Booking booking, ReceiveMethod receiveType, String recipientName,
+		String recipientPhone, String recipientAddress) {
+		booking.changeReceiveInfo(receiveType, recipientName, recipientPhone, recipientAddress);
+	}
+
+	/** 예매의 좌석 수. 결제창에 보여 줄 주문명에 쓴다. */
+	@Transactional(readOnly = true)
+	public long countSeats(Long bookingId) {
+		return bookingSeatRepository.countByBookingId(bookingId);
 	}
 
 	/**
