@@ -22,7 +22,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 /**
  * 회차별 판매 좌석. 동시성, 대기열, 매진 처리가 모두 이 테이블 위에서 일어나는 핵심 테이블이다.
  * 행이 매우 많아서(회차 하나에 수천 행) 연관관계 없이 번호만 가진다.
- * 상태를 바꿀 때는 SELECT ... FOR UPDATE 로 잠근 뒤 AVAILABLE 일 때만 HELD 로 바꾼다.
+ * 같은 좌석을 동시에 점유하는 요청은 Redis 분산락이 줄 세우고, 상태를 바꾸는 UPDATE 는 AVAILABLE 일 때만 HELD 로 바꾼다.
  */
 @Entity
 @Table(name = "schedule_seat")
@@ -69,7 +69,7 @@ public class ScheduleSeat {
 	@Column
 	private LocalDateTime heldUntil;
 
-	/** 낙관적 락 방식을 비교 실험할 때 쓴다. 필요하면 @Version 으로 바꾼다. 기본 방어는 FOR UPDATE 다. */
+	/** 쓰지 않지만 남겨 둔다. 낙관적 락은 쓰지 않기로 했다. */
 	@Builder.Default
 	@Column(nullable = false)
 	private Integer version = 0;

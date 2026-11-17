@@ -426,7 +426,7 @@ erDiagram
 |  | 상태 | `status` | enum | NOT NULL | AVAILABLE / HELD 임시 점유 / SOLD / BLOCKED 판매 제외 / RESERVED 판매자 보류 |
 | FK | 점유한 사용자 | `held_by` | Long | NULL | 임시 점유 중일 때만 (user_member) |
 |  | 점유 만료 시각 | `held_until` | LocalDateTime | NULL | 임시 점유 중일 때만 |
-|  | 버전 | `version` | Integer | NOT NULL | 낙관적 락 비교용 |
+|  | 버전 | `version` | Integer | NOT NULL | 쓰지 않지만 남겨 둠 (낙관적 락은 쓰지 않기로 함) |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
 
 ### 언제 만들어지나
@@ -495,7 +495,7 @@ BLOCKED                  (바뀌지 않음)
 
 **Q. 좌석 점유는 어떻게 동시에 눌러도 안 꼬이나요?**
 
-좌석 행 하나를 `SELECT ... FOR UPDATE`로 잠그고 `AVAILABLE`일 때만 `HELD`로 바꿉니다. `version`은 낙관적 락 방식을 비교 실험할 때 쓰는 컬럼이고, 기본은 FOR UPDATE입니다. 상세 흐름은 4부(예매·결제)에서 다룹니다.
+Redis 분산락으로 같은 좌석과 같은 사용자의 요청을 한 번에 하나씩만 들어가게 하고, 그 안에서 `AVAILABLE`일 때만 `HELD`로 바꿉니다. `version` 컬럼은 남겨 두지만 쓰지 않습니다. 상세 흐름은 4부(예매·결제) 4-7에서 다룹니다.
 
 **Q. 점유가 풀리지 않고 남으면요?**
 

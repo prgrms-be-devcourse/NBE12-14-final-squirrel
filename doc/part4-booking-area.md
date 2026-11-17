@@ -181,7 +181,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |  | 결제 키 | `payment_key` | String | NULL | 토스 승인 후에만 생김. 중복 불가 |
 |  | 결제 수단 | `method` | String | NULL | 카드, 간편결제 등 (승인 후 기록) |
 |  | 결제 금액 | `amount` | Integer | NOT NULL | 서버가 계산한 금액 |
-|  | 상태 | `status` | enum | NOT NULL | READY 준비 / DONE 승인 / FAILED 실패 / PARTIAL_CANCELED 일부 환불 / CANCELED 전액 환불 |
+|  | 상태 | `status` | enum | NOT NULL | READY 준비 / PROCESSING 토스에 승인 요청 중 / DONE 승인 / FAILED 실패 / PARTIAL_CANCELED 일부 환불 / CANCELED 전액 환불 |
 |  | 실패 사유 | `fail_reason` | String | NULL |  |
 |  | 승인 일시 | `approved_at` | LocalDateTime | NULL |  |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
@@ -191,9 +191,11 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 1. 결제 준비 때 서버가 `payment`(`READY`)를 만듭니다. (`booking`과 `booking_seat`는 좌석을 점유할 때 이미 만들어져 있습니다.) 이때 **금액은 서버가 계산**하고 `order_id`를 발급합니다.
 2. 프론트가 토스 결제창을 열고, 사용자가 결제합니다.
 3. 결제창이 성공하면 `paymentKey`, `orderId`, `amount`를 들고 돌아옵니다.
-4. 서버가 **금액이 내가 계산한 금액과 같은지 비교**한 뒤 토스에 **결제 승인**을 요청합니다. (클라이언트가 보낸 금액을 그대로 믿으면 안 됩니다)
-5. 승인에 성공하면 `payment`=`DONE`, `booking`=`PAID`, 좌석=`SOLD`로 바꿉니다. **이 세 가지는 한 트랜잭션**입니다.
-6. 실패하면 `payment`=`FAILED`와 사유를 기록하고, 좌석 점유는 시간이 지나면 풀립니다.
+4. 서버가 먼저 **결제 제한 시각(`expires_at`)이 지나지 않았는지**, **금액이 내가 계산한 금액과 같은지** 확인합니다. (클라이언트가 보낸 금액을 그대로 믿으면 안 됩니다) 이미 지났으면 **토스를 호출하지 않고** 거절합니다. 토스는 승인 API를 호출하기 전에는 돈을 빼지 않으므로 돈이 나가지 않습니다.
+5. 통과하면 **한 트랜잭션**으로 `payment`=`PROCESSING`으로 바꾸고, `booking.expires_at`과 `schedule_seat.held_until`을 **지금 + 2분**으로 늘립니다. 토스를 부르는 도중에 7분이 지나 스케줄러가 좌석을 풀어 버리면 돈은 나갔는데 좌석이 다른 사람에게 팔릴 수 있기 때문입니다. 연장은 **남은 시간이 2분보다 짧을 때만** 하고, **예매당 한 번만** 합니다. (승인을 시작했다 실패하고 다시 시작하기를 반복해서 좌석을 계속 잡는 것을 막으려는 것입니다. 이미 승인을 시도한 `payment`가 있는 예매는 연장하지 않습니다)
+6. 트랜잭션 **밖에서** 토스에 **결제 승인**을 요청합니다. (외부 호출은 DB 트랜잭션 밖에서 합니다)
+7. 승인에 성공하면 `payment`=`DONE`, `booking`=`PAID`, 좌석=`SOLD`로 바꿉니다. **이 세 가지는 한 트랜잭션**입니다.
+8. 실패하면 `payment`=`FAILED`와 사유를 기록합니다. 좌석 점유는 연장된 시간까지 유지되고 지나면 풀립니다. 서버가 죽어서 `PROCESSING`으로 오래 남은 건은 스케줄러가 토스에 조회해서 확정합니다. (5부)
 
 처음에는 **Mock(가짜) 결제**로 흐름을 먼저 만들고, 나중에 실제 토스로 바꿉니다. 이때 `payment` 구조는 그대로입니다.
 
@@ -257,13 +259,13 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |---|---|---|
 | 1 | 좌석 선택 → 점유 요청 (**한 트랜잭션**, 4-7 참고) | 사용자별 매수 검사 → `schedule_seat`: `AVAILABLE` → `HELD`, `held_by`, `held_until` = 지금 + 7분 → `booking`(PENDING, `expires_at`, `performance_id`), `booking_seat`(스냅샷) **추가** |
 | 2 | 결제 준비 | 수령 방법·배송지 확정, `payment`(READY) **추가** |
-| 3 | 결제 승인 | `payment` → DONE, `booking` → PAID, `schedule_seat` → SOLD (한 트랜잭션) |
+| 3 | 결제 승인 | 시작 때 `payment` → PROCESSING, 만료 시각 2분 연장(예매당 한 번). 토스 승인 성공 후 `payment` → DONE, `booking` → PAID, `schedule_seat` → SOLD (한 트랜잭션, 4-4) |
 
 ### ② 결제하지 않고 7분이 지남
 
 | 일어나는 일 | 바뀌는 테이블 |
 |---|---|
-| 스케줄러가 만료된 점유를 정리 | `schedule_seat`: `HELD` → `AVAILABLE`, `held_by`·`held_until` 비움 |
+| 스케줄러(1분마다, 주기는 설정값)가 만료된 점유를 정리 | `schedule_seat`: `HELD` → `AVAILABLE`, `held_by`·`held_until` 비움 |
 | 예매 만료 처리 | `booking` → EXPIRED, `booking_seat.active` → false, `payment` → FAILED 또는 그대로 |
 
 ### ③ 일부 좌석 취소 (3장 중 1장)
@@ -288,17 +290,21 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 
 **Q. 동시에 같은 좌석을 눌러도 안 꼬이는 이유는?**
 
-세 겹으로 막습니다. (2026-11-17 변경: 기본 방어를 DB 행 잠금(`FOR UPDATE`)에서 **Redis 분산락**으로 바꿨습니다)
+동시성을 제어하는 방법은 **Redis 분산락 하나**입니다. (2026-11-17 변경: 기본 방어를 DB 행 잠금(`FOR UPDATE`)에서 Redis 분산락으로 바꿨습니다. 멘토 피드백에 따라 여러 방식을 겹치지 않고 하나로 정리했습니다)
 
-1. **Redis 분산락** (기본 방어): 좌석별 락(`seat:{scheduleSeatId}`)과 사용자·공연별 락(`user-performance:{userId}:{performanceId}`)을 잡습니다. 서버가 여러 대여도 같은 Redis의 락을 보므로 어느 서버로 요청이 와도 한 번에 한 요청만 들어갑니다. 락을 먼저 잡고 **그 안에서** DB 트랜잭션을 열어 커밋한 **뒤에** 풉니다.
-2. **DB 상태 조건부 갱신**: `UPDATE schedule_seat SET status = 'HELD', ... WHERE id IN (...) AND status = 'AVAILABLE'`를 실행하고, 갱신된 행 수가 요청한 좌석 수와 다르면 실패시킵니다. Redis 락이 풀리는 순간이나 Redis 장애 때를 대비한 방어입니다.
-3. 마지막으로 `booking_seat`의 **부분 UNIQUE 인덱스**(`uq_booking_seat_active`)가 중복 판매를 막습니다.
+**분산락**: 좌석별 락(`seat:{scheduleSeatId}`)과 사용자·공연별 락(`user-performance:{userId}:{performanceId}`)을 잡습니다. 서버가 여러 대여도 같은 Redis의 락을 보므로 어느 서버로 요청이 와도 한 번에 한 요청만 들어갑니다. 락을 먼저 잡고 **그 안에서** DB 트랜잭션을 열어 커밋한 **뒤에** 풉니다.
+
+아래 두 가지는 동시성 제어 방식이 아니라 **데이터가 틀어지지 않게 하는 DB의 장치**입니다. 별도의 방어층으로 세지 않습니다.
+- **상태 조건이 있는 UPDATE**: 좌석을 `HELD`로 바꾸는 쿼리 자체가 `UPDATE schedule_seat SET status = 'HELD', ... WHERE id IN (...) AND status = 'AVAILABLE'`입니다. 갱신된 행 수가 요청한 좌석 수와 다르면 실패시킵니다.
+- **부분 UNIQUE 인덱스**(`uq_booking_seat_active`): 스키마 제약이라 코드가 늘지 않습니다.
+
+Redis 락이 만료되거나 Redis에 장애가 나도 이 둘이 중복 판매를 막아 주지만, 발표나 설명에서 동시성 제어는 분산락 하나로 말합니다.
 
 `SELECT ... FOR UPDATE`와 `version` 낙관적 락은 쓰지 않습니다. (`version` 컬럼은 남겨 둡니다)
 
 **Q. 왜 DB 잠금이 아니라 Redis 락인가요?**
 
-DB 행 잠금은 인기 좌석에 요청이 몰리면 **모두 DB 연결을 잡고 기다립니다.** Redis 락은 DB에 닿기 전에 짧게 기다리다가 못 잡으면 바로 실패(`COMMON004`, 409)시켜서 DB 연결을 아낍니다. 대신 Redis 락은 만료나 장애 때 뚫릴 수 있어서, DB의 조건부 갱신과 UNIQUE 인덱스를 함께 둡니다.
+DB 행 잠금은 인기 좌석에 요청이 몰리면 **모두 DB 연결을 잡고 기다립니다.** Redis 락은 DB에 닿기 전에 짧게 기다리다가 못 잡으면 바로 실패(`COMMON004`, 409)시켜서 DB 연결을 아낍니다. 대신 Redis 락은 만료나 장애 때 뚫릴 수 있어서, 상태 조건이 있는 UPDATE와 UNIQUE 인덱스가 안전장치로 남습니다.
 
 **지켜야 할 구현 규칙** (`DistributedLockExecutor`, 코드와 테스트로 고정)
 - **락은 트랜잭션 커밋 뒤에 풀려야 합니다.** 커밋 전에 풀리면 다음 요청이 반영되지 않은 값을 읽어 중복이 생깁니다. 그래서 이미 트랜잭션이 열려 있으면 락 실행기가 거부합니다.
@@ -339,12 +345,21 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 
 **점유 요청의 순서** (2026-11-17 변경: DB 잠금 → Redis 분산락)
 
-1. **락을 잡습니다.** 사용자·공연 락 1개와 요청한 좌석마다 좌석 락을 `DistributedLockExecutor`로 한꺼번에 잡습니다. 이름순으로 정렬해서 잡으므로 요청마다 순서가 달라 생기는 데드락이 없습니다. 시간 안에 못 잡으면 `COMMON004`(409)로 바로 실패합니다.
+0. **락을 잡기 전에 입력을 확인합니다.** 좌석 번호가 비었거나 중복이면 400, 요청 매수가 공연의 `max_per_person`보다 크면 바로 거절합니다. 락 이름에 공연 번호가 필요해서 회차와 공연은 락 밖에서 먼저 읽습니다. (읽기만 하고 쓰지 않습니다)
+1. **락을 잡습니다.** 사용자·공연 락 1개와 요청한 좌석마다 좌석 락을 `DistributedLockExecutor`로 한꺼번에 잡습니다. 이름순으로 정렬해서 잡으므로 요청마다 순서가 달라 생기는 데드락이 없습니다. **기다리는 시간은 1초**(설정값)이고, 넘으면 `COMMON004`(409)로 바로 실패합니다.
 2. **락 안에서 트랜잭션을 엽니다.**
-   1. 위 쿼리로 현재 활성 매수를 세고, `현재 + 요청 매수 > max_per_person`이면 거절합니다.
-   2. 좌석을 `AVAILABLE`일 때만 `HELD`로 바꾸는 **조건부 갱신**을 하고, 갱신된 행 수가 요청 좌석 수와 다르면 실패합니다.
-   3. `booking`(PENDING)과 `booking_seat`를 만듭니다. 커밋합니다.
+   1. **점유할 수 있는지 확인합니다.** 공연이 공개 상태이고, 지금이 판매 오픈~종료 사이이며, 회차가 `ON_SALE`이고 아직 시작 전이어야 합니다. 좌석은 그 회차의 것이어야 하고 `BLOCKED`·`RESERVED`면 안 됩니다.
+   2. 위 쿼리로 현재 활성 매수를 세고, `현재 + 요청 매수 > max_per_person`이면 거절합니다.
+   3. 좌석을 `AVAILABLE`일 때만 `HELD`로 바꾸는 **조건부 갱신**을 하고, 갱신된 행 수가 요청 좌석 수와 다르면 실패합니다. 만료된 `HELD`는 **바로 가져가지 않습니다.** 스케줄러(1분)가 `AVAILABLE`로 되돌린 뒤에 잡을 수 있습니다.
+   4. `booking`(PENDING)과 `booking_seat`를 만듭니다. 커밋합니다.
 3. **커밋 뒤에 락을 풉니다.**
+
+**점유할 때 채우는 값**
+- **예매번호**(`booking_no`): `yyyyMMdd` + 영문 대문자·숫자 7자리. (예: `20261109KCZB03R`) 겹치면 `uq_booking_no`가 막아 `COMMON003`이 나가고, 겹칠 확률이 아주 낮아서 재시도 코드는 두지 않습니다.
+- **수령 방법**(`receive_type`): 공연이 `BOTH`면 `ONSITE`, 배송만이면 `DELIVERY`, 현장만이면 `ONSITE`. 결제 준비 때 확정합니다.
+- **예매 수수료**: 공연의 `booking_fee`를 좌석마다 적용하고, 값이 비어 있으면 0원입니다.
+- **취소 규정 스냅샷**: 위 JSON 모양 그대로 `daysFrom`이 큰 구간부터 저장합니다.
+- **만료 시각**: 점유 시각 + 7분.
 
 서로 다른 사용자가 서로 다른 좌석을 요청하면 락이 겹치지 않아 병렬로 처리됩니다. 인기 공연에서 병목은 같은 좌석 하나의 락입니다.
 
@@ -357,6 +372,9 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 | 취소·만료한 좌석 | 한도에서 빠짐 (취소하면 다시 구매 가능) |
 | `max_per_person` 수정 | 예매가 생긴 뒤에는 늘리는 것만 가능 |
 | 한 번 요청한 매수 | 요청 매수 자체가 남은 한도를 넘으면 전체 거절 (일부만 잡지 않음) |
+| 결제 대기(PENDING) 중인 좌석 | 한도에 포함됨. 한도 안이면 추가 점유 가능 |
+| 내가 이미 점유한 좌석을 다시 요청 | `BOOKING000` (409) |
+| 만료된 좌석 | 스케줄러(1분)가 풀 때까지 점유 불가. 그 사이 한도 집계에도 남아 있을 수 있음 (최대 1분) |
 
 **조회에 쓰는 인덱스(권장)**
 
@@ -396,7 +414,7 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 - `booking_seat`는 구역·열·번호·등급·가격을 **복사해서 저장**한다. 그래서 끝난 회차의 판매 좌석을 지워도 기록이 남는다.
 - **부분 취소**가 가능하다. 취소한 좌석만 `active=false`가 되고, 환불은 취소 묶음마다 1행이다.
 - 취소 규정은 예매 때 **JSON 컬럼으로 복사**해 둔다. 규정이 바뀌어도 이미 한 예매는 그대로다.
-- 중복 판매는 **행 잠금 → 낙관적 락 → 부분 UNIQUE 인덱스** 세 겹으로 막는다.
+- 중복 판매는 **Redis 분산락 하나**로 제어한다. 상태 조건이 있는 UPDATE와 부분 UNIQUE 인덱스는 데이터를 지키는 안전장치다.
 - 환불은 `refund`가 상태를 따로 가지며, 실패하면 자동 3회 재시도 후 관리자가 처리한다. 환불마다 **중복 방지 키**를 두어, 응답이 끊겨도 이중 환불이 되지 않게 한다.
 
 다음은 **5부. 감사 로그와 운영 문제 상황** (`audit_log`, 환불 실패 재처리, 결제 불일치 보정 등)입니다.
