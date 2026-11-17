@@ -9,6 +9,7 @@ import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.service.SellerBusinessService;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
 import com.squirrel.tickting.domain.venue.service.VenueService;
+import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -59,5 +60,20 @@ public class UserPerformanceFacade {
 		SellerBusiness seller = sellerBusinessService.findBusiness(performance.getBusinessId()).orElse(null);
 
 		return UserPerformanceResponse.Detail.from(detail, venue, seller);
+	}
+
+	/**
+	 * 회차의 구역 요약. 등급과 잔여석은 공연 서비스가, 구역 이름·순서와 구역별 좌석 수·도면 키는 공연장 서비스가 준다.
+	 * 구역 정보는 판매자 등급·구역 조회(SLR-08)와 같은 getZoneInfos 를 쓴다.
+	 * 공연장은 논리 FK 라 행이 없을 수 있어서, 없으면 도면 키만 비운다(null). (구역도 없으니 구역 목록은 빈다)
+	 */
+	public UserPerformanceResponse.ZoneSummary getZoneSummary(Long scheduleId) {
+		UserPerformanceService.ZoneSummary summary = userPerformanceService.getZoneSummary(scheduleId);
+		Long venueId = summary.schedule().getPerformance().getVenueId();
+
+		Venue venue = venueService.getVenues(List.of(venueId)).get(venueId);
+		Map<Long, VenueZoneInfo> zones = venueService.getZoneInfos(venueId);
+
+		return UserPerformanceResponse.ZoneSummary.from(summary, venue, zones.values());
 	}
 }

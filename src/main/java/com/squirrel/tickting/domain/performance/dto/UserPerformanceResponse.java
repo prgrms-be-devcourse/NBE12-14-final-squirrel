@@ -4,16 +4,21 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
+import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.GuideType;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import com.squirrel.tickting.domain.performance.type.SaleStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
+import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
+import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import lombok.Builder;
@@ -314,6 +319,74 @@ public class UserPerformanceResponse {
 				.businessNumber(business.getBusinessNumber())
 				.contactPhone(business.getContactPhone())
 				.contactEmail(business.getContactEmail())
+				.build();
+		}
+	}
+
+	/** 회차의 구역 요약. (API 명세 PFM-03) 구역은 공연장의 화면 순서(sort_order)대로 나온다. */
+	@Builder
+	@Schema(name = "UserScheduleZoneSummary", description = "회차의 구역 요약")
+	public record ZoneSummary(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "프론트가 그릴 도면 이름표. 비어 있으면 기본 격자 도면", example = "sample-arena")
+		String layoutKey,
+		@Schema(description = "구역별 등급·잔여석")
+		List<Zone> zones
+	) {
+
+		/**
+		 * 공연장 정보가 없으면(논리 FK) 도면 키를 비운다.
+		 * 공연장 서비스는 구역을 번호로 찾게 Map 으로 주므로, 화면 순서(sort_order, 같으면 구역 번호순)로 여기서 정렬한다.
+		 */
+		public static ZoneSummary from(UserPerformanceService.ZoneSummary summary, Venue venue,
+			Collection<VenueZoneInfo> zones) {
+			return ZoneSummary.builder()
+				.scheduleId(summary.schedule().getId())
+				.layoutKey(venue == null ? null : venue.getLayoutKey())
+				.zones(zones.stream()
+					.sorted(Comparator.comparingInt(VenueZoneInfo::sortOrder).thenComparing(VenueZoneInfo::zoneId))
+					.map(zone -> Zone.of(zone, summary.gradesByZone().get(zone.zoneId()),
+						summary.remainingByZone().getOrDefault(zone.zoneId(), 0)))
+					.toList())
+				.build();
+		}
+	}
+
+	@Builder
+	@Schema(name = "UserScheduleZone", description = "구역 하나의 등급과 잔여석")
+	public record Zone(
+		@Schema(description = "구역 번호")
+		Long zoneId,
+		@Schema(description = "구역 이름", example = "F2구역")
+		String name,
+		@Schema(description = "층. 단층이거나 스탠딩이면 null", example = "1층")
+		String floor,
+		@Schema(description = "등급 이름. 판매하지 않는 구역은 null", example = "R석")
+		String grade,
+		@Schema(description = "좌석도에 칠할 색. 판매하지 않는 구역은 null", example = "#F2994A")
+		String color,
+		@Schema(description = "가격 (원). 판매하지 않는 구역은 null", example = "154000")
+		Integer price,
+		@Schema(description = "지금 살 수 있는(AVAILABLE) 좌석 수", example = "38")
+		Integer remaining,
+		@Schema(description = "구역의 전체 좌석 수", example = "220")
+		Integer total
+	) {
+
+		/** 등급이 지정(ASSIGNED)된 구역만 등급·색·가격을 채운다. 미판매 구역과 설정이 없는 구역은 비운다. */
+		static Zone of(VenueZoneInfo zone, ZoneGrade zoneGrade, int remaining) {
+			SeatGrade grade = zoneGrade != null && zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED
+				? zoneGrade.getGrade() : null;
+			return Zone.builder()
+				.zoneId(zone.zoneId())
+				.name(zone.name())
+				.floor(zone.floor())
+				.grade(grade == null ? null : grade.getName())
+				.color(grade == null ? null : grade.getColor())
+				.price(grade == null ? null : grade.getPrice())
+				.remaining(remaining)
+				.total(Math.toIntExact(zone.seatCount()))
 				.build();
 		}
 	}

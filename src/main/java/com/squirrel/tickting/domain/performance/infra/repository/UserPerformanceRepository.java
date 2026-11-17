@@ -3,7 +3,9 @@ package com.squirrel.tickting.domain.performance.infra.repository;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
+import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.type.Genre;
+import jakarta.persistence.Tuple;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -97,4 +99,41 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 		ORDER BY g.price DESC, g.id ASC
 		""")
 	List<SeatGrade> findAssignedGrades(@Param("performanceId") Long performanceId);
+
+	/**
+	 * 예매자가 볼 수 있는 회차 하나. 공개(PUBLISHED)된 공연의 취소되지 않은 회차만 찾는다. (공연 상세의 회차 목록과 같은 기준)
+	 * 일시 중지·연기된 회차는 찾는다. 공연장 번호가 필요해서 공연을 함께 읽는다.
+	 */
+	@Query("""
+		SELECT s
+		FROM PerformanceSchedule s
+		JOIN FETCH s.performance p
+		WHERE s.id = :scheduleId
+		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
+		  AND s.status <> com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED
+		""")
+	Optional<PerformanceSchedule> findVisibleSchedule(@Param("scheduleId") Long scheduleId);
+
+	/** 공연의 구역별 등급 설정. 등급 이름·가격·색을 트랜잭션 밖에서 꺼내므로 등급을 함께 읽는다. (미판매 구역은 등급이 없다) */
+	@Query("""
+		SELECT zg
+		FROM ZoneGrade zg
+		LEFT JOIN FETCH zg.grade
+		WHERE zg.performance.id = :performanceId
+		""")
+	List<ZoneGrade> findZoneGrades(@Param("performanceId") Long performanceId);
+
+	/**
+	 * 회차의 구역별 판매 가능(AVAILABLE) 좌석 수. 판매 가능 좌석이 없는 구역은 결과에 나오지 않는다.
+	 * 결과 타입을 따로 만들지 않고 JPA 의 Tuple 로 받는다. (별칭 zoneId, remaining)
+	 * idx_schedule_seat_zone_status (schedule_id, zone_id, status) 를 탄다.
+	 */
+	@Query("""
+		SELECT seat.zoneId AS zoneId, COUNT(seat) AS remaining
+		FROM ScheduleSeat seat
+		WHERE seat.scheduleId = :scheduleId
+		  AND seat.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE
+		GROUP BY seat.zoneId
+		""")
+	List<Tuple> countAvailableSeatsByZone(@Param("scheduleId") Long scheduleId);
 }

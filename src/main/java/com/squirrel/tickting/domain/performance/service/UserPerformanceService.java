@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
+import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.CommonGuideRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImageRepository;
@@ -27,6 +28,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -126,6 +128,30 @@ public class UserPerformanceService {
 			commonGuides);
 	}
 
+	/**
+	 * 회차의 구역 요약에 쓰는 공연 도메인의 값. 공개 공연의 취소되지 않은 회차만 볼 수 있고, 그 밖은 없는 회차와 같은 404 다.
+	 *
+	 *   - 구역별 등급: 등급 이름·색·가격을 함께 읽는다. 미판매(INTENTIONALLY_UNSOLD) 구역은 등급이 없다.
+	 *   - 잔여석: 판매 가능(AVAILABLE) 좌석만 센다. 임시 점유(HELD)·판매 완료·판매자 보류·판매 제외는 지금 살 수 없어서 빠진다.
+	 *     판매 좌석을 아직 만들지 않은 회차(판매 오픈 24시간 전보다 이전)는 살 수 있는 좌석이 없으니 세지 않고 모든 구역이 0 이다.
+	 */
+	@Transactional(readOnly = true)
+	public ZoneSummary getZoneSummary(Long scheduleId) {
+		PerformanceSchedule schedule = userPerformanceRepository.findVisibleSchedule(scheduleId)
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.USER_SCHEDULE_NOT_FOUND));
+
+		Map<Long, ZoneGrade> gradesByZone = userPerformanceRepository
+			.findZoneGrades(schedule.getPerformance().getId()).stream()
+			.collect(Collectors.toMap(ZoneGrade::getZoneId, Function.identity()));
+		Map<Long, Integer> remainingByZone = schedule.getSeatsGeneratedAt() == null ? Map.of()
+			: userPerformanceRepository.countAvailableSeatsByZone(scheduleId).stream()
+				.collect(Collectors.toMap(
+					row -> row.get("zoneId", Long.class),
+					row -> row.get("remaining", Long.class).intValue()));
+
+		return new ZoneSummary(schedule, gradesByZone, remainingByZone);
+	}
+
 	/** 공연 하나의 취소되지 않은 회차로 첫·마지막 회차 일시와 판매 상태를 계산한다. 회차가 없으면 일시는 null 이다. */
 	private Summary summarize(Performance performance, List<PerformanceSchedule> schedules,
 		Set<Long> scheduleIdsWithSeat, LocalDateTime now) {
@@ -168,5 +194,16 @@ public class UserPerformanceService {
 
 	/** 상세의 회차 하나와 그 회차의 판매 상태. */
 	public record ScheduleItem(PerformanceSchedule schedule, SaleStatus saleStatus) {
+	}
+
+	/**
+	 * 회차의 구역 요약 중 공연 도메인의 값. 구역 이름·순서와 구역별 좌석 수는 공연장 도메인이라 파사드가 붙인다.
+	 *
+	 * @param schedule        회차. 공연을 함께 읽어 두어 트랜잭션 밖에서 공연장 번호를 꺼낼 수 있다
+	 * @param gradesByZone    구역 번호 → 구역 등급 설정
+	 * @param remainingByZone 구역 번호 → 판매 가능 좌석 수. 판매 가능 좌석이 없는 구역은 없다
+	 */
+	public record ZoneSummary(PerformanceSchedule schedule, Map<Long, ZoneGrade> gradesByZone,
+		Map<Long, Integer> remainingByZone) {
 	}
 }
