@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.support.IntegrationTestSupport;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -107,6 +108,11 @@ class UserPerformanceDetailApiTest extends IntegrationTestSupport {
 			""", performanceId, ++zoneSequence);
 	}
 
+	/** 응답의 일시는 초까지 찍힌다. LocalDateTime.toString() 은 0초일 때 초를 빼서 1분에 한 번꼴로 어긋나므로 초까지 맞춰 비교한다. */
+	private static String iso(LocalDateTime time) {
+		return time.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+	}
+
 	// ---- 테스트 ----
 
 	@Test
@@ -135,8 +141,8 @@ class UserPerformanceDetailApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.data.venue.name").value("가상 아레나"))
 			.andExpect(jsonPath("$.data.venue.address").value("서울 가상구 1"))
 			.andExpect(jsonPath("$.data.venue.region").value("서울"))
-			.andExpect(jsonPath("$.data.sale.saleOpenAt").value(now.minusDays(1).toString()))
-			.andExpect(jsonPath("$.data.sale.saleCloseAt").value(now.plusDays(30).toString()))
+			.andExpect(jsonPath("$.data.sale.saleOpenAt").value(iso(now.minusDays(1))))
+			.andExpect(jsonPath("$.data.sale.saleCloseAt").value(iso(now.plusDays(30))))
 			.andExpect(jsonPath("$.data.sale.maxPerPerson").value(4))
 			.andExpect(jsonPath("$.data.sale.receiveType").value("BOTH"))
 			.andExpect(jsonPath("$.data.sale.bookingFee").value(2000))
@@ -183,7 +189,7 @@ class UserPerformanceDetailApiTest extends IntegrationTestSupport {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.schedules.length()").value(3))
 			.andExpect(jsonPath("$.data.schedules[0].scheduleId").value(ended))
-			.andExpect(jsonPath("$.data.schedules[0].startAt").value(now.minusDays(1).toString()))
+			.andExpect(jsonPath("$.data.schedules[0].startAt").value(iso(now.minusDays(1))))
 			.andExpect(jsonPath("$.data.schedules[0].saleStatus").value("ENDED"))
 			.andExpect(jsonPath("$.data.schedules[1].scheduleId").value(onSale))
 			.andExpect(jsonPath("$.data.schedules[1].saleStatus").value("ON_SALE"))

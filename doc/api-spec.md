@@ -75,7 +75,7 @@
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 구현됨 |
 | AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 구현됨 |
-| PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
+| PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 구현됨 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 구현됨 |
 | BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 구현됨 |
@@ -658,7 +658,14 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 **에러**: 404 `PERFORMANCE000` 공연 없음 또는 `PUBLISHED`가 아님 · 400 `COMMON000` 공연 번호가 숫자가 아님
 
-### PFM-03 구역 요약 — `GET /api/v1/schedules/{scheduleId}/zones` (공개)
+### PFM-03 구역 요약 — `GET /api/v1/schedules/{scheduleId}/zones` (공개, 구현됨)
+
+- 공개(`PUBLISHED`)된 공연의 **취소되지 않은 회차**만 볼 수 있습니다. 공개되지 않은 공연의 회차, 취소된 회차, 없는 회차는 모두 같은 404입니다. (공연 상세의 회차 목록과 같은 기준) 일시 중지(`PAUSED`)·연기(`POSTPONED`) 회차는 볼 수 있습니다.
+- `zones`: 공연장의 모든 구역이 화면 순서(`sort_order`, 같으면 구역 번호순)로 나옵니다.
+- `remaining`: 지금 살 수 있는(`AVAILABLE`) 좌석 수입니다. 임시 점유(`HELD`)·판매 완료(`SOLD`)·판매자 보류(`RESERVED`)·판매 제외(`BLOCKED`)는 빠집니다.
+- `total`: 공연장 구역의 전체 좌석 수입니다. (판매 좌석은 공연장 좌석을 그대로 복사해서 만들어서 같은 값)
+- **판매 좌석을 아직 만들지 않은 회차**(판매 오픈 24시간 전보다 이전)는 구역·등급·가격과 `total`은 보이고 `remaining`은 모두 0입니다. 아직 살 수 있는 좌석이 없기 때문입니다.
+- `layoutKey`: 공연장의 도면 이름표입니다. 비어 있으면 `null`이고 프론트는 기본 격자 도면을 그립니다.
 
 **응답 200**
 
@@ -686,7 +693,9 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 }
 ```
 
-`INTENTIONALLY_UNSOLD` 구역은 `grade`·`color`·`price`가 `null`이고 판매 제외입니다. 공개 공연에는 `UNSET` 구역이 없습니다. **에러**: 404 회차 없음
+`INTENTIONALLY_UNSOLD` 구역은 `grade`·`color`·`price`가 `null`이고 판매 제외입니다. 공개 공연에는 `UNSET` 구역이 없습니다. (혹시 있으면 판매하지 않는 구역과 같이 `null`)
+
+**에러**: 404 `PERFORMANCE200` 볼 수 없는 회차(없음, 공개되지 않은 공연, 취소된 회차) · 400 `COMMON000` 회차 번호가 숫자가 아님
 
 ### PFM-04 구역 좌석 상세 — `GET /api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` (공개)
 
