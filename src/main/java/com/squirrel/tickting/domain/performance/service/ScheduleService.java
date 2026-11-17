@@ -5,6 +5,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.SchedulePostponementRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.SeatGradeRepository;
@@ -28,6 +29,19 @@ public class ScheduleService {
 	private final SchedulePostponementRepository schedulePostponementRepository;
 	private final SeatGradeRepository seatGradeRepository;
 	private final CancelPolicyRuleRepository cancelPolicyRuleRepository;
+	private final PerformanceRepository performanceRepository;
+
+	/**
+	 * 결제 준비에 필요한 공연(제목, 허용하는 수령 방법)을 읽는다. 공개 상태가 아니면(작성 중·취소됨) 결제할 수 없다.
+	 * 이미 만들어진 예매의 결제라서 판매 기간은 따지지 않는다. 점유한 뒤 판매 종료 시각이 지나도 결제는 마칠 수 있어야 한다.
+	 * 호출한 쪽의 트랜잭션에 참여한다.
+	 */
+	@Transactional(readOnly = true)
+	public Performance getPayablePerformance(Long performanceId) {
+		return performanceRepository.findById(performanceId)
+			.filter(performance -> performance.getStatus() == PerformanceStatus.PUBLISHED)
+			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE));
+	}
 
 	/**
 	 * 지금 예매할 수 있는 회차를 읽는다. 읽기만 하고 아무것도 바꾸지 않는다.

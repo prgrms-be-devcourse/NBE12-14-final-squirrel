@@ -78,7 +78,7 @@
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 구현됨 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 구현됨 |
-| BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 미구현 |
+| BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 구현됨 |
 | BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 미구현 |
 | BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 미구현 |
 | BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 미구현 |
@@ -834,7 +834,21 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 }
 ```
 
-**에러**(코드 미정): 404 예매 없음(남의 예매 포함) · 409 `PENDING`이 아니거나 만료됨 · 400 허용되지 않는 수령 방법 · 400 배송 정보 누락
+**에러**
+
+| HTTP | 코드 | 의미 |
+|---|---|---|
+| 404 | `BOOKING006` | 없는 예매 (남의 예매도 같은 404) |
+| 409 | `BOOKING007` | 결제 대기(`PENDING`)가 아니거나 결제 제한 시각이 지남. 공연이 공개 상태가 아니어도 같은 코드 |
+| 400 | `PAYMENT000` | 공연이 받지 않는 수령 방법 (현장 전용 공연의 `DELIVERY`, 배송 전용 공연의 `ONSITE`) |
+| 400 | `PAYMENT001` | `DELIVERY`인데 받는 사람 이름·연락처·주소 중 비어 있음 |
+| 400 | `COMMON000` | `receiveType`이 비었거나 알 수 없는 값 |
+| 409 | `COMMON004` | 같은 예매의 다른 결제 요청이 처리 중이라 락을 기다리는 시간(1초) 안에 못 잡음 |
+
+- 이미 결제 준비(`READY`) 건이 있으면 새로 만들지 않고 **같은 `paymentId`·`orderId`를 돌려줍니다.** (새로고침, 결제창 재오픈) 수령 방법과 배송 정보는 요청한 값으로 다시 확정합니다. 이전 시도가 `FAILED`일 때만 일련번호를 올려(`-02`) 새 주문 ID를 만듭니다.
+- `ONSITE`이면 받는 사람 정보는 무시하고 비웁니다.
+- 이 단계에서는 좌석 점유 시간을 늘리지 않습니다. (연장은 BKG-03 승인을 시작할 때 한 번)
+- 예매자 번호는 토큰에서 꺼냅니다. 락 대기 시간은 `app.payment.lock-wait`(1초) 설정값입니다.
 
 ### BKG-03 결제 승인 — `POST /api/v1/payments/confirm` (예매자)
 

@@ -113,4 +113,17 @@ public class Booking extends BaseTimeEntity {
 	/** 전부 취소됐을 때만 값이 있다. */
 	@Column
 	private LocalDateTime canceledAt;
+
+	/**
+	 * 결제 준비 때 수령 방법과 배송 정보를 확정한다. 현장 수령이면 받는 사람 정보는 비운다.
+	 * 결제 준비를 다시 요청하면 이전에 넣은 배송 정보가 남지 않게 매번 통째로 바꾼다.
+	 */
+	public void changeReceiveInfo(ReceiveMethod receiveType, String recipientName, String recipientPhone,
+		String recipientAddress) {
+		boolean delivery = receiveType == ReceiveMethod.DELIVERY;
+		this.receiveType = receiveType;
+		this.recipientName = delivery ? recipientName : null;
+		this.recipientPhone = delivery ? recipientPhone : null;
+		this.recipientAddress = delivery ? recipientAddress : null;
+	}
 }

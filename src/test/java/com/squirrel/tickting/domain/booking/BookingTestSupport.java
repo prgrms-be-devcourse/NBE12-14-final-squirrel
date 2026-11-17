@@ -19,7 +19,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * 동시성 테스트는 스레드마다 트랜잭션이 따로 있어야 해서 테스트 트랜잭션으로 감싸지 않고, 만든 데이터를 직접 지운다.
  * 시각은 자바에서 만든 값을 넣는다. (컨테이너 DB 와 애플리케이션의 시간대가 달라도 어긋나지 않게)
  */
-abstract class BookingTestSupport extends IntegrationTestSupport {
+public abstract class BookingTestSupport extends IntegrationTestSupport {
 
 	protected static final String SIGNUP = "/api/v1/auth/users/signup";
 	protected static final int MAX_PER_PERSON = 4;
