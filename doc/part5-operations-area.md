@@ -121,11 +121,13 @@ erDiagram
 
 | 단계 | 바뀌는 테이블 |
 |---|---|
-| `held_until`이 지난 `HELD` 좌석을 찾는다 | (조회) |
-| 좌석을 되돌린다 | `schedule_seat`: `HELD` → `AVAILABLE`, `held_by`·`held_until` 비움 |
-| 결제 제한 시각이 지난 예매를 만료 처리 | `booking`: `PENDING` → `EXPIRED`, `booking_seat.active` → false |
+| 결제 제한 시각(`expires_at`)이 지난 `PENDING` 예매를 오래된 것부터 잠그며 찾는다 | (조회) |
+| 그 예매를 만료 처리 | `booking`: `PENDING` → `EXPIRED`, `booking_seat.active` → false |
+| 그 예매의 좌석을 되돌린다 | `schedule_seat`: `HELD` → `AVAILABLE`, `held_by`·`held_until` 비움 |
 
-서버를 여러 대 띄워도 같은 좌석을 두 번 처리하지 않도록 `FOR UPDATE SKIP LOCKED`로 이미 잠긴 행은 건너뜁니다.
+위 세 단계는 **한 트랜잭션**입니다. 좌석만 먼저 풀리면 낡은 `booking_seat`가 활성으로 남아 있어서, 그 좌석을 새로 점유한 요청이 `uq_booking_seat_active`와 부딪힙니다. 그래서 좌석의 `held_until`이 아니라 **만료된 예매를 기준으로** 그 예매의 좌석만 되돌립니다. (2026-11-17 변경: 좌석을 먼저 찾던 순서를 예매 기준으로 바꿈) 좌석 상태 조건(`HELD`일 때만)이 있어서 그 사이 결제가 끝나 `SOLD`가 된 좌석은 건드리지 않습니다.
+
+서버를 여러 대 띄워도 같은 예매를 두 번 처리하지 않도록 `FOR UPDATE SKIP LOCKED`로 이미 잠긴 행은 건너뜁니다. 결제 승인이 같은 예매 행을 바꾸는 중이면 정리가 그 행을 건너뛰고, 승인이 먼저 끝나 만료 시각이 늘어났다면 다음 주기에도 대상이 아닙니다. 한 번에 처리하는 예매 수(`app.booking.expiry-batch-size`)를 제한해 트랜잭션과 잠금이 길어지지 않게 하고, 남았으면 이어서 처리합니다. 주기(`app.booking.expiry-interval`)와 켜고 끄는 값(`app.booking.expiry-enabled`)은 `application.yaml`의 설정값입니다.
 
 ### ② 결제는 됐는데 예매가 안 바뀐 경우 (결제 불일치 보정)
 

@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,20 @@ public class ScheduleSeatService {
 			throw new BusinessException(BookingExceptionCode.SEAT_ALREADY_TAKEN);
 		}
 		return seats;
+	}
+
+	/**
+	 * 점유 중인 좌석을 다시 판매 가능(AVAILABLE)으로 되돌린다. 결제 제한 시간이 지난 예매의 좌석을 풀 때 쓰고,
+	 * 그 예매를 만료 처리하는 것과 같은 트랜잭션에서 불러야 한다. (좌석만 풀리고 예매 좌석이 활성으로 남으면 새 점유가 UNIQUE 인덱스와 부딪힌다)
+	 *
+	 * @return 실제로 되돌린 좌석 수. 그 사이 SOLD 로 바뀐 좌석은 빠지므로 요청 수보다 적을 수 있다
+	 */
+	@Transactional
+	public int releaseHeld(Collection<Long> seatIds, LocalDateTime now) {
+		if (seatIds.isEmpty()) {
+			return 0;
+		}
+		return scheduleSeatRepository.releaseHeld(seatIds, now);
 	}
 
 	private static boolean isExcludedFromSale(ScheduleSeat seat) {
