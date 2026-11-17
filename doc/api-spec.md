@@ -77,7 +77,7 @@
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 구현됨 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 미구현 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
-| BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 미구현 |
+| BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 구현됨 |
 | BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 미구현 |
 | BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 미구현 |
 | BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 미구현 |
@@ -781,7 +781,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 |---|---|---|
 | 409 | `BOOKING000` | 이미 점유·판매된 좌석 (하나라도 점유할 수 없으면 전체 거절) |
 | 409 | `BOOKING001` | 1인 최대 매수 초과 (이미 가진 좌석 + 요청 좌석이 공연의 한도를 넘음) |
-| 400 | `BOOKING002` | 판매 중이 아닌 회차 (공연 비공개·판매 기간 밖·회차 중지·연기·취소·이미 시작) |
+| 400 | `BOOKING002` | 판매 중이 아닌 회차 (판매 기간 밖·회차 중지·연기·취소·이미 시작. 공연이 공개 상태가 아니면 `BOOKING004`) |
 | 400 | `BOOKING003` | 판매 제외 좌석 (`BLOCKED`, `RESERVED`) |
 | 404 | `BOOKING004` | 없는 회차 (공연이 공개 상태가 아닌 것도 같은 404) |
 | 404 | `BOOKING005` | 없는 좌석 (다른 회차의 좌석도 같은 404) |
@@ -789,6 +789,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 | 409 | `COMMON004` | 락을 기다리는 시간(1초) 안에 못 잡음 |
 
 락을 기다리는 시간과 만료 처리 규칙은 `part4` 4-7을 따른다. 만료된 좌석은 스케줄러(1분)가 풀어 줄 때까지 `BOOKING000`이다.
+
+`seats`는 요청한 `seatIds` 순서대로 내려간다. 락 대기 시간(`app.booking.lock-wait`, 1초)과 결제 제한 시간(`app.booking.hold-duration`, 7분)은 `application.yaml`의 설정값이다. 예매자 토큰만 호출할 수 있고(판매자·관리자 403), 예매자 번호는 토큰에서 꺼낸다.
 
 ### BKG-02 결제 준비 — `POST /api/v1/bookings/{bookingId}/payments` (예매자)
 

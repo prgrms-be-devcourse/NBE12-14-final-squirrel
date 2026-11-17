@@ -1,0 +1,133 @@
+package com.squirrel.tickting.domain.booking.facade;
+
+import com.squirrel.tickting.domain.booking.dto.BookingRequest;
+import com.squirrel.tickting.domain.booking.dto.BookingResponse;
+import com.squirrel.tickting.domain.booking.service.BookingCreateCommand;
+import com.squirrel.tickting.domain.booking.service.BookingService;
+import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.domain.performance.infra.entity.Performance;
+import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
+import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
+import com.squirrel.tickting.domain.performance.service.ScheduleService;
+import com.squirrel.tickting.domain.performance.service.ScheduleService.BookableSchedule;
+import com.squirrel.tickting.domain.performance.type.ReceiveType;
+import com.squirrel.tickting.domain.user.infra.entity.UserMember;
+import com.squirrel.tickting.domain.user.service.UserMemberService;
+import com.squirrel.tickting.domain.venue.service.VenueService;
+import com.squirrel.tickting.domain.venue.service.VenueService.SeatLocation;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
+import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
+import com.squirrel.tickting.global.lock.DistributedLockExecutor;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 좌석 점유·예매 생성. 공연(회차·좌석), 공연장(좌석 위치), 회원(주문자), 예매 네 도메인이 얽혀서 서비스끼리 부르지 않고 이 파사드가 순서대로 부른다.
+ *
+ * 동시성은 Redis 분산락 하나로 막는다. (doc/part4-booking-area.md 4-7)
+ * 락을 먼저 잡고 그 안에서 트랜잭션을 열어 커밋한 뒤에 풀어야 해서, 메서드에 @Transactional 을 붙이지 않고 TransactionTemplate 을 쓴다.
+ */
+@Component
+@RequiredArgsConstructor
+@EnableConfigurationProperties(BookingProperties.class)
+public class BookingFacade {
+
+	private final DistributedLockExecutor lockExecutor;
+	private final TransactionTemplate transactionTemplate;
+	private final BookingProperties properties;
+	private final ScheduleService scheduleService;
+	private final ScheduleSeatService scheduleSeatService;
+	private final VenueService venueService;
+	private final UserMemberService userMemberService;
+	private final BookingService bookingService;
+
+	/**
+	 * 좌석을 점유하고 결제 대기 예매를 만든다. 요청한 좌석 중 하나라도 잡지 못하면 아무것도 잡지 않고 전체를 거절한다.
+	 *
+	 * 락 이름에 공연 번호가 필요해서 회차·공연은 락 밖에서 먼저 읽는다. 읽기만 하고 아무것도 바꾸지 않으며,
+	 * 판매 중이 아닌 회차나 한도를 넘는 요청은 락을 잡기 전에 여기서 걸러 락 경쟁을 줄인다.
+	 * 이 값은 락 안에서 다시 읽는다. 락을 기다리는 사이에 바뀔 수 있어서 락 밖의 판단은 믿지 않는다.
+	 */
+	public BookingResponse.Created createBooking(Long userId, Long scheduleId, BookingRequest.Create request) {
+		Set<Long> seatIds = new LinkedHashSet<>(request.seatIds());
+		if (seatIds.size() != request.seatIds().size()) {
+			throw new BusinessException(CommonExceptionCode.INVALID_INPUT);
+		}
+
+		BookableSchedule preview = scheduleService.getBookable(scheduleId, LocalDateTime.now());
+		if (seatIds.size() > preview.performance().getMaxPerPerson()) {
+			throw new BusinessException(BookingExceptionCode.MAX_PER_PERSON_EXCEEDED);
+		}
+
+		List<String> lockNames = new ArrayList<>();
+		seatIds.forEach(seatId -> lockNames.add("seat:" + seatId));
+		lockNames.add("user-performance:" + userId + ":" + preview.performanceId());
+
+		return lockExecutor.execute(lockNames, properties.lockWait(),
+			() -> transactionTemplate.execute(status -> hold(userId, scheduleId, seatIds)));
+	}
+
+	/** 락을 잡은 상태에서 한 트랜잭션으로 실행한다. 하나라도 실패하면 점유와 예매 생성이 모두 되돌려진다. */
+	private BookingResponse.Created hold(Long userId, Long scheduleId, Set<Long> seatIds) {
+		LocalDateTime now = LocalDateTime.now();
+		BookableSchedule schedule = scheduleService.getBookable(scheduleId, now);
+		Performance performance = schedule.performance();
+
+		long owned = bookingService.countActiveSeats(userId, performance.getId());
+		if (owned + seatIds.size() > performance.getMaxPerPerson()) {
+			throw new BusinessException(BookingExceptionCode.MAX_PER_PERSON_EXCEEDED);
+		}
+
+		LocalDateTime expiresAt = now.plus(properties.holdDuration());
+		List<ScheduleSeat> held = scheduleSeatService.holdSeats(scheduleId, seatIds, userId, now, expiresAt);
+		Map<Long, ScheduleSeat> heldById = held.stream().collect(Collectors.toMap(ScheduleSeat::getId, Function.identity()));
+		Map<Long, SeatLocation> locations = venueService.getSeatLocations(
+			held.stream().map(ScheduleSeat::getVenueSeatId).toList());
+		UserMember user = userMemberService.getMe(userId);
+
+		// 응답의 좌석 순서는 요청한 순서를 따른다
+		List<BookingCreateCommand.SeatLine> lines = seatIds.stream()
+			.map(heldById::get)
+			.map(seat -> toLine(seat, locations.get(seat.getVenueSeatId()), schedule.gradeNames()))
+			.toList();
+
+		return bookingService.create(new BookingCreateCommand(
+			userId,
+			scheduleId,
+			performance.getId(),
+			defaultReceiveMethod(performance.getReceiveType()),
+			user.getName(),
+			user.getPhone(),
+			user.getEmail(),
+			performance.getBookingFee() == null ? 0 : performance.getBookingFee(),
+			lines,
+			schedule.cancelRules().stream()
+				.map(rule -> new BookingCreateCommand.CancelRule(
+					rule.getDaysFrom(), rule.getDaysTo(), rule.getFeeRate(), rule.isCancelable()))
+				.toList(),
+			now.toLocalDate(),
+			expiresAt));
+	}
+
+	private static BookingCreateCommand.SeatLine toLine(ScheduleSeat seat, SeatLocation location,
+		Map<Long, String> gradeNames) {
+		return new BookingCreateCommand.SeatLine(seat.getId(), location.zoneName(), location.rowLabel(),
+			location.seatNumber(), gradeNames.get(seat.getGradeId()), seat.getPrice());
+	}
+
+	/** 점유할 때는 수령 방법을 정하지 않아서 기본값을 넣고, 결제 준비 때 확정한다. 배송만 되는 공연이 아니면 현장 수령이다. */
+	private static ReceiveMethod defaultReceiveMethod(ReceiveType allowed) {
+		return allowed == ReceiveType.DELIVERY ? ReceiveMethod.DELIVERY : ReceiveMethod.ONSITE;
+	}
+}
