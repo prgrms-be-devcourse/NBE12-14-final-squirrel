@@ -43,7 +43,7 @@ public interface BookingSeatRepository extends JpaRepository<BookingSeat, Long> 
 	 * 예매들의 좌석을 비활성으로 바꾼다. active=false 가 되어야 그 좌석이 다시 팔릴 수 있다. (활성 좌석에만 UNIQUE 인덱스가 걸려 있다)
 	 * 취소가 아니라 만료라서 canceled_at 은 채우지 않는다.
 	 */
-	@Modifying(clearAutomatically = true)
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("UPDATE BookingSeat bs SET bs.active = false WHERE bs.bookingId IN :bookingIds AND bs.active = true")
 	int deactivateByBookingIds(@Param("bookingIds") Collection<Long> bookingIds);
 }

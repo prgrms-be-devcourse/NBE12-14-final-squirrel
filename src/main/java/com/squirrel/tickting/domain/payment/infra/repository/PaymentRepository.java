@@ -12,4 +12,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
 	/** 예매에서 아직 승인하지 않은 결제 준비 건. 결제 준비는 락 안에서 불러서 많아야 한 건이다. */
 	Optional<Payment> findFirstByBookingIdAndStatusOrderByIdDesc(Long bookingId, PaymentStatus status);
+
+	/** 토스에 보낸 주문 ID 로 찾는다. 주문 ID 는 UNIQUE 라 한 건이거나 없다. */
+	Optional<Payment> findByOrderId(String orderId);
+
+	/** 예매에서 결제 준비 상태가 아닌 건의 수. 승인을 이미 시도한 적이 있는지 보는 데 쓴다. */
+	long countByBookingIdAndStatusNot(Long bookingId, PaymentStatus status);
 }

@@ -58,6 +58,32 @@ public class ScheduleSeatService {
 		return scheduleSeatRepository.releaseHeld(seatIds, now);
 	}
 
+	/**
+	 * 결제 승인을 시작할 때 좌석의 점유 만료 시각을 늘린다. 예매의 결제 제한 시각을 늘리는 것과 같은 트랜잭션에서 불러야 한다.
+	 * 두 값이 어긋나면 한쪽만 먼저 만료되어 스케줄러가 점유 중인 좌석을 풀 수 있다.
+	 */
+	@Transactional
+	public void extendHold(Collection<Long> seatIds, LocalDateTime heldUntil, LocalDateTime now) {
+		if (!seatIds.isEmpty()) {
+			scheduleSeatRepository.extendHold(seatIds, heldUntil, now);
+		}
+	}
+
+	/**
+	 * 결제가 승인된 좌석을 판매 완료(SOLD)로 바꾼다. 예매를 결제 완료로 바꾸는 것과 같은 트랜잭션에서 불러야 한다.
+	 * 요청한 좌석을 모두 바꾸지 못하면(점유가 이미 풀렸거나 다른 상태) 어긋난 상태라서 IllegalStateException 으로 트랜잭션을 되돌린다.
+	 */
+	@Transactional
+	public void markSold(Collection<Long> seatIds, LocalDateTime now) {
+		if (seatIds.isEmpty()) {
+			return;
+		}
+		int sold = scheduleSeatRepository.markSold(seatIds, now);
+		if (sold != seatIds.size()) {
+			throw new IllegalStateException("점유 중인 좌석 " + seatIds.size() + "개 중 " + sold + "개만 판매 완료로 바꿨다.");
+		}
+	}
+
 	private static boolean isExcludedFromSale(ScheduleSeat seat) {
 		return seat.getStatus() == SeatStatus.BLOCKED || seat.getStatus() == SeatStatus.RESERVED;
 	}

@@ -17,7 +17,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** 결제. 결제 시도가 여러 번일 수 있어서 예매 하나에 여러 건이 생길 수 있다. 처음에는 Mock 으로 흐름을 만들고 나중에 토스로 바꾼다. */
+/** 결제. 결제 시도가 여러 번일 수 있어서 예매 하나에 여러 건이 생길 수 있다. */
 @Entity
 @Table(name = "payment")
 @Getter
@@ -25,6 +25,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
 public class Payment extends CreatedTimeEntity {
+
+	private static final int FAIL_REASON_MAX_LENGTH = 500;
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -59,4 +61,37 @@ public class Payment extends CreatedTimeEntity {
 
 	@Column
 	private LocalDateTime approvedAt;
+
+	/**
+	 * 토스에 승인을 요청하기 직전에 부른다. 이 상태가 되면 같은 결제의 다른 승인 요청은 막힌다.
+	 * 결제 준비(READY) 상태에서만 시작할 수 있다.
+	 */
+	public void startProcessing() {
+		requireStatus(PaymentStatus.READY);
+		this.status = PaymentStatus.PROCESSING;
+	}
+
+	/** 토스 승인에 성공했을 때. 결제 키·수단·승인 시각은 승인 뒤에만 생긴다. */
+	public void complete(String paymentKey, String method, LocalDateTime approvedAt) {
+		requireStatus(PaymentStatus.PROCESSING);
+		this.status = PaymentStatus.DONE;
+		this.paymentKey = paymentKey;
+		this.method = method;
+		this.approvedAt = approvedAt;
+	}
+
+	/** 토스가 승인을 거절했을 때. 사유는 컬럼 길이에 맞게 자른다. */
+	public void fail(String reason) {
+		requireStatus(PaymentStatus.PROCESSING);
+		this.status = PaymentStatus.FAILED;
+		this.failReason = reason != null && reason.length() > FAIL_REASON_MAX_LENGTH
+			? reason.substring(0, FAIL_REASON_MAX_LENGTH)
+			: reason;
+	}
+
+	private void requireStatus(PaymentStatus expected) {
+		if (this.status != expected) {
+			throw new IllegalStateException("결제 상태가 " + expected + " 여야 한다. 현재: " + this.status);
+		}
+	}
 }
