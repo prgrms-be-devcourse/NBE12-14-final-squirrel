@@ -12,6 +12,8 @@ public interface BookingSeatRepository extends JpaRepository<BookingSeat, Long> 
 
 	List<BookingSeat> findByBookingIdOrderById(Long bookingId);
 
+	long countByBookingId(Long bookingId);
+
 	/**
 	 * 한 사람이 한 공연에서 가진 활성 좌석 수. 1인 최대 매수 검사에 쓴다.
 	 * 결제 대기(PENDING)와 결제 완료 좌석이 들어가고, 취소·만료되어 active=false 가 된 좌석은 빠진다.

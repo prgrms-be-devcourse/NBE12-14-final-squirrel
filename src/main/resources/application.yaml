@@ -33,6 +33,9 @@ spring:
         namespace: tickting:session
 
 app:
+  payment:
+    # 같은 예매에 결제 요청이 겹칠 때 기다리는 시간. 넘으면 COMMON004(409)
+    lock-wait: 1s
   booking:
     # 좌석·사용자 락을 기다리는 시간. 길수록 인기 좌석에 요청이 쌓이므로 짧게 둔다. 넘으면 COMMON004(409)
     lock-wait: 1s
