@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
+import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.SeatGradeRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.ZoneGradeRepository;
 import com.squirrel.tickting.domain.performance.service.GradeService;
@@ -36,8 +38,10 @@ class SellerPerformanceCreateRollbackTest extends IntegrationTestSupport {
 		@Bean
 		@Primary
 		GradeService failingGradeService(SeatGradeRepository seatGradeRepository,
-			ZoneGradeRepository zoneGradeRepository) {
-			return new GradeService(seatGradeRepository, zoneGradeRepository) {
+			ZoneGradeRepository zoneGradeRepository, PerformanceRepository performanceRepository,
+			PerformanceScheduleRepository performanceScheduleRepository) {
+			return new GradeService(seatGradeRepository, zoneGradeRepository, performanceRepository,
+				performanceScheduleRepository) {
 				@Override
 				public void initializeZones(Performance performance, List<Long> zoneIds) {
 					throw new IllegalStateException("구역 설정 저장 실패");

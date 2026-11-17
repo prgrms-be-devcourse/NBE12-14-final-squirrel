@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.venue.service;
 
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueSeatRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueZoneRepository;
@@ -66,6 +67,23 @@ public class VenueService {
 		return venueRepository.findAllByRegion(region).stream()
 			.map(Venue::getId)
 			.toList();
+	}
+
+	/**
+	 * 공연장의 구역 번호별 표시 정보와 좌석 수. 공연의 등급·구역 조회(SLR-08)에서 구역 설정과 합쳐 쓴다.
+	 * getNames 와 같이 사용 중지된 공연장도 읽는다. (이미 잡힌 공연의 구역은 계속 보여야 한다) 좌석이 없는 구역은 0석이다.
+	 */
+	@Transactional(readOnly = true)
+	public Map<Long, VenueZoneInfo> getZoneInfos(Long venueId) {
+		Map<Long, Long> seatCounts = venueSeatRepository.countByZone(venueId).stream()
+			.collect(Collectors.toMap(count -> count.getZoneId(), count -> count.getSeatCount()));
+		return venueZoneRepository.findByVenueId(venueId).stream()
+			.collect(Collectors.toMap(VenueZone::getId, zone -> new VenueZoneInfo(
+				zone.getId(),
+				zone.getName(),
+				zone.getFloor(),
+				zone.getSortOrder(),
+				seatCounts.getOrDefault(zone.getId(), 0L))));
 	}
 
 	/**

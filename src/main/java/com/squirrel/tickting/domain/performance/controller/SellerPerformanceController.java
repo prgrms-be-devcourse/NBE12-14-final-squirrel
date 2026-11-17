@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.performance.controller;
 
+import com.squirrel.tickting.domain.performance.dto.SellerGradeResponse;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.facade.SellerPerformanceFacade;
@@ -81,6 +82,21 @@ public class SellerPerformanceController {
 		@PathVariable Long performanceId
 	) {
 		SellerPerformanceResponse.Detail response = sellerPerformanceFacade.getDetail(account.getBusinessId(),
+			performanceId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 등급은 공연의 하위 자원이라 공연 컨트롤러에 둔다. 대표·담당자 모두 조회할 수 있다. */
+	@Operation(summary = "등급·구역 조회",
+		description = "공연의 등급과 구역별 상태·등급이다. locked 가 true 면 취소되지 않은 회차 중 하나라도 판매 좌석이 만들어져 "
+			+ "등급·가격·구역 설정을 고칠 수 없다. 등급은 가격 높은 순, 구역은 공연장 구역 순서(sortOrder)순이다. "
+			+ "취소된 공연도 조회할 수 있고, 다른 사업체의 공연이거나 없는 공연은 모두 404 이다.")
+	@GetMapping("/{performanceId}/grades")
+	public ResponseEntity<ApiResponse<SellerGradeResponse.Overview>> grades(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId
+	) {
+		SellerGradeResponse.Overview response = sellerPerformanceFacade.getGrades(account.getBusinessId(),
 			performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
