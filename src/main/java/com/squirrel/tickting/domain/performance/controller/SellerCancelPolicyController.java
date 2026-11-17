@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.performance.controller;
 
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyResponse;
+import com.squirrel.tickting.domain.performance.service.CancelPolicyDetail;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
@@ -77,7 +78,7 @@ public class SellerCancelPolicyController {
 		@AuthenticationPrincipal CustomUserDetails account,
 		@Valid @RequestBody SellerCancelPolicyRequest.Save request
 	) {
-		CancelPolicyService.Detail created = cancelPolicyService.create(account.getBusinessId(), request.toCommand());
+		CancelPolicyDetail created = cancelPolicyService.create(account.getBusinessId(), request.toCommand());
 		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(created);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
@@ -91,7 +92,7 @@ public class SellerCancelPolicyController {
 		@PathVariable Long cancelPolicyId,
 		@Valid @RequestBody SellerCancelPolicyRequest.Save request
 	) {
-		CancelPolicyService.Detail updated = cancelPolicyService.update(cancelPolicyId, account.getBusinessId(),
+		CancelPolicyDetail updated = cancelPolicyService.update(cancelPolicyId, account.getBusinessId(),
 			request.toCommand());
 		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(updated);
 		return ResponseEntity.ok(ApiResponse.success(response));

@@ -1,6 +1,6 @@
 package com.squirrel.tickting.domain.performance.dto;
 
-import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
+import com.squirrel.tickting.domain.performance.service.PerformanceSaveCommand;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -112,11 +112,11 @@ public class SellerPerformanceRequest {
 			guide = trimToNull(guide);
 		}
 
-		public SellerPerformanceService.SaveCommand toCommand() {
-			List<SellerPerformanceService.SaveCommand.Image> imageCommands = images == null ? List.of() : images.stream()
-				.map(image -> new SellerPerformanceService.SaveCommand.Image(image.url(), image.sortOrder()))
+		public PerformanceSaveCommand toCommand() {
+			List<PerformanceSaveCommand.Image> imageCommands = images == null ? List.of() : images.stream()
+				.map(image -> new PerformanceSaveCommand.Image(image.url(), image.sortOrder()))
 				.toList();
-			return SellerPerformanceService.SaveCommand.builder()
+			return PerformanceSaveCommand.builder()
 				.title(title)
 				.genre(genre)
 				.ageLimit(ageLimit)

@@ -15,7 +15,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
-import com.squirrel.tickting.domain.performance.service.CancelPolicyService.SaveCommand.Rule;
+import com.squirrel.tickting.domain.performance.service.CancelPolicySaveCommand.Rule;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
@@ -92,7 +92,7 @@ class CancelPolicyServiceTest {
 		when(cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(10L)).thenReturn(rules);
 		when(performanceRepository.existsByCancelPolicyAndStatuses(10L, LOCKING)).thenReturn(false);
 
-		CancelPolicyService.Detail detail = cancelPolicyService.getVisibleDetail(10L, 7L);
+		CancelPolicyDetail detail = cancelPolicyService.getVisibleDetail(10L, 7L);
 
 		assertThat(detail.policy()).isSameAs(mine);
 		assertThat(detail.rules()).isSameAs(rules);
@@ -123,9 +123,9 @@ class CancelPolicyServiceTest {
 			.thenReturn(new PageImpl<>(List.of(defaultPolicy, used, free), pageable, 3));
 		when(performanceRepository.findCancelPolicyIdsInUse(List.of(1L, 10L, 11L), LOCKING)).thenReturn(List.of(10L));
 
-		Page<CancelPolicyService.Summary> page = cancelPolicyService.searchVisible(7L, pageable);
+		Page<CancelPolicySummary> page = cancelPolicyService.searchVisible(7L, pageable);
 
-		assertThat(page.getContent()).extracting(CancelPolicyService.Summary::editable).containsExactly(false, false, true);
+		assertThat(page.getContent()).extracting(CancelPolicySummary::editable).containsExactly(false, false, true);
 		assertThat(page.getTotalElements()).isEqualTo(3);
 	}
 
@@ -165,10 +165,10 @@ class CancelPolicyServiceTest {
 	@DisplayName("생성하면 토큰의 사업체 규정으로 저장하고, 구간은 입력 순서와 상관없이 공연에서 먼 구간부터 돌려준다")
 	void createSortsRulesFarthestFirst() {
 		saveReturnsArgument();
-		CancelPolicyService.SaveCommand command = new CancelPolicyService.SaveCommand("내 규정",
+		CancelPolicySaveCommand command = new CancelPolicySaveCommand("내 규정",
 			List.of(rule(1, 2), new Rule(7, null, 0, true), new Rule(0, 0, 0, false), new Rule(3, 6, 10, true)));
 
-		CancelPolicyService.Detail detail = cancelPolicyService.create(7L, command);
+		CancelPolicyDetail detail = cancelPolicyService.create(7L, command);
 
 		assertThat(detail.editable()).isTrue();
 		assertThat(detail.policy().getBusinessId()).isEqualTo(7L);
@@ -184,10 +184,10 @@ class CancelPolicyServiceTest {
 	@DisplayName("하루짜리 구간(양끝 포함)과 모든 구간이 취소 불가인 규정도 만들 수 있다")
 	void createAllowsOneDayRulesAndAllNotCancelable() {
 		saveReturnsArgument();
-		CancelPolicyService.SaveCommand command = new CancelPolicyService.SaveCommand("취소 불가 규정",
+		CancelPolicySaveCommand command = new CancelPolicySaveCommand("취소 불가 규정",
 			List.of(new Rule(0, 0, 0, false), new Rule(1, 1, 0, false), new Rule(2, null, 0, false)));
 
-		CancelPolicyService.Detail detail = cancelPolicyService.create(7L, command);
+		CancelPolicyDetail detail = cancelPolicyService.create(7L, command);
 
 		assertThat(detail.rules()).extracting(CancelPolicyRule::getDaysFrom).containsExactly(2, 1, 0);
 	}
@@ -197,7 +197,7 @@ class CancelPolicyServiceTest {
 	void createAllowsSingleUnlimitedRule() {
 		saveReturnsArgument();
 
-		CancelPolicyService.Detail detail = cancelPolicyService.create(7L, new CancelPolicyService.SaveCommand("한 구간", List.of(rule(0, null))));
+		CancelPolicyDetail detail = cancelPolicyService.create(7L, new CancelPolicySaveCommand("한 구간", List.of(rule(0, null))));
 
 		assertThat(detail.rules()).hasSize(1);
 	}
@@ -220,7 +220,7 @@ class CancelPolicyServiceTest {
 	@MethodSource("invalidRules")
 	@DisplayName("구간끼리의 규칙을 어기면 400 PERFORMANCE101 이고 이유는 메시지로 알려 주며, 이름 확인과 저장은 하지 않는다")
 	void invalidRulesAreRejectedBeforeNameCheck(String reason, List<Rule> rules, String message) {
-		assertThatThrownBy(() -> cancelPolicyService.create(7L, new CancelPolicyService.SaveCommand("내 규정", rules)))
+		assertThatThrownBy(() -> cancelPolicyService.create(7L, new CancelPolicySaveCommand("내 규정", rules)))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage(message)
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_RULES_INVALID);
@@ -233,7 +233,7 @@ class CancelPolicyServiceTest {
 		when(cancelPolicyRepository.existsVisibleName(7L, "기본 규정")).thenReturn(true);
 
 		assertThatThrownBy(() -> cancelPolicyService.create(7L,
-			new CancelPolicyService.SaveCommand("기본 규정", List.of(rule(0, null)))))
+			new CancelPolicySaveCommand("기본 규정", List.of(rule(0, null)))))
 			.isInstanceOf(BusinessException.class)
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
 		verify(cancelPolicyRepository, never()).save(any());
@@ -253,8 +253,8 @@ class CancelPolicyServiceTest {
 		when(cancelPolicyRepository.findMineForUpdate(10L, 7L)).thenReturn(Optional.of(policy));
 		when(cancelPolicyRuleRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
-		CancelPolicyService.Detail detail = cancelPolicyService.update(10L, 7L,
-			new CancelPolicyService.SaveCommand("새 이름", List.of(rule(0, 2), rule(3, null))));
+		CancelPolicyDetail detail = cancelPolicyService.update(10L, 7L,
+			new CancelPolicySaveCommand("새 이름", List.of(rule(0, 2), rule(3, null))));
 
 		assertThat(policy.getName()).isEqualTo("새 이름");
 		assertThat(detail.rules()).extracting(CancelPolicyRule::getDaysFrom).containsExactly(3, 0);
@@ -271,7 +271,7 @@ class CancelPolicyServiceTest {
 	@DisplayName("수정도 구간끼리의 규칙을 어기면 규정을 잠그거나 조회하기 전에 400 PERFORMANCE101 이다")
 	void updateValidatesRulesBeforeLocking() {
 		assertThatThrownBy(() -> cancelPolicyService.update(10L, 7L,
-			new CancelPolicyService.SaveCommand("새 이름", List.of(rule(1, null)))))
+			new CancelPolicySaveCommand("새 이름", List.of(rule(1, null)))))
 			.isInstanceOf(BusinessException.class)
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_RULES_INVALID);
 		verifyNoInteractions(cancelPolicyRepository, cancelPolicyRuleRepository, performanceRepository);
@@ -283,7 +283,7 @@ class CancelPolicyServiceTest {
 		CancelPolicy defaultPolicy = CancelPolicy.builder().id(1L).name("기본 규정").build();
 		when(cancelPolicyRepository.findVisible(1L, 7L)).thenReturn(Optional.of(defaultPolicy));
 		when(cancelPolicyRepository.findVisible(20L, 7L)).thenReturn(Optional.empty());
-		CancelPolicyService.SaveCommand command = new CancelPolicyService.SaveCommand("새 이름", List.of(rule(0, null)));
+		CancelPolicySaveCommand command = new CancelPolicySaveCommand("새 이름", List.of(rule(0, null)));
 
 		assertThatThrownBy(() -> cancelPolicyService.update(1L, 7L, command))
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.DEFAULT_CANCEL_POLICY_NOT_EDITABLE);
@@ -300,7 +300,7 @@ class CancelPolicyServiceTest {
 		when(performanceRepository.existsByCancelPolicyAndStatuses(10L, LOCKING)).thenReturn(true);
 
 		assertThatThrownBy(() -> cancelPolicyService.update(10L, 7L,
-			new CancelPolicyService.SaveCommand("새 이름", List.of(rule(0, null)))))
+			new CancelPolicySaveCommand("새 이름", List.of(rule(0, null)))))
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_IN_USE);
 		assertThat(policy.getName()).isEqualTo("이전 이름");
 		verifyNoInteractions(cancelPolicyRuleRepository);
@@ -314,7 +314,7 @@ class CancelPolicyServiceTest {
 		when(cancelPolicyRepository.existsVisibleNameExcept(7L, "기본 규정", 10L)).thenReturn(true);
 
 		assertThatThrownBy(() -> cancelPolicyService.update(10L, 7L,
-			new CancelPolicyService.SaveCommand("기본 규정", List.of(rule(0, null)))))
+			new CancelPolicySaveCommand("기본 규정", List.of(rule(0, null)))))
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
 		assertThat(policy.getName()).isEqualTo("이전 이름");
 		verifyNoInteractions(cancelPolicyRuleRepository);

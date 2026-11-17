@@ -2,7 +2,8 @@ package com.squirrel.tickting.domain.performance.dto;
 
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
-import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
+import com.squirrel.tickting.domain.performance.service.CancelPolicyDetail;
+import com.squirrel.tickting.domain.performance.service.CancelPolicySummary;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import lombok.Builder;
@@ -26,7 +27,7 @@ public class SellerCancelPolicyResponse {
 		boolean editable
 	) {
 
-		public static Summary from(CancelPolicyService.Summary summary) {
+		public static Summary from(CancelPolicySummary summary) {
 			CancelPolicy policy = summary.policy();
 			return Summary.builder()
 				.cancelPolicyId(policy.getId())
@@ -54,7 +55,7 @@ public class SellerCancelPolicyResponse {
 		List<Rule> rules
 	) {
 
-		public static Detail from(CancelPolicyService.Detail detail) {
+		public static Detail from(CancelPolicyDetail detail) {
 			CancelPolicy policy = detail.policy();
 			return Detail.builder()
 				.cancelPolicyId(policy.getId())

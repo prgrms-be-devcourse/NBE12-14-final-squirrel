@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.domain.performance.service.GradeService;
+import com.squirrel.tickting.domain.performance.service.PerformanceDetail;
 import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.venue.service.VenueService;
@@ -70,7 +71,7 @@ public class SellerPerformanceFacade {
 	}
 
 	public SellerPerformanceResponse.Detail getDetail(Long businessId, Long performanceId) {
-		SellerPerformanceService.Detail detail = sellerPerformanceService.getMine(businessId, performanceId);
+		PerformanceDetail detail = sellerPerformanceService.getMine(businessId, performanceId);
 		Long venueId = detail.performance().getVenueId();
 		String venueName = venueService.getNames(List.of(venueId)).get(venueId);
 		return SellerPerformanceResponse.Detail.from(detail, venueName);
