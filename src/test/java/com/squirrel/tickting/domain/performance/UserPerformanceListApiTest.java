@@ -138,12 +138,12 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 		saveOnSale("부산 공연", "CONCERT", now.plusDays(2));
 
 		mockMvc.perform(get(URL))
-			.andExpect(jsonPath("$.data.content[0].title").value("서울 공연"))
-			.andExpect(jsonPath("$.data.content[0].venueName").value("가상 아레나"))
-			.andExpect(jsonPath("$.data.content[0].region").value("서울"))
-			.andExpect(jsonPath("$.data.content[1].title").value("부산 공연"))
-			.andExpect(jsonPath("$.data.content[1].venueName").value("부산 홀"))
-			.andExpect(jsonPath("$.data.content[1].region").value("부산"));
+			.andExpect(jsonPath("$.data.content[0].title").value("부산 공연"))
+			.andExpect(jsonPath("$.data.content[0].venueName").value("부산 홀"))
+			.andExpect(jsonPath("$.data.content[0].region").value("부산"))
+			.andExpect(jsonPath("$.data.content[1].title").value("서울 공연"))
+			.andExpect(jsonPath("$.data.content[1].venueName").value("가상 아레나"))
+			.andExpect(jsonPath("$.data.content[1].region").value("서울"));
 	}
 
 	@Test
@@ -163,7 +163,7 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 		saveOnSale("뮤지컬", "MUSICAL", now.plusDays(2));
 		saveOnSale("연극", "PLAY", now.plusDays(3));
 
-		assertThat(titles(getList(""))).containsExactly("콘서트", "뮤지컬", "연극");
+		assertThat(titles(getList(""))).containsExactly("연극", "뮤지컬", "콘서트");
 		assertThat(titles(getList("?genre=MUSICAL"))).containsExactly("뮤지컬");
 		assertThat(titles(getList("?genre=CLASSIC"))).isEmpty();
 	}
@@ -182,41 +182,44 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("임박순(기본)은 아직 시작하지 않은 회차 기준이고, 끝난 공연은 맨 뒤로 간다")
-	void sortByImminent() throws Exception {
-		saveOnSale("사흘 뒤", "CONCERT", now.plusDays(3));
-		saveOnSale("내일", "CONCERT", now.plusDays(1));
-		Long ended = savePerformance("끝난 공연", "CONCERT", "PUBLISHED");
-		saveSchedule(ended, now.minusDays(5), "ON_SALE");
-		// 첫 회차는 지났지만 다음 회차가 이틀 뒤. 첫 회차로 정렬하면 맨 앞에 와 버린다
+	@DisplayName("회차가 없거나 모두 취소된 공연은 첫·마지막 회차 일시가 비고 판매 상태는 종료다")
+	void noActiveSchedule() throws Exception {
+		savePerformance("회차 없음", "CONCERT", "PUBLISHED");
+		Long canceled = savePerformance("모두 취소", "CONCERT", "PUBLISHED");
+		saveSeat(saveSchedule(canceled, now.plusDays(3), "CANCELED"), "AVAILABLE");
+
+		String body = getList("").getResponse().getContentAsString();
+		for (String title : List.of("회차 없음", "모두 취소")) {
+			assertThat(fieldOf(body, title, "firstStartAt")).isNull();
+			assertThat(fieldOf(body, title, "lastStartAt")).isNull();
+			assertThat(statusOf(body, title)).isEqualTo("ENDED");
+		}
+	}
+
+	@Test
+	@DisplayName("지난 회차와 남은 회차가 섞여 있으면 첫 회차는 지난 일시이고, 남은 회차에 좌석이 있으면 판매 중이다")
+	void runningPerformance() throws Exception {
 		Long running = savePerformance("공연 중", "CONCERT", "PUBLISHED");
 		saveSchedule(running, now.minusDays(1), "ON_SALE");
 		saveSeat(saveSchedule(running, now.plusDays(2), "ON_SALE"), "AVAILABLE");
 
-		List<String> expected = List.of("내일", "공연 중", "사흘 뒤", "끝난 공연");
-		assertThat(titles(getList(""))).containsExactlyElementsOf(expected);
-		assertThat(titles(getList("?sort=IMMINENT"))).containsExactlyElementsOf(expected);
+		mockMvc.perform(get(URL))
+			.andExpect(jsonPath("$.data.content[0].firstStartAt").value(now.minusDays(1).toString()))
+			.andExpect(jsonPath("$.data.content[0].lastStartAt").value(now.plusDays(2).toString()))
+			.andExpect(jsonPath("$.data.content[0].saleStatus").value("ON_SALE"));
 	}
 
 	@Test
-	@DisplayName("최신 등록순은 등록 시각이 늦은 공연이 먼저 나온다")
+	@DisplayName("정렬을 주지 않아도 최신 등록순이고, 등록 시각이 같으면 나중에 만든 공연이 먼저 나온다")
 	void sortByLatest() throws Exception {
 		savePerformance("가장 먼저 등록", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(3));
 		savePerformance("가장 늦게 등록", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(1));
 		savePerformance("중간에 등록", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(2));
+		savePerformance("같은 시각에 나중에 만듦", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(2));
 
-		assertThat(titles(getList("?sort=LATEST"))).containsExactly("가장 늦게 등록", "중간에 등록", "가장 먼저 등록");
-	}
-
-	@Test
-	@DisplayName("이름순은 가나다순이고, 장르 필터와 함께 쓸 수 있다")
-	void sortByTitle() throws Exception {
-		saveOnSale("다 공연", "MUSICAL", now.plusDays(1));
-		saveOnSale("가 공연", "MUSICAL", now.plusDays(2));
-		saveOnSale("나 공연", "MUSICAL", now.plusDays(3));
-		saveOnSale("가가 콘서트", "CONCERT", now.plusDays(4));
-
-		assertThat(titles(getList("?sort=TITLE&genre=MUSICAL"))).containsExactly("가 공연", "나 공연", "다 공연");
+		List<String> expected = List.of("가장 늦게 등록", "같은 시각에 나중에 만듦", "중간에 등록", "가장 먼저 등록");
+		assertThat(titles(getList(""))).containsExactlyElementsOf(expected);
+		assertThat(titles(getList("?sort=LATEST"))).containsExactlyElementsOf(expected);
 	}
 
 	@Test
@@ -226,15 +229,15 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 			saveOnSale("공연 %02d".formatted(i), "CONCERT", now.plusDays(1));
 		}
 
-		MvcResult first = mockMvc.perform(get(URL + "?size=100&sort=TITLE"))
+		MvcResult first = mockMvc.perform(get(URL + "?size=100"))
 			.andExpect(jsonPath("$.data.size").value(20))
 			.andExpect(jsonPath("$.data.totalElements").value(25))
 			.andExpect(jsonPath("$.data.totalPages").value(2))
 			.andReturn();
-		MvcResult second = getList("?page=1&size=100&sort=TITLE");
+		MvcResult second = getList("?page=1&size=100");
 
-		assertThat(titles(first)).hasSize(20).startsWith("공연 01");
-		assertThat(titles(second)).hasSize(5).containsExactly("공연 21", "공연 22", "공연 23", "공연 24", "공연 25");
+		assertThat(titles(first)).hasSize(20).startsWith("공연 25");
+		assertThat(titles(second)).hasSize(5).containsExactly("공연 05", "공연 04", "공연 03", "공연 02", "공연 01");
 	}
 
 	@Test
@@ -255,7 +258,7 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 		Long ended = savePerformance("종료", "CONCERT", "PUBLISHED");
 		saveSeat(saveSchedule(ended, now.minusDays(1), "ON_SALE"), "AVAILABLE");
 
-		MvcResult result = getList("?sort=TITLE");
+		MvcResult result = getList("");
 		String body = result.getResponse().getContentAsString();
 		assertThat(statusOf(body, "오픈 전")).isEqualTo("UPCOMING");
 		assertThat(statusOf(body, "판매 중")).isEqualTo("ON_SALE");
@@ -264,7 +267,11 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 	}
 
 	private String statusOf(String body, String title) {
-		List<String> found = JsonPath.read(body, "$.data.content[?(@.title == '" + title + "')].saleStatus");
+		return fieldOf(body, title, "saleStatus");
+	}
+
+	private String fieldOf(String body, String title, String field) {
+		List<String> found = JsonPath.read(body, "$.data.content[?(@.title == '" + title + "')]." + field);
 		return found.getFirst();
 	}
 
@@ -279,8 +286,8 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 		venueId = saveVenue("다른 홀", "다른시");
 		saveOnSale("다른시 공연", "CONCERT", now.plusDays(3));
 
-		assertThat(titles(getList("?region=검색시"))).containsExactly("검색시 공연", "중지된 공연장 공연");
-		assertThat(titles(getList("?region= 검색시 "))).containsExactly("검색시 공연", "중지된 공연장 공연");
+		assertThat(titles(getList("?region=검색시"))).containsExactly("중지된 공연장 공연", "검색시 공연");
+		assertThat(titles(getList("?region= 검색시 "))).containsExactly("중지된 공연장 공연", "검색시 공연");
 		assertThat(titles(getList("?region=검색"))).isEmpty();
 		assertThat(titles(getList("?region=없는지역"))).isEmpty();
 	}
@@ -295,7 +302,7 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 
 		assertThat(titles(getList("?keyword=winter"))).containsExactly("Winter Concert");
 		assertThat(titles(getList("?keyword=가상가수"))).containsExactly("봄 공연");
-		assertThat(titles(getList("?keyword=공연"))).containsExactly("봄 공연", "여름 공연");
+		assertThat(titles(getList("?keyword=공연"))).containsExactly("여름 공연", "봄 공연");
 		assertThat(titles(getList("?keyword=없는검색어"))).isEmpty();
 		assertThat(titles(searchKeyword("  "))).hasSize(3);
 	}
@@ -331,13 +338,15 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("없는 장르나 정렬 값을 보내면 400 COMMON000 이다")
+	@DisplayName("없는 장르나 정렬 값을 보내면 400 COMMON000 이다. 뺀 정렬(임박순·이름순)도 없는 값이다")
 	void invalidParameter() throws Exception {
 		mockMvc.perform(get(URL + "?genre=ROCK"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("COMMON000"));
-		mockMvc.perform(get(URL + "?sort=PRICE"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
+		for (String sort : List.of("PRICE", "IMMINENT", "TITLE")) {
+			mockMvc.perform(get(URL + "?sort=" + sort))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("COMMON000"));
+		}
 	}
 }
