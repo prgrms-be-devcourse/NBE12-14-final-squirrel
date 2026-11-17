@@ -24,6 +24,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -117,5 +118,22 @@ public class SellerPerformanceController {
 	) {
 		SellerGradeResponse.Grade response = gradeService.add(account.getBusinessId(), performanceId, request);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+	}
+
+	/** 등급만 다루고 다른 도메인을 엮지 않아 파사드 없이 등급 서비스를 바로 부른다. 대표·담당자 모두 수정할 수 있다. */
+	@Operation(summary = "등급 수정",
+		description = "등급의 이름·가격·색을 전체 교체한다(색을 빼면 지워진다). 입력 규칙은 등급 추가와 같고 자기 이름은 그대로 써도 된다. "
+			+ "이 공연의 등급이 아니면 404, 취소된 공연이거나 같은 이름의 다른 등급이 있거나 판매 좌석이 생성되었으면(locked) 409 다. "
+			+ "판매 좌석 생성과 겹치면 잠시 기다리고, 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PutMapping("/{performanceId}/grades/{gradeId}")
+	public ResponseEntity<ApiResponse<SellerGradeResponse.Grade>> updateGrade(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId,
+		@PathVariable Long gradeId,
+		@Valid @RequestBody SellerGradeRequest.Save request
+	) {
+		SellerGradeResponse.Grade response = gradeService.update(account.getBusinessId(), performanceId, gradeId,
+			request);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

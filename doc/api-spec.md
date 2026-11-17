@@ -91,7 +91,7 @@
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
-| SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
+| SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 구현됨 |
 | SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 미구현 |
 | SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 미구현 |
 | SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 미구현 |
@@ -1388,9 +1388,16 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 등급명 중복 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가
 
-### SLR-10 등급 수정 — `PUT /api/v1/seller/performances/{performanceId}/grades/{gradeId}`
+### SLR-10 등급 수정 — `PUT /api/v1/seller/performances/{performanceId}/grades/{gradeId}` (구현됨)
 
-요청은 SLR-09와 같은 필드.
+요청은 SLR-09와 같은 필드이고 입력 규칙도 같습니다.
+
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 이름·가격·색을 **전체 교체**합니다. `color`를 빼고 보내면 색이 지워집니다.
+- 같은 값이나 자기 이름의 대소문자·띄어쓰기만 바꾼 이름은 200입니다. 같은 공연의 **다른 등급**과 대소문자·공백을 무시하면 같은 이름이면 409입니다.
+- 경로의 공연에 속한 등급만 고칠 수 있습니다. 같은 사업체의 다른 공연 등급도 404입니다.
+- 판정 순서: 입력 형식 400 → 공연 404 → 취소된 공연 409 → 등급 404 → 등급명 중복 409 → `locked` 409. 다른 사업체의 공연은 취소·`locked` 상태와 상관없이 404입니다.
+- 가격을 고치는 순간 판매 좌석 생성이 고치기 전 가격을 복사하지 않도록 공연 단위 락(`performance:{공연 번호}`)을 잡습니다. 1초 안에 못 잡으면 409 `COMMON004`(잠시 후 다시 시도)입니다.
 
 **응답 200**
 
@@ -1408,7 +1415,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**(코드 미정): 404 등급 없음 · 409 좌석 생성 후라 수정 불가
+**에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 404 `PERFORMANCE300` 없는 등급·이 공연의 등급이 아님 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 등급명 중복 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가 · 409 `COMMON004` 락 대기 초과
 
 ### SLR-11 구역별 상태·등급 설정 — `PATCH /api/v1/seller/performances/{performanceId}/zone-grades`
 

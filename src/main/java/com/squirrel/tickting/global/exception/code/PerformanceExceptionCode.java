@@ -47,6 +47,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	USER_SCHEDULE_NOT_FOUND("PERFORMANCE200", HttpStatus.NOT_FOUND, "존재하지 않는 회차입니다."),
 
 	// 등급·구역 설정은 300번대를 쓴다.
+	/** 없는 등급이거나 이 공연의 등급이 아님. 같은 사업체의 다른 공연 등급도 경로의 공연과 맞지 않으면 같은 404 로 답한다 */
+	GRADE_NOT_FOUND("PERFORMANCE300", HttpStatus.NOT_FOUND, "존재하지 않는 등급입니다."),
 	/**
 	 * 취소되지 않은 회차 중 하나라도 판매 좌석을 만든 공연(locked)의 등급·가격·구역 설정을 고치려 함.
 	 * 가격은 좌석을 만들 때 복사되므로 고치면 회차끼리, 등급과 좌석끼리 가격이 어긋난다

@@ -43,4 +43,11 @@ public class SeatGrade {
 	/** 좌석도에 칠할 색 (예: #E8503A) */
 	@Column(length = 20)
 	private String color;
+
+	/** 이름·가격·색을 한꺼번에 바꾼다. 수정은 전체 교체라 색을 비우면 색이 지워진다. 좌석 생성 후에는 부르는 쪽이 막는다. */
+	public void update(String name, Integer price, String color) {
+		this.name = name;
+		this.price = price;
+		this.color = color;
+	}
 }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.squirrel.tickting.domain.performance.dto.SellerGradeRequest;
@@ -16,6 +17,7 @@ import com.squirrel.tickting.domain.performance.infra.repository.ZoneGradeReposi
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
+import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -41,6 +43,8 @@ class GradeServiceTest {
 	private PerformanceRepository performanceRepository;
 	@Mock
 	private PerformanceScheduleRepository performanceScheduleRepository;
+	@Mock
+	private DistributedLockExecutor lockExecutor;
 
 	@InjectMocks
 	private GradeService gradeService;
@@ -87,5 +91,18 @@ class GradeServiceTest {
 		verify(seatGradeRepository, never()).existsSameName(any(), any());
 		verify(performanceScheduleRepository, never()).existsSeatsGenerated(any(), any());
 		verify(seatGradeRepository, never()).save(any());
+	}
+
+	@Test
+	@DisplayName("등급 수정에서 다른 사업체의 공연이거나 없는 공연이면 락을 잡기 전에 PERFORMANCE000 으로 끝난다")
+	void updateNotMineBeforeLock() {
+		when(performanceRepository.findByIdAndBusinessId(PERFORMANCE_ID, BUSINESS_ID)).thenReturn(Optional.empty());
+		var request = new SellerGradeRequest.Save("R석", 1000, null);
+
+		assertThatThrownBy(() -> gradeService.update(BUSINESS_ID, PERFORMANCE_ID, 5L, request))
+			.isInstanceOf(BusinessException.class)
+			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.PERFORMANCE_NOT_FOUND);
+		verifyNoInteractions(lockExecutor);
+		verify(seatGradeRepository, never()).findByIdAndPerformanceId(any(), any());
 	}
 }

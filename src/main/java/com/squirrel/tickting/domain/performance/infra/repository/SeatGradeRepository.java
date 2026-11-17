@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -29,4 +30,20 @@ public interface SeatGradeRepository extends JpaRepository<SeatGrade, Long> {
 		)
 		""", nativeQuery = true)
 	boolean existsSameName(Long performanceId, String name);
+
+	/** 등급 수정용. existsSameName 과 같은 기준이고 고치는 등급 자신은 뺀다. (자기 이름의 대소문자·띄어쓰기만 바꾸는 것은 허용) */
+	@Query(value = """
+		SELECT EXISTS (
+		    SELECT 1
+		    FROM seat_grade g
+		    WHERE g.performance_id = :performanceId
+		      AND g.id <> :gradeId
+		      AND LOWER(REGEXP_REPLACE(g.name, '[\\s\\u00A0]', '', 'g'))
+		          = LOWER(REGEXP_REPLACE(:name, '[\\s\\u00A0]', '', 'g'))
+		)
+		""", nativeQuery = true)
+	boolean existsSameNameExcept(Long performanceId, String name, Long gradeId);
+
+	/** 이 공연의 등급. 다른 공연의 등급 번호는 없는 등급과 같게 비어 있다. */
+	Optional<SeatGrade> findByIdAndPerformanceId(Long id, Long performanceId);
 }
