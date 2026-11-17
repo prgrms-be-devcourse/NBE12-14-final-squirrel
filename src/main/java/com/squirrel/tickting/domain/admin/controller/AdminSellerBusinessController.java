@@ -57,7 +57,8 @@ public class AdminSellerBusinessController {
 
 		var page = sellerBusinessService.search(status, keyword, pageRequest)
 			.map(AdminSellerBusinessResponse.Summary::from);
-		return ResponseEntity.ok(ApiResponse.success(PageResponse.from(page)));
+		PageResponse<AdminSellerBusinessResponse.Summary> response = PageResponse.from(page);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
 	@Operation(summary = "사업체 상세",
@@ -65,8 +66,9 @@ public class AdminSellerBusinessController {
 			+ "비밀번호·본인인증 값은 주지 않는다. 없는 사업체는 404.")
 	@GetMapping("/{businessId}")
 	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Detail>> detail(@PathVariable Long businessId) {
-		var detail = sellerBusinessService.getDetail(businessId);
-		return ResponseEntity.ok(ApiResponse.success(AdminSellerBusinessResponse.Detail.from(detail)));
+		AdminSellerBusinessResponse.Detail response = AdminSellerBusinessResponse.Detail.from(
+			sellerBusinessService.getDetail(businessId));
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
 	@Operation(summary = "사업체 승인",
@@ -77,7 +79,8 @@ public class AdminSellerBusinessController {
 		@AuthenticationPrincipal CustomUserDetails admin,
 		@PathVariable Long businessId
 	) {
-		return ResponseEntity.ok(ApiResponse.success(adminSellerBusinessFacade.approve(admin.getId(), businessId)));
+		AdminSellerBusinessResponse.Approval response = adminSellerBusinessFacade.approve(admin.getId(), businessId);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
 	@Operation(summary = "사업체 반려",
@@ -89,7 +92,8 @@ public class AdminSellerBusinessController {
 		@PathVariable Long businessId,
 		@Valid @RequestBody AdminSellerBusinessRequest.Reject request
 	) {
-		return ResponseEntity.ok(ApiResponse.success(
-			adminSellerBusinessFacade.reject(admin.getId(), businessId, request.reason())));
+		AdminSellerBusinessResponse.Rejection response = adminSellerBusinessFacade.reject(
+			admin.getId(), businessId, request.reason());
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }
