@@ -3,7 +3,7 @@ package com.squirrel.tickting.domain.performance.dto;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
-import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
+import com.squirrel.tickting.domain.performance.service.PerformanceDetail;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
@@ -124,7 +124,7 @@ public class SellerPerformanceResponse {
 		LocalDateTime updatedAt
 	) {
 
-		public static Detail from(SellerPerformanceService.Detail detail, String venueName) {
+		public static Detail from(PerformanceDetail detail, String venueName) {
 			Performance performance = detail.performance();
 			return Detail.builder()
 				.performanceId(performance.getId())

@@ -40,8 +40,8 @@ class SellerPerformanceServiceTest {
 	@InjectMocks
 	private SellerPerformanceService sellerPerformanceService;
 
-	private SellerPerformanceService.SaveCommand.SaveCommandBuilder command() {
-		return SellerPerformanceService.SaveCommand.builder()
+	private PerformanceSaveCommand.PerformanceSaveCommandBuilder command() {
+		return PerformanceSaveCommand.builder()
 			.title("가상 콘서트")
 			.genre(Genre.CONCERT)
 			.ageLimit(12)
@@ -49,7 +49,7 @@ class SellerPerformanceServiceTest {
 			.posterUrl("https://cdn.example.com/posters/12.jpg");
 	}
 
-	private Performance create(SellerPerformanceService.SaveCommand command) {
+	private Performance create(PerformanceSaveCommand command) {
 		return sellerPerformanceService.create(7L, 3L, 1L, null, command);
 	}
 
@@ -91,9 +91,9 @@ class SellerPerformanceServiceTest {
 	@Test
 	@DisplayName("이미지 순서값이 겹치면 COMMON000 이고 저장하지 않는다")
 	void duplicatedImageOrder() {
-		SellerPerformanceService.SaveCommand command = command().images(List.of(
-			new SellerPerformanceService.SaveCommand.Image("https://cdn.example.com/a.jpg", 1),
-			new SellerPerformanceService.SaveCommand.Image("https://cdn.example.com/b.jpg", 1))).build();
+		PerformanceSaveCommand command = command().images(List.of(
+			new PerformanceSaveCommand.Image("https://cdn.example.com/a.jpg", 1),
+			new PerformanceSaveCommand.Image("https://cdn.example.com/b.jpg", 1))).build();
 
 		assertThatThrownBy(() -> create(command))
 			.isInstanceOf(BusinessException.class)

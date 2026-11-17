@@ -3,13 +3,10 @@ package com.squirrel.tickting.domain.performance.service;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
-import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImageRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
-import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
-import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
@@ -19,7 +16,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -53,10 +49,10 @@ public class SellerPerformanceService {
 
 	/** 내 사업체의 공연 상세. 남의 공연은 없는 공연과 같은 404로 답한다. */
 	@Transactional(readOnly = true)
-	public Detail getMine(Long businessId, Long performanceId) {
+	public PerformanceDetail getMine(Long businessId, Long performanceId) {
 		Performance performance = performanceRepository.findByIdAndBusinessId(performanceId, businessId)
 			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.PERFORMANCE_NOT_FOUND));
-		return new Detail(
+		return new PerformanceDetail(
 			performance,
 			performanceImageRepository.findByPerformanceIdOrderBySortOrder(performanceId),
 			performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId));
@@ -68,7 +64,7 @@ public class SellerPerformanceService {
 	 */
 	@Transactional
 	public Performance create(Long businessId, Long createdBy, Long venueId, CancelPolicy cancelPolicy,
-		SaveCommand command) {
+		PerformanceSaveCommand command) {
 		validateSalePeriod(command.saleOpenAt(), command.saleCloseAt());
 		validateImageOrders(command.images());
 
@@ -114,52 +110,10 @@ public class SellerPerformanceService {
 	}
 
 	/** 같은 순서값이 둘이면 보여줄 순서가 정해지지 않는다. 목록 안의 관계라 요청 DTO 어노테이션으로는 막기 어렵다. */
-	private void validateImageOrders(List<SaveCommand.Image> images) {
-		long distinctOrders = images.stream().map(SaveCommand.Image::sortOrder).distinct().count();
+	private void validateImageOrders(List<PerformanceSaveCommand.Image> images) {
+		long distinctOrders = images.stream().map(PerformanceSaveCommand.Image::sortOrder).distinct().count();
 		if (distinctOrders != images.size()) {
 			throw new BusinessException(CommonExceptionCode.INVALID_INPUT, "이미지 순서(sortOrder)가 중복되었습니다.");
-		}
-	}
-
-	/**
-	 * 공연 상세 조회 결과. 공연과 이미지·회차를 서비스 트랜잭션 안에서 함께 읽어 담는다.
-	 * (컨트롤러에서 지연 로딩 객체를 꺼내면 트랜잭션이 끝난 뒤라 LazyInitializationException 이 난다)
-	 */
-	public record Detail(
-		Performance performance,
-		List<PerformanceImage> images,
-		List<PerformanceSchedule> schedules
-	) {
-	}
-
-	/**
-	 * 공연 등록·수정에 넣는 값. 서비스가 요청 DTO(SellerPerformanceRequest)를 모르게 하려고 따로 둔다.
-	 * 사업체 번호·등록자·공연장·취소 규정은 요청 그대로가 아니라 토큰과 확인을 거친 값이라 서비스 메서드의 인자로 따로 받는다.
-	 */
-	@Builder
-	public record SaveCommand(
-		String title,
-		Genre genre,
-		Integer ageLimit,
-		Integer runningTime,
-		String castInfo,
-		String posterUrl,
-		String notice,
-		String guide,
-		LocalDateTime saleOpenAt,
-		LocalDateTime saleCloseAt,
-		Integer maxPerPerson,
-		ReceiveType receiveType,
-		Integer bookingFee,
-		List<Image> images
-	) {
-
-		public SaveCommand {
-			images = images == null ? List.of() : List.copyOf(images);
-		}
-
-		/** 상세 설명용 이미지 한 장 */
-		public record Image(String url, Integer sortOrder) {
 		}
 	}
 }
