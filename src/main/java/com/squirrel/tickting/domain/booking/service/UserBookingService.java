@@ -3,9 +3,12 @@ package com.squirrel.tickting.domain.booking.service;
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.infra.repository.UserBookingRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -26,15 +29,25 @@ public class UserBookingService {
 	/** 최근 예매가 먼저. 같은 시각이면 번호가 큰 쪽이 먼저라 페이지를 넘겨도 순서가 바뀌지 않는다. */
 	private static final Sort LATEST = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"));
 
+	/**
+	 * 내 예매에 보이는 상태. 결제 대기(PENDING)는 결제 화면에서 이어 가는 진행 중 기록이고, 만료(EXPIRED)는 돈이 나가지 않은 무효 예매라 내역에서 뺀다.
+	 * 화면에서 거르면 한 페이지에 보이는 개수와 전체 개수가 어긋나므로 조회할 때 거른다.
+	 */
+	private static final Set<BookingStatus> VISIBLE_STATUSES =
+		EnumSet.of(BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED, BookingStatus.CANCELED);
+
 	private final UserBookingRepository userBookingRepository;
 
 	/**
-	 * 한 예매자의 예매 목록. 상태를 주지 않으면(null) 결제하지 않고 시간이 지난 예매(EXPIRED)까지 모두 나온다.
-	 * pageable 은 페이지 번호와 크기만 쓰고 정렬은 최신 예매순으로 고정한다.
+	 * 한 예매자의 예매 목록. 상태를 주지 않으면(null) 내 예매에 보이는 상태가 모두 나온다.
+	 * 보이지 않는 상태(PENDING, EXPIRED)를 고르면 400 이다. pageable 은 페이지 번호와 크기만 쓰고 정렬은 최신 예매순으로 고정한다.
 	 */
 	@Transactional(readOnly = true)
 	public Page<Booking> getMyBookings(Long userId, BookingStatus status, Pageable pageable) {
-		Collection<BookingStatus> statuses = status == null ? EnumSet.allOf(BookingStatus.class) : EnumSet.of(status);
+		if (status != null && !VISIBLE_STATUSES.contains(status)) {
+			throw new BusinessException(CommonExceptionCode.INVALID_INPUT);
+		}
+		Collection<BookingStatus> statuses = status == null ? VISIBLE_STATUSES : EnumSet.of(status);
 		Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST);
 		return userBookingRepository.findMine(userId, statuses, sorted);
 	}

@@ -89,4 +89,22 @@ class UserBookingListApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.data.totalElements").value(1))
 			.andExpect(jsonPath("$.data.content[0].bookingId").value(mine));
 	}
+
+	@Test
+	@DisplayName("결제 대기·만료된 예매는 내 목록에 나오지 않고, 그 상태로 고르면 400 이다")
+	void hidesPendingAndExpired() throws Exception {
+		Long performanceId = savePerformance("가상 콘서트", "PUBLISHED");
+		Long scheduleId = saveSchedule(performanceId, now.plusDays(10), "ON_SALE");
+		Long paid = saveBooking(ME, performanceId, scheduleId, "PAID", 156000, now.minusDays(1));
+		saveBooking(ME, performanceId, scheduleId, "PENDING", 156000, now.minusMinutes(3));
+		saveBooking(ME, performanceId, scheduleId, "EXPIRED", 156000, now.minusHours(1));
+
+		mockMvc.perform(get(URL).header("Authorization", userBearer(ME)))
+			.andExpect(jsonPath("$.data.totalElements").value(1))
+			.andExpect(jsonPath("$.data.content[0].bookingId").value(paid));
+
+		mockMvc.perform(get(URL).param("status", "EXPIRED").header("Authorization", userBearer(ME)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("COMMON000"));
+	}
 }

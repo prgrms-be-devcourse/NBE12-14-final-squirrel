@@ -35,12 +35,12 @@ public class UserBookingController {
 	private final UserBookingFacade userBookingFacade;
 
 	@Operation(summary = "내 예매 목록",
-		description = "로그인한 예매자의 예매를 최신 예매순으로 준다. 상태(status)를 주지 않으면 시간 초과(EXPIRED)까지 모두 나온다. "
-			+ "매수와 금액은 처음 예매 기준이다. 한 번에 최대 20개까지 준다.")
+		description = "로그인한 예매자의 결제 완료·취소된 예매를 최신 예매순으로 준다. 결제 대기(PENDING)와 시간 초과(EXPIRED)는 나오지 않고, "
+			+ "그 상태를 status 로 보내면 400 이다. 매수와 금액은 처음 예매 기준이다. 한 번에 최대 20개까지 준다.")
 	@GetMapping
 	public ResponseEntity<ApiResponse<PageResponse<UserBookingResponse.Summary>>> list(
 		@AuthenticationPrincipal CustomUserDetails account,
-		@Parameter(description = "예매 상태. 비우면 전체")
+		@Parameter(description = "예매 상태 (PAID, PARTIAL_CANCELED, CANCELED). 비우면 셋 모두")
 		@RequestParam(required = false) BookingStatus status,
 		@PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
 	) {
