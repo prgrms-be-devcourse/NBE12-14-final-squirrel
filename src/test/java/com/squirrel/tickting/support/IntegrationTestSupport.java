@@ -54,6 +54,12 @@ public abstract class IntegrationTestSupport {
 		registry.add("app.booking.expiry-enabled", () -> "false");
 		// 토스 키 없이 결제 흐름을 확인한다. 토스를 부르는 코드는 TossPaymentGatewayTest 가 가짜 서버로 따로 확인한다.
 		registry.add("app.payment.gateway", () -> "mock");
+		// 업로드 주소는 서버 안에서 서명만 해서 만들므로 가짜 키로도 만들어진다. 이미지 주소 검증은 base-url 로 시작하는 값만 통과시킨다.
+		registry.add("app.s3.bucket", () -> "test-bucket");
+		registry.add("app.s3.region", () -> "ap-northeast-2");
+		registry.add("app.s3.access-key-id", TestSecrets::randomAwsAccessKeyId);
+		registry.add("app.s3.secret-access-key", TestSecrets::randomAwsSecretKey);
+		registry.add("app.s3.base-url", () -> "https://cdn.example.com");
 	}
 
 	private static final Pattern REFRESH_COOKIE = Pattern.compile("refreshToken=([^;]*)");

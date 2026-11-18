@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.performance.dto;
 
+import com.squirrel.tickting.domain.image.validation.ImageUrl;
 import com.squirrel.tickting.domain.performance.service.PerformanceSaveCommand;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
@@ -9,20 +10,12 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 import java.util.List;
 
 /** 판매자의 공연 요청. 등록(SLR-02)과 수정(SLR-03)이 같은 본문을 쓴다. */
 public class SellerPerformanceRequest {
-
-	/**
-	 * 포스터와 상세 이미지 주소는 http 또는 https 로 시작하고 공백이 없어야 한다.
-	 * 화면이 그대로 이미지 주소로 쓰므로 javascript: 같은 값을 막는다. 내 정보 수정의 profileImg 와 같은 규칙이다.
-	 */
-	private static final String IMAGE_URL = "^https?://\\S+$";
-	private static final String IMAGE_URL_MESSAGE = "이미지 주소는 http 또는 https 주소로 입력해 주세요.";
 
 	private SellerPerformanceRequest() {
 	}
@@ -68,8 +61,10 @@ public class SellerPerformanceRequest {
 
 		@NotBlank(message = "포스터 주소를 입력해 주세요.")
 		@Size(max = 2048, message = "포스터 주소는 2048자 이하로 입력해 주세요.")
-		@Pattern(regexp = IMAGE_URL, message = IMAGE_URL_MESSAGE)
-		@Schema(description = "포스터 주소", example = "https://cdn.example.com/posters/12.jpg")
+		// 포스터와 상세 이미지는 이미지 업로드(IMG-01)로 올린 우리 저장소의 주소만 받는다.
+		@ImageUrl
+		@Schema(description = "포스터 주소. 이미지 업로드 주소 발급(IMG-01)의 imageUrl 값",
+			example = "https://cdn.example.com/public/poster/seller-7/3f2a9c1e.jpg")
 		String posterUrl,
 
 		@Schema(description = "판매자 공지. 비우면 없음", example = "공연 시작 30분 전부터 입장 가능합니다.")
@@ -140,8 +135,9 @@ public class SellerPerformanceRequest {
 
 		@NotBlank(message = "이미지 주소를 입력해 주세요.")
 		@Size(max = 2048, message = "이미지 주소는 2048자 이하로 입력해 주세요.")
-		@Pattern(regexp = IMAGE_URL, message = IMAGE_URL_MESSAGE)
-		@Schema(description = "이미지 주소", example = "https://cdn.example.com/details/12-1.jpg")
+		@ImageUrl
+		@Schema(description = "이미지 주소. 이미지 업로드 주소 발급(IMG-01)의 imageUrl 값",
+			example = "https://cdn.example.com/public/detail/seller-7/8c1d4e2a.jpg")
 		String url,
 
 		@NotNull(message = "이미지 순서를 입력해 주세요.")

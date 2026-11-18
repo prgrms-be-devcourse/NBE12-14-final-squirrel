@@ -1,8 +1,8 @@
 package com.squirrel.tickting.domain.user.dto;
 
+import com.squirrel.tickting.domain.image.validation.ImageUrl;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public class UserRequest {
@@ -22,11 +22,11 @@ public class UserRequest {
 		@Schema(description = "새 닉네임 (필수)", example = "길동이2")
 		String nickname,
 
-		/* 화면이 이 값을 그대로 이미지 주소로 쓰기 때문에 javascript: 같은 값이 들어오지 못하게 http(s) 만 받는다. */
+		/* 이미지 업로드(IMG-01)로 올린 우리 저장소의 주소만 받는다. 화면이 이 값을 그대로 이미지 주소로 쓰기 때문이다. */
 		@Size(max = 2048, message = "프로필 이미지 주소는 2048자 이하로 입력해 주세요.")
-		@Pattern(regexp = "^https?://\\S+$", message = "프로필 이미지는 http 또는 https 주소로 입력해 주세요.")
-		@Schema(description = "새 프로필 이미지 주소. 생략하거나 null 이면 사진 없음으로 저장된다",
-			example = "https://cdn.example.com/profiles/5.png")
+		@ImageUrl
+		@Schema(description = "새 프로필 이미지 주소. 이미지 업로드 주소 발급(IMG-01)의 imageUrl 값. 생략하거나 null 이면 사진 없음으로 저장된다",
+			example = "https://cdn.example.com/public/profile/user-5/3f2a9c1e.png")
 		String profileImg
 	) {
 	}
