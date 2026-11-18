@@ -149,4 +149,12 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 		  AND seat.zoneId = :zoneId
 		""")
 	List<ScheduleSeat> findScheduleSeats(@Param("scheduleId") Long scheduleId, @Param("zoneId") Long zoneId);
+
+	/** 번호로 공연을 한 번에 읽는다. 상태와 상관없이 읽는다. (취소된 공연도 예매 내역에는 제목이 보여야 한다) */
+	@Query("SELECT p FROM Performance p WHERE p.id IN :performanceIds")
+	List<Performance> findAllByIds(@Param("performanceIds") Collection<Long> performanceIds);
+
+	/** 번호로 회차를 한 번에 읽는다. 상태와 상관없이 읽는다. (취소·연기된 회차도 예매 내역에는 일시가 보여야 한다) */
+	@Query("SELECT s FROM PerformanceSchedule s WHERE s.id IN :scheduleIds")
+	List<PerformanceSchedule> findSchedulesByIds(@Param("scheduleIds") Collection<Long> scheduleIds);
 }

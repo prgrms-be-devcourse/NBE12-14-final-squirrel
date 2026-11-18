@@ -81,10 +81,10 @@ class SeedDataTest extends IntegrationTestSupport {
 		assertThat(schedules).hasSize(2);
 		for (Long scheduleId : schedules) {
 			assertThat(seatCountByGrade(scheduleId))
-				.containsEntry("VIP석", 500L)
-				.containsEntry("R석", 568L)
-				.containsEntry("S석", 1196L)
-				.containsEntry("A석", 758L);
+				.containsEntry("VIP", 500L)
+				.containsEntry("R", 568L)
+				.containsEntry("S", 1196L)
+				.containsEntry("A", 758L);
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM schedule_seat WHERE schedule_id = ?",
 				Long.class, scheduleId)).isEqualTo(3022L);
 			assertThat(jdbc.queryForObject("""

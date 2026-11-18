@@ -81,8 +81,8 @@ class SellerGradeListApiTest extends IntegrationTestSupport {
 
 	private Long insertGrade(Long performanceId, String name, int price) {
 		return jdbc.queryForObject("""
-			INSERT INTO seat_grade (performance_id, name, price, color)
-			VALUES (?, ?, ?, '#E8503A')
+			INSERT INTO seat_grade (performance_id, name, price)
+			VALUES (?, ?, ?)
 			RETURNING id
 			""", Long.class, performanceId, name, price);
 	}
@@ -116,7 +116,7 @@ class SellerGradeListApiTest extends IntegrationTestSupport {
 	void responseShape() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 		initializeZones(performanceId);
-		Long vip = insertGrade(performanceId, "VIP석", 165000);
+		Long vip = insertGrade(performanceId, "VIP", 165000);
 		Long f2 = zoneId("F2구역");
 		setZone(performanceId, f2, "ASSIGNED", vip);
 
@@ -131,7 +131,7 @@ class SellerGradeListApiTest extends IntegrationTestSupport {
 			.containsExactlyInAnyOrder("locked", "grades", "zones");
 		assertThat(JsonPath.<Boolean>read(body, "$.data.locked")).isFalse();
 		assertThat(grade).containsExactlyInAnyOrderEntriesOf(Map.of(
-			"gradeId", vip.intValue(), "name", "VIP석", "price", 165000, "color", "#E8503A"));
+			"gradeId", vip.intValue(), "name", "VIP", "price", 165000));
 		assertThat(zone.keySet()).containsExactlyInAnyOrder("zoneId", "name", "floor", "sortOrder", "seatCount",
 			"assignmentStatus", "gradeId");
 		assertThat(zone.get("name")).isEqualTo("F2구역");
@@ -147,10 +147,10 @@ class SellerGradeListApiTest extends IntegrationTestSupport {
 	void sorted() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 		initializeZones(performanceId);
-		insertGrade(performanceId, "S석", 99000);
-		insertGrade(performanceId, "VIP석", 165000);
-		insertGrade(performanceId, "R석", 132000);
-		insertGrade(performanceId, "A석", 99000);
+		insertGrade(performanceId, "S", 99000);
+		insertGrade(performanceId, "VIP", 165000);
+		insertGrade(performanceId, "R", 132000);
+		insertGrade(performanceId, "A", 99000);
 
 		String body = mockMvc.perform(request(performanceId)).andExpect(status().isOk())
 			.andReturn().getResponse().getContentAsString();
@@ -159,7 +159,7 @@ class SellerGradeListApiTest extends IntegrationTestSupport {
 			"SELECT id FROM venue_zone WHERE venue_id = ? ORDER BY sort_order, id", Long.class, arenaVenueId());
 
 		assertThat(JsonPath.<List<String>>read(body, "$.data.grades[*].name"))
-			.containsExactly("VIP석", "R석", "S석", "A석");
+			.containsExactly("VIP", "R", "S", "A");
 		assertThat(sortOrders).isSorted();
 		assertThat(JsonPath.<List<Number>>read(body, "$.data.zones[*].zoneId").stream().map(Number::longValue))
 			.containsExactlyElementsOf(expectedZoneIds);
@@ -170,7 +170,7 @@ class SellerGradeListApiTest extends IntegrationTestSupport {
 	void gradeIdOnlyForAssigned() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 		initializeZones(performanceId);
-		Long vip = insertGrade(performanceId, "VIP석", 165000);
+		Long vip = insertGrade(performanceId, "VIP", 165000);
 		setZone(performanceId, zoneId("F1구역"), "ASSIGNED", vip);
 		setZone(performanceId, zoneId("F2구역"), "INTENTIONALLY_UNSOLD", null);
 

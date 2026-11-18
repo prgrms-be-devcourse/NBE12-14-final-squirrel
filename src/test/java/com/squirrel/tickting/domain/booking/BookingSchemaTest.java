@@ -32,7 +32,7 @@ class BookingSchemaTest extends IntegrationTestSupport {
 		jdbc.update("""
 			INSERT INTO booking_seat (booking_id, schedule_seat_id, zone_name, row_label, seat_number,
 			                          grade_name, price, booking_fee, active)
-			VALUES (?, ?, 'F2구역', '9열', '6', 'R석', 154000, 2000, ?)
+			VALUES (?, ?, 'F2구역', '9열', '6', 'R', 154000, 2000, ?)
 			""", bookingId, scheduleSeatId, active);
 	}
 

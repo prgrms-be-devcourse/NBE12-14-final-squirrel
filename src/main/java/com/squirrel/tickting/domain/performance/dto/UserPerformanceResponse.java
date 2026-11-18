@@ -12,6 +12,7 @@ import com.squirrel.tickting.domain.performance.type.GuideType;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import com.squirrel.tickting.domain.performance.type.SaleStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
+import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
@@ -242,12 +243,10 @@ public class UserPerformanceResponse {
 	public record Grade(
 		@Schema(description = "등급 번호")
 		Long gradeId,
-		@Schema(description = "등급 이름", example = "VIP석")
-		String name,
+		@Schema(description = "등급 코드. 화면 이름과 색은 프론트가 정한다", example = "VIP")
+		SeatGradeName name,
 		@Schema(description = "가격 (원)", example = "165000")
-		Integer price,
-		@Schema(description = "좌석도에 칠할 색", example = "#E8503A")
-		String color
+		Integer price
 	) {
 
 		public static Grade from(SeatGrade grade) {
@@ -255,7 +254,6 @@ public class UserPerformanceResponse {
 				.gradeId(grade.getId())
 				.name(grade.getName())
 				.price(grade.getPrice())
-				.color(grade.getColor())
 				.build();
 		}
 	}
@@ -367,10 +365,8 @@ public class UserPerformanceResponse {
 		String name,
 		@Schema(description = "층. 단층이거나 스탠딩이면 null", example = "1층")
 		String floor,
-		@Schema(description = "등급 이름. 판매하지 않는 구역은 null", example = "R석")
-		String grade,
-		@Schema(description = "좌석도에 칠할 색. 판매하지 않는 구역은 null", example = "#F2994A")
-		String color,
+		@Schema(description = "등급 코드. 판매하지 않는 구역은 null. 화면 이름과 색은 프론트가 정한다", example = "R")
+		SeatGradeName grade,
 		@Schema(description = "가격 (원). 판매하지 않는 구역은 null", example = "154000")
 		Integer price,
 		@Schema(description = "지금 살 수 있는(AVAILABLE) 좌석 수", example = "38")
@@ -379,7 +375,7 @@ public class UserPerformanceResponse {
 		Integer total
 	) {
 
-		/** 등급이 지정(ASSIGNED)된 구역만 등급·색·가격을 채운다. 미판매 구역과 설정이 없는 구역은 비운다. */
+		/** 등급이 지정(ASSIGNED)된 구역만 등급·가격을 채운다. 미판매 구역과 설정이 없는 구역은 비운다. */
 		static Zone of(VenueZoneInfo zone, ZoneGrade zoneGrade, int remaining) {
 			SeatGrade grade = zoneGrade != null && zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED
 				? zoneGrade.getGrade() : null;
@@ -388,7 +384,6 @@ public class UserPerformanceResponse {
 				.name(zone.name())
 				.floor(zone.floor())
 				.grade(grade == null ? null : grade.getName())
-				.color(grade == null ? null : grade.getColor())
 				.price(grade == null ? null : grade.getPrice())
 				.remaining(remaining)
 				.total(Math.toIntExact(zone.seatCount()))

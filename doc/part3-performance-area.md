@@ -68,9 +68,8 @@ erDiagram
     SEAT_GRADE {
         Long id PK
         Long performance_id FK
-        String name
+        enum name "VIP R S A B C OP VIEW_LIMITED ALL STANDING VIP_STANDING RESERVED"
         Integer price
-        String color
     }
     ZONE_GRADE {
         Long id PK
@@ -357,9 +356,8 @@ erDiagram
 |---|---|---|---|---|---|
 | PK | 등급 번호 | `id` | Long | NOT NULL |  |
 | FK | 공연 번호 | `performance_id` | Long | NOT NULL | 이 공연의 등급 (performance) |
-|  | 등급명 | `name` | String | NOT NULL | 예: VIP석, R석, S석 |
+|  | 등급 | `name` | enum | NOT NULL | 등급 코드 12개 중 하나 (아래 Q). 한 공연에 같은 등급은 하나. 컬럼·API 필드 이름은 `name` 그대로 |
 |  | 가격 | `price` | Integer | NOT NULL | 등급마다 가격 1개 |
-|  | 표시 색 | `color` | String | NULL | 좌석도에 칠할 색 (예: #E8503A) |
 
 ### zone_grade (구역별 등급)
 
@@ -372,6 +370,25 @@ erDiagram
 | FK | 구역 번호 | `zone_id` | Long | NOT NULL | 등급을 지정할 구역 (venue_zone) |
 | FK | 등급 번호 | `grade_id` | Long | NULL | `ASSIGNED`일 때 지정한 등급 (seat_grade) |
 |  | 설정 상태 | `assignment_status` | enum | NOT NULL | `UNSET` / `ASSIGNED` / `INTENTIONALLY_UNSOLD` |
+
+**Q. 등급명을 왜 정해진 목록(enum)으로 받나요?**
+
+판매자가 이름을 자유롭게 지으면 `R석`·`R 석`·`r석`처럼 눈으로 같은 등급이 여럿 생기고, 예매자 화면의 표기도 공연마다 달라집니다. 실제 예매처(2026-11-18, NOL 티켓 장르별 인기 순위 40개 공연)에서 쓰는 등급명을 모아 12개로 정했습니다.
+
+| 코드 | 표시 예 | 코드 | 표시 예 |
+|---|---|---|---|
+| `VIP` | VIP석 | `OP` | OP석 |
+| `R` | R석 | `VIEW_LIMITED` | 시야제한석 |
+| `S` | S석 | `ALL` | 전석 |
+| `A` | A석 | `STANDING` | 스탠딩석 |
+| `B` | B석 | `VIP_STANDING` | VIP 스탠딩석 |
+| `C` | C석 | `RESERVED` | 지정석 |
+
+- 서버는 코드만 저장하고 내립니다. 화면에 보이는 이름과 좌석도의 색은 프론트가 코드마다 정합니다. 그래서 등급 색(`color`)은 두지 않습니다.
+- 코드는 추가만 하고 이름을 바꾸거나 지우지 않습니다. 이미 저장된 코드를 프론트가 계속 보여 줘야 하기 때문입니다.
+- 한 공연에 같은 등급은 하나만 둡니다. "R석 1층 15만 원, R석 2층 13만 원"처럼 같은 등급을 가격만 다르게 두 번 쓸 수 없고, 다른 등급으로 나눕니다.
+- 전석(`ALL`)과 다른 등급이 **함께 구역에 지정되면** 막습니다. "전석 5만 원 / R석 7만 원"이 같이 보이면 "전석"이라는 말이 틀린 말이 되기 때문입니다. 만들어 두기만 한 등급은 예매자 화면에 보이지 않아서(구역에 지정된 등급만 보임) 막지 않습니다. 지정석과 R·S석처럼 어색할 뿐 틀린 말은 아닌 조합은 판매자 판단에 맡깁니다.
+- 목록에 없는 이름(작품 이름을 딴 등급, "2층 지정좌석" 같은 층 이름)은 쓸 수 없습니다.
 
 **Q. 가격 종류(일반/청소년 등)는 없나요?**
 
