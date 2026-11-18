@@ -167,6 +167,29 @@ public class UserPerformanceService {
 		return new ZoneSeats(schedule, userPerformanceRepository.findScheduleSeats(scheduleId, zoneId));
 	}
 
+	/**
+	 * 공연 번호 → 공연. 다른 도메인(예매 내역)이 번호로 제목·포스터를 붙일 때 쓴다.
+	 * 공개 공연만 보여 주는 목록·상세와 달리 상태와 상관없이 준다. 예매한 뒤 공연이 취소돼도 내역에는 남아야 한다.
+	 */
+	@Transactional(readOnly = true)
+	public Map<Long, Performance> getPerformances(Collection<Long> performanceIds) {
+		if (performanceIds.isEmpty()) {
+			return Map.of();
+		}
+		return userPerformanceRepository.findAllByIds(performanceIds).stream()
+			.collect(Collectors.toMap(Performance::getId, Function.identity()));
+	}
+
+	/** 회차 번호 → 회차. 예매 내역의 공연 일시에 쓴다. 연기되면 바뀐 일시가 보이도록 예매 때 복사하지 않고 지금 값을 읽는다. */
+	@Transactional(readOnly = true)
+	public Map<Long, PerformanceSchedule> getSchedules(Collection<Long> scheduleIds) {
+		if (scheduleIds.isEmpty()) {
+			return Map.of();
+		}
+		return userPerformanceRepository.findSchedulesByIds(scheduleIds).stream()
+			.collect(Collectors.toMap(PerformanceSchedule::getId, Function.identity()));
+	}
+
 	/** 공연 하나의 취소되지 않은 회차로 첫·마지막 회차 일시와 판매 상태를 계산한다. 회차가 없으면 일시는 null 이다. */
 	private Summary summarize(Performance performance, List<PerformanceSchedule> schedules,
 		Set<Long> scheduleIdsWithSeat, LocalDateTime now) {
