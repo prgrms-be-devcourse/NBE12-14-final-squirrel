@@ -55,7 +55,7 @@ class BookingExpiryTest extends BookingTestSupport {
 		jdbc.update("""
 			INSERT INTO booking_seat (booking_id, schedule_seat_id, zone_name, row_label, seat_number, grade_name,
 			                          price, booking_fee, active)
-			VALUES (?, ?, 'F2구역', '9열', '1', 'R석', 154000, 2000, true)
+			VALUES (?, ?, 'F2구역', '9열', '1', 'R', 154000, 2000, true)
 			""", bookingId, seatId);
 		jdbc.update("UPDATE schedule_seat SET status = ?, held_by = ?, held_until = ? WHERE id = ?",
 			bookingStatus.equals("PAID") ? "SOLD" : "HELD", userId, expiresAt, seatId);

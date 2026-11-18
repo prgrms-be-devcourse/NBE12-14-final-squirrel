@@ -80,10 +80,10 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 			""", Long.class, venueId, cancelPolicyId, status, now.minusDays(1), now.plusDays(30), now, now);
 	}
 
-	private Long saveGrade(Long performanceId, String name, int price, String color) {
+	private Long saveGrade(Long performanceId, String name, int price) {
 		return jdbc.queryForObject("""
-			INSERT INTO seat_grade (performance_id, name, price, color) VALUES (?, ?, ?, ?) RETURNING id
-			""", Long.class, performanceId, name, price, color);
+			INSERT INTO seat_grade (performance_id, name, price) VALUES (?, ?, ?) RETURNING id
+			""", Long.class, performanceId, name, price);
 	}
 
 	private void assignZone(Long performanceId, Long zoneId, Long gradeId) {
@@ -134,8 +134,8 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 		List<Long> secondSeats = saveVenueSeats(second, 2);
 
 		Long performanceId = savePerformance("PUBLISHED");
-		assignZone(performanceId, first, saveGrade(performanceId, "R석", 154000, "#F2994A"));
-		assignZone(performanceId, second, saveGrade(performanceId, "S석", 132000, "#2D9CDB"));
+		assignZone(performanceId, first, saveGrade(performanceId, "R", 154000));
+		assignZone(performanceId, second, saveGrade(performanceId, "S", 132000));
 
 		Long scheduleId = saveSchedule(performanceId, "ON_SALE");
 		// 살 수 있는 좌석(AVAILABLE)만 잔여석이다. 임시 점유·판매 완료·판매자 보류는 빠진다
@@ -156,13 +156,12 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.data.zones[0].zoneId").value(first))
 			.andExpect(jsonPath("$.data.zones[0].name").value("F2구역"))
 			.andExpect(jsonPath("$.data.zones[0].floor").value("1층"))
-			.andExpect(jsonPath("$.data.zones[0].grade").value("R석"))
-			.andExpect(jsonPath("$.data.zones[0].color").value("#F2994A"))
+			.andExpect(jsonPath("$.data.zones[0].grade").value("R"))
 			.andExpect(jsonPath("$.data.zones[0].price").value(154000))
 			.andExpect(jsonPath("$.data.zones[0].remaining").value(2))
 			.andExpect(jsonPath("$.data.zones[0].total").value(5))
 			.andExpect(jsonPath("$.data.zones[1].zoneId").value(second))
-			.andExpect(jsonPath("$.data.zones[1].grade").value("S석"))
+			.andExpect(jsonPath("$.data.zones[1].grade").value("S"))
 			.andExpect(jsonPath("$.data.zones[1].remaining").value(0))
 			.andExpect(jsonPath("$.data.zones[1].total").value(2));
 	}
@@ -183,7 +182,6 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.data.zones[0].name").value("시야 제한석"))
 			.andExpect(jsonPath("$.data.zones[0].floor").isEmpty())
 			.andExpect(jsonPath("$.data.zones[0].grade").isEmpty())
-			.andExpect(jsonPath("$.data.zones[0].color").isEmpty())
 			.andExpect(jsonPath("$.data.zones[0].price").isEmpty())
 			.andExpect(jsonPath("$.data.zones[0].remaining").value(0))
 			.andExpect(jsonPath("$.data.zones[0].total").value(3));
@@ -196,14 +194,14 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 		Long zone = saveZone("F2구역", "1층", 1);
 		saveVenueSeats(zone, 4);
 		Long performanceId = savePerformance("PUBLISHED");
-		assignZone(performanceId, zone, saveGrade(performanceId, "R석", 154000, "#F2994A"));
+		assignZone(performanceId, zone, saveGrade(performanceId, "R", 154000));
 
 		Long scheduleId = saveScheduleWithoutSeats(performanceId);
 
 		mockMvc.perform(get(URL.formatted(scheduleId)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.layoutKey").isEmpty())
-			.andExpect(jsonPath("$.data.zones[0].grade").value("R석"))
+			.andExpect(jsonPath("$.data.zones[0].grade").value("R"))
 			.andExpect(jsonPath("$.data.zones[0].price").value(154000))
 			.andExpect(jsonPath("$.data.zones[0].remaining").value(0))
 			.andExpect(jsonPath("$.data.zones[0].total").value(4));

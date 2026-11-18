@@ -54,16 +54,20 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	USER_SEATS_NOT_GENERATED("PERFORMANCE202", HttpStatus.NOT_FOUND, "아직 좌석을 선택할 수 없는 회차입니다."),
 
 	// 등급·구역 설정은 300번대를 쓴다.
+	/** 없는 등급이거나 이 공연의 등급이 아님. 같은 사업체의 다른 공연 등급도 경로의 공연과 맞지 않으면 같은 404 로 답한다 */
+	GRADE_NOT_FOUND("PERFORMANCE300", HttpStatus.NOT_FOUND, "존재하지 않는 등급입니다."),
 	/**
 	 * 취소되지 않은 회차 중 하나라도 판매 좌석을 만든 공연(locked)의 등급·가격·구역 설정을 고치려 함.
 	 * 가격은 좌석을 만들 때 복사되므로 고치면 회차끼리, 등급과 좌석끼리 가격이 어긋난다
 	 */
 	GRADE_LOCKED("PERFORMANCE301", HttpStatus.CONFLICT, "판매 좌석이 생성되어 등급·가격·구역 설정을 수정할 수 없습니다."),
+	/** 같은 공연에 같은 등급이 이미 있음. 같은 등급이 둘이면 예매자 가격표에 같은 이름이 두 줄 나와 구분할 수 없다 */
+	GRADE_NAME_DUPLICATED("PERFORMANCE302", HttpStatus.CONFLICT, "같은 등급이 이미 있습니다."),
 	/**
-	 * 같은 공연에 대소문자와 공백만 다른 것까지 같은 이름의 등급이 있음. 등급명은 예매자 화면에도 보여서
-	 * 눈으로 같아 보이는 등급이 둘이면 헷갈린다
+	 * 전석(ALL)과 다른 등급이 함께 구역에 지정되려 함. 함께 보이면 "전석"이 틀린 말이 된다.
+	 * 구역에 지정되지 않은 등급은 예매자 화면에 보이지 않아서 만들어 두는 것은 막지 않는다
 	 */
-	GRADE_NAME_DUPLICATED("PERFORMANCE302", HttpStatus.CONFLICT, "같은 이름의 등급이 이미 있습니다.");
+	GRADE_ALL_MIXED("PERFORMANCE303", HttpStatus.CONFLICT, "전석은 다른 등급과 함께 구역에 지정할 수 없습니다.");
 
 	private final String code;
 	private final HttpStatus status;

@@ -76,7 +76,7 @@ class BookingCreateApiTest extends BookingTestSupport {
 			.andExpect(jsonPath("$.data.seats[0].rowLabel").value("9열"))
 			.andExpect(jsonPath("$.data.seats[0].seatNumber").value("1"))
 			.andExpect(jsonPath("$.data.seats[1].seatNumber").value("2"))
-			.andExpect(jsonPath("$.data.seats[0].gradeName").value("R석"))
+			.andExpect(jsonPath("$.data.seats[0].gradeName").value("R"))
 			.andExpect(jsonPath("$.data.seats[0].price").value(154000))
 			.andExpect(jsonPath("$.data.seats[0].bookingFee").value(2000))
 			.andExpect(jsonPath("$.data.ticketAmount").value(308000))
@@ -286,7 +286,7 @@ class BookingCreateApiTest extends BookingTestSupport {
 		jdbc.update("""
 			INSERT INTO booking_seat (booking_id, schedule_seat_id, zone_name, row_label, seat_number, grade_name,
 			                          price, booking_fee, active)
-			VALUES (999, ?, 'F2구역', '9열', '1', 'R석', 154000, 2000, true)
+			VALUES (999, ?, 'F2구역', '9열', '1', 'R', 154000, 2000, true)
 			""", seat);
 
 		book(user.bearer(), show.scheduleId(), List.of(seat))
@@ -416,7 +416,7 @@ class BookingCreateApiTest extends BookingTestSupport {
 						scheduleSeatService.holdSeats(show.scheduleId(), Set.of(seatId), userId, start, start.plusMinutes(7));
 						bookingService.create(new BookingCreateCommand(userId, show.scheduleId(), show.performanceId(),
 							ReceiveMethod.ONSITE, "홍길동", "01012345678", "user@example.com", 0,
-							List.of(new BookingCreateCommand.SeatLine(seatId, "F2구역", "9열", "1", "R석", 154000)),
+							List.of(new BookingCreateCommand.SeatLine(seatId, "F2구역", "9열", "1", "R", 154000)),
 							List.of(), LocalDate.now(), start.plusMinutes(7)));
 						return "OK";
 					}));

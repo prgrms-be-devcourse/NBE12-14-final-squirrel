@@ -18,6 +18,10 @@ import org.springframework.web.client.RestClient;
 @EnableConfigurationProperties(TossProperties.class)
 public class TossClientConfig {
 
+	/**
+	 * RestClient.Builder 빈은 restclient 스타터(build.gradle)의 자동 설정이 만든다. Spring Boot 4 는 이 자동 설정을 webmvc 스타터에서 분리해서,
+	 * 스타터를 빼면 toss 모드에서만 앱이 뜨지 않는다. (Mock 모드와 단위 테스트는 이 빈을 쓰지 않아 가려졌다 - TossGatewayWiringTest 가 지킨다)
+	 */
 	@Bean
 	public RestClient tossRestClient(RestClient.Builder builder, TossProperties properties) {
 		JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(

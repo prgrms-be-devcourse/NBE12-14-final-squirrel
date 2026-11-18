@@ -140,7 +140,7 @@ PENDING ──결제 성공──→ PAID ──일부 좌석 취소──→ PA
 |  | 구역명 | `zone_name` | String | NOT NULL | 스냅샷. 예: F2구역 |
 |  | 열 | `row_label` | String | NOT NULL | 스냅샷. 예: 9열 |
 |  | 좌석 번호 | `seat_number` | String | NOT NULL | 스냅샷. 예: 6 |
-|  | 등급명 | `grade_name` | String | NOT NULL | 스냅샷. 예: R석 |
+|  | 등급 | `grade_name` | String | NOT NULL | 스냅샷. 예매할 때의 등급 코드(3부 3-4, 예: R). 화면 이름은 프론트가 정함 |
 |  | 좌석 가격 | `price` | Integer | NOT NULL | 스냅샷 |
 |  | 예매 수수료 | `booking_fee` | Integer | NOT NULL | 스냅샷. 좌석 1장당 |
 |  | 활성 여부 | `active` | Boolean | NOT NULL | 취소하면 false |

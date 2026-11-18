@@ -64,18 +64,17 @@ FROM performance p,
              ('https://team08-tickting-yjh.s3.ap-northeast-2.amazonaws.com/public/images4242.jpg', 2)) AS i(url, sort_order)
 WHERE p.title = '가상 콘서트 (샘플)';
 
--- 등급과 가격. 가상 콘서트는 4등급, 소극장 공연은 3등급이다.
-INSERT INTO seat_grade (performance_id, name, price, color)
-SELECT p.id, g.name, g.price, g.color
+-- 등급과 가격. 가상 콘서트는 4등급, 소극장 공연은 3등급이다. 등급명은 등급 코드(SeatGradeName)이고 색은 프론트가 정한다.
+INSERT INTO seat_grade (performance_id, name, price)
+SELECT p.id, g.name, g.price
 FROM performance p,
-     (VALUES ('VIP석', 165000, '#E8503A'), ('R석', 154000, '#F2994A'),
-             ('S석', 132000, '#2D9CDB'), ('A석', 99000, '#27AE60')) AS g(name, price, color)
+     (VALUES ('VIP', 165000), ('R', 154000), ('S', 132000), ('A', 99000)) AS g(name, price)
 WHERE p.title = '가상 콘서트 (샘플)';
 
-INSERT INTO seat_grade (performance_id, name, price, color)
-SELECT p.id, g.name, g.price, g.color
+INSERT INTO seat_grade (performance_id, name, price)
+SELECT p.id, g.name, g.price
 FROM performance p,
-     (VALUES ('R석', 30000, '#F2994A'), ('S석', 20000, '#2D9CDB'), ('A석', 10000, '#27AE60')) AS g(name, price, color)
+     (VALUES ('R', 30000), ('S', 20000), ('A', 10000)) AS g(name, price)
 WHERE p.title IN ('작은 연극 (샘플)', '곧 오픈하는 뮤지컬 (샘플)');
 
 -- 구역별 등급. 가상 콘서트는 3,022석 전부 판매 구역이다. (VIP 500 / R 568 / S 1,196 / A 758)
@@ -83,13 +82,13 @@ INSERT INTO zone_grade (performance_id, zone_id, grade_id, assignment_status)
 SELECT p.id, z.id, g.id, 'ASSIGNED'
 FROM performance p
 JOIN venue_zone z ON z.venue_id = p.venue_id
-JOIN (VALUES ('VIP석', 'Floor석'),
-             ('R석', 'F1구역'), ('R석', 'F2구역'), ('R석', 'F3구역'), ('R석', 'C2-1구역'), ('R석', 'C2-2구역'),
-             ('S석', 'A1구역'), ('S석', 'A2구역'), ('S석', 'A3구역'), ('S석', 'A4구역'),
-             ('S석', 'E1구역'), ('S석', 'E2구역'), ('S석', 'E3구역'), ('S석', 'E4구역'),
-             ('S석', 'C1구역'), ('S석', 'C3구역'),
-             ('A석', 'B1구역'), ('A석', 'B2구역'), ('A석', 'D1구역'), ('A석', 'D2구역'),
-             ('A석', 'G구역'), ('A석', 'H구역')) AS m(grade_name, zone_name) ON m.zone_name = z.name
+JOIN (VALUES ('VIP', 'Floor석'),
+             ('R', 'F1구역'), ('R', 'F2구역'), ('R', 'F3구역'), ('R', 'C2-1구역'), ('R', 'C2-2구역'),
+             ('S', 'A1구역'), ('S', 'A2구역'), ('S', 'A3구역'), ('S', 'A4구역'),
+             ('S', 'E1구역'), ('S', 'E2구역'), ('S', 'E3구역'), ('S', 'E4구역'),
+             ('S', 'C1구역'), ('S', 'C3구역'),
+             ('A', 'B1구역'), ('A', 'B2구역'), ('A', 'D1구역'), ('A', 'D2구역'),
+             ('A', 'G구역'), ('A', 'H구역')) AS m(grade_name, zone_name) ON m.zone_name = z.name
 JOIN seat_grade g ON g.performance_id = p.id AND g.name = m.grade_name
 WHERE p.title = '가상 콘서트 (샘플)';
 
@@ -98,7 +97,7 @@ INSERT INTO zone_grade (performance_id, zone_id, grade_id, assignment_status)
 SELECT p.id, z.id, g.id, 'ASSIGNED'
 FROM performance p
 JOIN venue_zone z ON z.venue_id = p.venue_id
-JOIN (VALUES ('R석', 'A구역'), ('S석', 'B구역'), ('A석', 'C구역')) AS m(grade_name, zone_name) ON m.zone_name = z.name
+JOIN (VALUES ('R', 'A구역'), ('S', 'B구역'), ('A', 'C구역')) AS m(grade_name, zone_name) ON m.zone_name = z.name
 JOIN seat_grade g ON g.performance_id = p.id AND g.name = m.grade_name
 WHERE p.title IN ('작은 연극 (샘플)', '곧 오픈하는 뮤지컬 (샘플)');
 
