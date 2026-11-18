@@ -14,10 +14,14 @@ import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -115,6 +119,101 @@ public class GradeService {
 
 		grade.update(request.name(), request.price());
 		return SellerGradeResponse.Grade.from(grade);
+	}
+
+	/**
+	 * 내 공연의 구역 상태와 등급을 요청에 있는 구역만 바꾼다. 하나라도 틀리면 아무것도 바꾸지 않는다(전체 적용 또는 전체 거절).
+	 * 일부만 적용되면 판매자가 어느 구역이 바뀌었는지 알기 어렵기 때문이다.
+	 * 락은 판매 좌석 생성이 고치기 전 구역 지정(그리고 가격)을 복사하는 것을 막으려는 것이다. 판매자의 수정이 반드시 반영되게 하는 것이 아니라
+	 * 어긋남을 막는 것이어서, 좌석 생성이 먼저 끝나면 수정은 locked 409 로 거절되어 판매자가 사실대로 안다.
+	 * 좌석 생성도 같은 이름의 락을 잡아야 효과가 있다. 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
+	 * 요청만 보고 판단하는 검사(같은 구역 중복, 상태·등급 조합)는 DB 조회 전에 하고, 남의 공연은 락을 잡기 전에 404 로 끝낸다.
+	 */
+	public GradeOverview updateZoneGrades(Long businessId, Long performanceId, SellerGradeRequest.ZoneAssign request) {
+		validateAssignments(request.assignments());
+		getMine(businessId, performanceId);
+		return lockExecutor.execute(List.of(lockName(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> updateZonesInTransaction(businessId, performanceId, request)));
+	}
+
+	/**
+	 * 같은 구역이 두 번 오면 어느 값이 맞는지 서버가 추측하지 않고 400 으로 돌려보낸다. (프론트 버그를 드러낸다)
+	 * 요청 안에서만 판단해서 남의 공연에 보내도 남의 공연 정보가 드러나지 않는다.
+	 */
+	private void validateAssignments(List<SellerGradeRequest.Item> assignments) {
+		Set<Long> zoneIds = new HashSet<>();
+		for (SellerGradeRequest.Item item : assignments) {
+			if (!zoneIds.add(item.zoneId())) {
+				throw new BusinessException(CommonExceptionCode.INVALID_INPUT);
+			}
+		}
+		for (SellerGradeRequest.Item item : assignments) {
+			boolean assigned = item.assignmentStatus() == ZoneAssignmentStatus.ASSIGNED;
+			if (assigned != (item.gradeId() != null)) {
+				throw new BusinessException(PerformanceExceptionCode.ZONE_ASSIGNMENT_INVALID);
+			}
+		}
+	}
+
+	/** 락을 기다리는 사이에 공연이 취소되거나 좌석이 만들어졌을 수 있어서 락 밖의 판단은 믿지 않고 다시 읽는다. */
+	private GradeOverview updateZonesInTransaction(Long businessId, Long performanceId,
+		SellerGradeRequest.ZoneAssign request) {
+		Performance performance = getMine(businessId, performanceId);
+		if (performance.getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED);
+		}
+		List<ZoneGrade> zoneGrades = zoneGradeRepository.findAllWithGradeByPerformanceId(performanceId);
+		List<SeatGrade> grades = seatGradeRepository.findByPerformanceIdOrderByPriceDescIdAsc(performanceId);
+		// 구역 설정 행은 공연을 등록할 때 공연장의 구역마다 만들어서, 행이 없으면 이 공연의 공연장 구역이 아니다.
+		Map<Long, ZoneGrade> zonesById = zoneGrades.stream()
+			.collect(Collectors.toMap(ZoneGrade::getZoneId, Function.identity()));
+		Map<Long, SeatGrade> gradesById = grades.stream()
+			.collect(Collectors.toMap(SeatGrade::getId, Function.identity()));
+
+		List<SellerGradeRequest.Item> assignments = request.assignments();
+		if (assignments.stream().anyMatch(item -> !zonesById.containsKey(item.zoneId()))) {
+			throw new BusinessException(PerformanceExceptionCode.ZONE_NOT_FOUND_IN_VENUE);
+		}
+		if (assignments.stream().anyMatch(item -> item.gradeId() != null && !gradesById.containsKey(item.gradeId()))) {
+			throw new BusinessException(PerformanceExceptionCode.GRADE_NOT_IN_PERFORMANCE);
+		}
+		if (mixesAllAfterAssign(zoneGrades, assignments, gradesById)) {
+			throw new BusinessException(PerformanceExceptionCode.GRADE_ALL_MIXED);
+		}
+		// 락을 얻은 뒤 여기서 처음 본다. 좌석 생성이 먼저 커밋됐으면 이 검사가 거른다.
+		if (isLocked(performanceId)) {
+			throw new BusinessException(PerformanceExceptionCode.GRADE_LOCKED);
+		}
+
+		// 관리 중인 엔티티라 커밋 때 저장된다. 값이 그대로인 항목도 에러 없이 지나간다.
+		for (SellerGradeRequest.Item item : assignments) {
+			zonesById.get(item.zoneId()).assign(item.assignmentStatus(),
+				item.gradeId() == null ? null : gradesById.get(item.gradeId()));
+		}
+		// 바로 위에서 locked 409 를 통과했으므로 false 다.
+		return new GradeOverview(performance, grades, zoneGrades, false);
+	}
+
+	/**
+	 * 요청을 적용한 뒤의 최종 상태에서 전석과 다른 등급이 함께 구역에 지정되는가. 요청에 없는 구역은 기존 값으로 본다.
+	 * 구역 하나씩 보면 R·S 구역을 한 요청에서 모두 전석으로 바꾸는 것도 중간에 막히기 때문이다.
+	 */
+	private boolean mixesAllAfterAssign(List<ZoneGrade> zoneGrades, List<SellerGradeRequest.Item> assignments,
+		Map<Long, SeatGrade> gradesById) {
+		Map<Long, SellerGradeRequest.Item> requested = assignments.stream()
+			.collect(Collectors.toMap(SellerGradeRequest.Item::zoneId, Function.identity()));
+		Set<SeatGradeName> names = new HashSet<>();
+		for (ZoneGrade zoneGrade : zoneGrades) {
+			SellerGradeRequest.Item item = requested.get(zoneGrade.getZoneId());
+			if (item == null) {
+				if (zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED) {
+					names.add(zoneGrade.getGrade().getName());
+				}
+			} else if (item.assignmentStatus() == ZoneAssignmentStatus.ASSIGNED) {
+				names.add(gradesById.get(item.gradeId()).getName());
+			}
+		}
+		return names.contains(SeatGradeName.ALL) && names.size() > 1;
 	}
 
 	/**

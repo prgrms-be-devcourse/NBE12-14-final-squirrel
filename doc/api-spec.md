@@ -1461,7 +1461,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 404 `PERFORMANCE300` 없는 등급·이 공연의 등급이 아님 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 같은 등급이 이미 있음 · 409 `PERFORMANCE303` 전석과 다른 등급이 함께 지정됨 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가 · 409 `COMMON004` 락 대기 초과
 
-### SLR-11 구역별 상태·등급 설정 — `PATCH /api/v1/seller/performances/{performanceId}/zone-grades`
+### SLR-11 구역별 상태·등급 설정 — `PATCH /api/v1/seller/performances/{performanceId}/zone-grades` (구현됨)
 
 요청에 포함된 구역만 변경합니다. 빠진 구역은 기존 상태를 유지합니다. `ASSIGNED`는 `gradeId`가 필요하고, `INTENTIONALLY_UNSOLD`와 `UNSET`은 `gradeId: null`로 보냅니다. 의도적 미판매와 아직 설정하지 않은 상태를 구분합니다.
 
@@ -1519,7 +1519,28 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**(코드 미정): 400 다른 공연장의 구역 · 400 다른 공연의 등급 · 400 상태와 `gradeId` 조합 오류 · 409 `PERFORMANCE303` 전석과 다른 등급이 함께 지정됨 · 409 좌석 생성 후라 수정 불가
+**규칙** (구현됨)
+
+- 요청 전체를 한 번에 적용합니다. 하나라도 틀리면 **아무것도 바꾸지 않습니다.**
+- `assignments`가 비었거나 없거나, 같은 `zoneId`가 두 번 들어오면 400 `COMMON000`입니다.
+- `ASSIGNED`를 `UNSET`·`INTENTIONALLY_UNSOLD`로 되돌릴 수 있습니다. 값이 그대로인 항목·요청도 200입니다.
+- 공연이 `PUBLISHED`여도 판매 좌석 생성 전이면 설정할 수 있습니다. 대표·담당자 모두 가능합니다.
+- 판매 좌석 생성과 겹치면 잠시 기다리고, 1초 안에 끝나지 않으면 409 `COMMON004`(잠시 후 다시 시도)입니다.
+- 검사 순서: 요청 형식 400 → 상태·`gradeId` 조합 400 → 공연 404 → 취소된 공연 409 → 공연장에 없는 구역 400 → 공연에 없는 등급 400 → 전석 섞임 409 → 좌석 생성 후 409. 좌석이 생성된 공연에 없는 구역을 보내면 400이 먼저입니다.
+
+**에러**
+
+| 상태 | 코드 | 언제 |
+|---|---|---|
+| 400 | `COMMON000` | 빈 목록, 항목 값 누락, 모르는 상태 값, 같은 구역 중복 |
+| 400 | `PERFORMANCE306` | `ASSIGNED`인데 `gradeId`가 없음, `UNSET`·`INTENTIONALLY_UNSOLD`인데 `gradeId`가 있음 |
+| 400 | `PERFORMANCE304` | 이 공연의 공연장에 없는 구역(다른 공연장의 구역, 없는 번호) |
+| 400 | `PERFORMANCE305` | 이 공연에 없는 등급(없는 번호, 다른 공연의 등급) |
+| 404 | `PERFORMANCE000` | 없는 공연, 다른 사업체의 공연 |
+| 409 | `PERFORMANCE002` | 취소된 공연 |
+| 409 | `PERFORMANCE303` | 전석과 다른 등급이 함께 지정됨 |
+| 409 | `PERFORMANCE301` | 판매 좌석 생성 후라 수정 불가(`locked`) |
+| 409 | `COMMON004` | 판매 좌석 생성과 겹쳐 1초 안에 처리하지 못함 |
 
 ### SLR-12 회차 추가 — `POST /api/v1/seller/performances/{performanceId}/schedules`
 

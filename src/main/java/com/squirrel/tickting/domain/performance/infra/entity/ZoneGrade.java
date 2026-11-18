@@ -48,4 +48,13 @@ public class ZoneGrade {
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 30)
 	private ZoneAssignmentStatus assignmentStatus;
+
+	/**
+	 * 구역의 판매 상태와 지정 등급을 함께 바꾼다. 등급은 ASSIGNED 일 때만 있고 나머지는 null 이다.
+	 * 따로 바꾸면 상태와 등급이 맞지 않는 중간 상태가 생길 수 있어서 한 메서드로 둔다.
+	 */
+	public void assign(ZoneAssignmentStatus assignmentStatus, SeatGrade grade) {
+		this.assignmentStatus = assignmentStatus;
+		this.grade = grade;
+	}
 }

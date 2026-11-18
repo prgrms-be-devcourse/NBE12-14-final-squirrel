@@ -22,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -107,9 +108,9 @@ public class SellerPerformanceController {
 
 	/** 등급만 다루고 다른 도메인을 엮지 않아 파사드 없이 등급 서비스를 바로 부른다. 대표·담당자 모두 추가할 수 있다. */
 	@Operation(summary = "등급 추가",
-		description = "공연에 좌석 등급을 추가한다. 가격은 0원 이상 10,000,000원 이하이고, 색은 #RRGGBB 형식이거나 비운다. "
-			+ "같은 공연에 대소문자·공백을 무시하면 같은 이름의 등급이 있거나, 판매 좌석이 생성되었거나(locked), "
-			+ "취소된 공연이면 409 다. 다른 사업체의 공연이거나 없는 공연은 모두 404 이다.")
+		description = "공연에 좌석 등급을 추가한다. 등급은 정해진 코드(VIP, R, S ...) 중 하나이고 가격은 0원 이상 10,000,000원 이하다. "
+			+ "같은 공연에 같은 등급이 있거나, 판매 좌석이 생성되었거나(locked), 취소된 공연이면 409 다. "
+			+ "다른 사업체의 공연이거나 없는 공연은 모두 404 이다.")
 	@PostMapping("/{performanceId}/grades")
 	public ResponseEntity<ApiResponse<SellerGradeResponse.Grade>> addGrade(
 		@AuthenticationPrincipal CustomUserDetails account,
@@ -122,8 +123,9 @@ public class SellerPerformanceController {
 
 	/** 등급만 다루고 다른 도메인을 엮지 않아 파사드 없이 등급 서비스를 바로 부른다. 대표·담당자 모두 수정할 수 있다. */
 	@Operation(summary = "등급 수정",
-		description = "등급의 이름·가격·색을 전체 교체한다(색을 빼면 지워진다). 입력 규칙은 등급 추가와 같고 자기 이름은 그대로 써도 된다. "
-			+ "이 공연의 등급이 아니면 404, 취소된 공연이거나 같은 이름의 다른 등급이 있거나 판매 좌석이 생성되었으면(locked) 409 다. "
+		description = "등급과 가격을 전체 교체한다. 입력 규칙은 등급 추가와 같고 자기 등급은 그대로 써도 된다. "
+			+ "이 공연의 등급이 아니면 404, 취소된 공연이거나 같은 등급이 이미 있거나 전석과 다른 등급이 함께 구역에 지정되거나 "
+			+ "판매 좌석이 생성되었으면(locked) 409 다. "
 			+ "판매 좌석 생성과 겹치면 잠시 기다리고, 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
 	@PutMapping("/{performanceId}/grades/{gradeId}")
 	public ResponseEntity<ApiResponse<SellerGradeResponse.Grade>> updateGrade(
@@ -134,6 +136,25 @@ public class SellerPerformanceController {
 	) {
 		SellerGradeResponse.Grade response = gradeService.update(account.getBusinessId(), performanceId, gradeId,
 			request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 응답에 공연장 구역 이름이 필요해 파사드를 부른다. 대표·담당자 모두 설정할 수 있다. */
+	@Operation(summary = "구역 상태·등급 설정",
+		description = "요청에 포함된 구역의 상태와 등급만 바꾸고 빠진 구역은 그대로 둔다. 하나라도 틀리면 아무것도 바꾸지 않는다. "
+			+ "ASSIGNED 는 gradeId 가 필요하고 UNSET·INTENTIONALLY_UNSOLD 는 gradeId 를 null 로 보낸다. "
+			+ "응답은 등급·구역 조회와 같은 모양이다. 빈 목록이나 같은 구역 중복, 상태와 gradeId 조합 오류, "
+			+ "이 공연의 공연장에 없는 구역이나 이 공연에 없는 등급은 400 이다. 취소된 공연, 전석과 다른 등급이 함께 지정됨"
+			+ "(요청을 적용한 뒤의 최종 상태로 판단), 판매 좌석 생성 후(locked)는 409 다. 다른 사업체의 공연이거나 없는 공연은 404 다. "
+			+ "판매 좌석 생성과 겹치면 잠시 기다리고, 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PatchMapping("/{performanceId}/zone-grades")
+	public ResponseEntity<ApiResponse<SellerGradeResponse.Overview>> updateZoneGrades(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId,
+		@Valid @RequestBody SellerGradeRequest.ZoneAssign request
+	) {
+		SellerGradeResponse.Overview response = sellerPerformanceFacade.updateZoneGrades(account.getBusinessId(),
+			performanceId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }
