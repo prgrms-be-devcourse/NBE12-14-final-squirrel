@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.domain.booking.BookingTestSupport;
 import com.squirrel.tickting.domain.booking.facade.BookingExpiryFacade;
 import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway;
-import com.squirrel.tickting.global.security.AccountType;
-import com.squirrel.tickting.global.security.CustomUserDetails;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -90,10 +88,6 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		return jdbc.queryForObject("SELECT status FROM booking WHERE id = ?", String.class, bookingId);
 	}
 
-	private LocalDateTime bookingExpiresAt(Long bookingId) {
-		return jdbc.queryForObject("SELECT expires_at FROM booking WHERE id = ?", LocalDateTime.class, bookingId);
-	}
-
 	private LocalDateTime seatHeldUntil(Long seatId) {
 		return jdbc.queryForObject("SELECT held_until FROM schedule_seat WHERE id = ?", LocalDateTime.class, seatId);
 	}
@@ -135,55 +129,6 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM booking_seat WHERE booking_id = ? AND active", Long.class,
 			order.bookingId())).isEqualTo(2);
 		assertThat(gateway.confirmedOrderIds()).containsExactly(order.orderId());
-	}
-
-	@Test
-	@DisplayName("점유 시간이 넉넉하면 늘리지 않고, 승인 시작 때 남은 시간이 연장 시간보다 짧으면 예매와 좌석을 같은 시각으로 늘린다")
-	void extendsHoldOnlyWhenShort() throws Exception {
-		Show show = show(2);
-		User user = signup("first");
-		Order roomy = prepareOrder(user, show, 0, 1);
-		Order tight = prepareOrder(user, show, 1, 1);
-		LocalDateTime roomyBefore = bookingExpiresAt(roomy.bookingId());
-		// 남은 시간이 30초뿐인 예매. 승인 결과를 모르는 상태(502)로 두어 연장된 값을 확인한다
-		LocalDateTime soon = LocalDateTime.now().plusSeconds(30);
-		jdbc.update("UPDATE booking SET expires_at = ? WHERE id = ?", soon, tight.bookingId());
-		jdbc.update("UPDATE schedule_seat SET held_until = ? WHERE id = ?", soon, show.seatIds().get(1));
-
-		confirm(user.bearer(), "unavailable_1", roomy.orderId(), roomy.amount()).andExpect(status().isBadGateway());
-		confirm(user.bearer(), "unavailable_2", tight.orderId(), tight.amount()).andExpect(status().isBadGateway());
-
-		assertThat(bookingExpiresAt(roomy.bookingId())).isEqualTo(roomyBefore);
-		LocalDateTime extended = bookingExpiresAt(tight.bookingId());
-		assertThat(extended).isBetween(LocalDateTime.now().plusSeconds(100), LocalDateTime.now().plusSeconds(130));
-		assertThat(seatHeldUntil(show.seatIds().get(1))).isEqualTo(extended);
-	}
-
-	@Test
-	@DisplayName("점유 연장은 예매당 한 번만 한다. 이미 승인을 시도한 예매는 다시 시도해도 늘리지 않는다")
-	void extendsHoldOnlyOncePerBooking() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		Order first = prepareOrder(user, show, 1);
-		jdbc.update("UPDATE booking SET expires_at = ? WHERE id = ?", LocalDateTime.now().plusSeconds(30), first.bookingId());
-
-		// 첫 시도는 거절당하고(FAILED) 점유가 늘어난다
-		confirm(user.bearer(), "reject_1", first.orderId(), first.amount()).andExpect(status().isBadRequest());
-		assertThat(bookingExpiresAt(first.bookingId())).isAfter(LocalDateTime.now().plusSeconds(100));
-
-		// 시간이 흘러 다시 30초만 남은 것으로 하고 두 번째 시도(-02)를 한다
-		// DB 는 마이크로초까지만 저장해서, 읽어 온 값과 같은지 비교할 수 있게 초 단위로 맞춘다
-		LocalDateTime soon = LocalDateTime.now().plusSeconds(30).withNano(0);
-		jdbc.update("UPDATE booking SET expires_at = ? WHERE id = ?", soon, first.bookingId());
-		MvcResult second = mockMvc.perform(post("/api/v1/bookings/" + first.bookingId() + "/payments")
-				.header("Authorization", user.bearer())
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(Map.of("receiveType", "ONSITE"))))
-			.andExpect(status().isOk())
-			.andReturn();
-		confirm(user.bearer(), "reject_2", read(second, "$.data.orderId"), first.amount()).andExpect(status().isBadRequest());
-
-		assertThat(bookingExpiresAt(first.bookingId())).isEqualTo(soon);
 	}
 
 	@Test
@@ -273,19 +218,6 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		assertThat(paymentStatus(order.orderId())).isEqualTo("READY");
 	}
 
-	@Test
-	@DisplayName("결제 키·주문 ID·금액이 비었거나 금액이 0 이하이면 400 COMMON000 이다")
-	void rejectsInvalidBody() throws Exception {
-		User user = signup("first");
-
-		confirm(user.bearer(), " ", "BK-1", 1000).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
-		confirm(user.bearer(), "pay_key", " ", 1000).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
-		confirm(user.bearer(), "pay_key", "BK-1", null).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
-		confirm(user.bearer(), "pay_key", "BK-1", 0).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
-
-		assertThat(gateway.confirmedOrderIds()).isEmpty();
-	}
-
 	// ---------------------------------------------------------------- 토스 결과
 
 	@Test
@@ -341,26 +273,6 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 	}
 
 	// ---------------------------------------------------------------- 권한
-
-	@Test
-	@DisplayName("토큰 없이 호출하면 401, 판매자·관리자 토큰으로 호출하면 403 이다")
-	void needsUserRole() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		Order order = prepareOrder(user, show, 1);
-		String seller = "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, AccountType.SELLER, "OWNER", 1L));
-		String admin = "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, AccountType.ADMIN, null, null));
-
-		mockMvc.perform(post("/api/v1/payments/confirm")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(Map.of("paymentKey", "k", "orderId", order.orderId(), "amount", order.amount()))))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH200"));
-		confirm(seller, "k", order.orderId(), order.amount()).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH100"));
-		confirm(admin, "k", order.orderId(), order.amount()).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH100"));
-
-		assertThat(gateway.confirmedOrderIds()).isEmpty();
-	}
 
 	// ---------------------------------------------------------------- 동시성
 

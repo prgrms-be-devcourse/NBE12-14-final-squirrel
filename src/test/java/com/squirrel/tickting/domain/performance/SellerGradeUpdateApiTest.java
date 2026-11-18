@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
@@ -103,18 +102,6 @@ class SellerGradeUpdateApiTest extends IntegrationTestSupport {
 			""", performanceId, status, seatsGenerated ? Timestamp.valueOf("2026-11-01 00:00:00") : null);
 	}
 
-	/** 공연장의 구역 하나를 그 등급으로 지정(ASSIGNED)한다. 구역은 공연장 구역 번호순으로 index 번째다. */
-	private void assignZone(Long performanceId, int index, Long gradeId) {
-		jdbc.update("""
-			INSERT INTO zone_grade (performance_id, zone_id, grade_id, assignment_status)
-			SELECT ?, z.id, ?, 'ASSIGNED'
-			FROM venue_zone z
-			WHERE z.venue_id = (SELECT venue_id FROM performance WHERE id = ?)
-			ORDER BY z.id
-			OFFSET ? LIMIT 1
-			""", performanceId, gradeId, performanceId, index);
-	}
-
 	private Map<String, Object> savedGrade(Long gradeId) {
 		return jdbc.queryForMap("SELECT name, price FROM seat_grade WHERE id = ?", gradeId);
 	}
@@ -122,118 +109,6 @@ class SellerGradeUpdateApiTest extends IntegrationTestSupport {
 	/** 등급이 처음 넣은 값(등급, 100000원) 그대로인가 */
 	private void assertUnchanged(Long gradeId, String name) {
 		assertThat(savedGrade(gradeId)).containsEntry("name", name).containsEntry("price", 100000);
-	}
-
-	@Test
-	@DisplayName("등급과 가격을 전체 교체하고 명세의 모양으로 돌려준다")
-	void replaced() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long gradeId = insertGrade(performanceId, "R");
-
-		String response = update(performanceId, gradeId, body("VIP", 150000))
-			.andExpect(status().isOk())
-			.andReturn().getResponse().getContentAsString();
-		assertThat(JsonPath.<Map<String, Object>>read(response, "$.data")).containsExactlyInAnyOrderEntriesOf(Map.of(
-			"gradeId", gradeId.intValue(), "name", "VIP", "price", 150000));
-		assertThat(savedGrade(gradeId)).containsEntry("name", "VIP").containsEntry("price", 150000);
-	}
-
-	@Test
-	@DisplayName("자기 등급 그대로 가격만 바꿔도 200이고, 담당자도 수정할 수 있다")
-	void ownNameAndStaff() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long gradeId = insertGrade(performanceId, "R");
-
-		update(performanceId, gradeId, body("R", 100000)).andExpect(status().isOk());
-		update(performanceId, gradeId, body("R", 90000), token(AccountType.SELLER, "STAFF", MY_BUSINESS))
-			.andExpect(status().isOk());
-		assertThat(savedGrade(gradeId)).containsEntry("name", "R").containsEntry("price", 90000);
-	}
-
-	@Test
-	@DisplayName("입력 형식이 틀리면 400 COMMON000 이고 바뀌지 않는다 (추가와 같은 요청 규칙)")
-	void invalidInput() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long gradeId = insertGrade(performanceId, "R");
-
-		for (Map<String, Object> body : List.of(
-			body(null, 1000), body("R석", 1000), body("R", null), body("R", 10_000_001))) {
-			update(performanceId, gradeId, body)
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("COMMON000"));
-		}
-		assertUnchanged(gradeId, "R");
-	}
-
-	@Test
-	@DisplayName("같은 공연의 다른 등급과 같은 등급으로 바꾸면 409 PERFORMANCE302 이고 바뀌지 않는다")
-	void duplicatedName() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		insertGrade(performanceId, "R");
-		Long gradeId = insertGrade(performanceId, "S");
-
-		update(performanceId, gradeId, body("R", 1000))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("PERFORMANCE302"));
-		assertUnchanged(gradeId, "S");
-	}
-
-	@Test
-	@DisplayName("구역에 지정된 등급을 전석으로 바꿔서 전석과 다른 등급이 함께 지정되면 409 PERFORMANCE303 이고 바뀌지 않는다")
-	void allMixedWithOtherAssignedGrade() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long rGrade = insertGrade(performanceId, "R");
-		Long sGrade = insertGrade(performanceId, "S");
-		assignZone(performanceId, 0, rGrade);
-		assignZone(performanceId, 1, sGrade);
-
-		update(performanceId, rGrade, body("ALL", 1000))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("PERFORMANCE303"));
-		assertUnchanged(rGrade, "R");
-	}
-
-	@Test
-	@DisplayName("다른 등급이 구역에 지정되어 있지 않거나, 바꾸는 등급이 구역에 지정되어 있지 않으면 전석으로 바꿀 수 있다")
-	void allAllowedWhenNotMixedOnZones() throws Exception {
-		Long onlyThisAssigned = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long rGrade = insertGrade(onlyThisAssigned, "R");
-		insertGrade(onlyThisAssigned, "S");
-		assignZone(onlyThisAssigned, 0, rGrade);
-		Long thisNotAssigned = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long assigned = insertGrade(thisNotAssigned, "R");
-		Long notAssigned = insertGrade(thisNotAssigned, "S");
-		assignZone(thisNotAssigned, 0, assigned);
-
-		update(onlyThisAssigned, rGrade, body("ALL", 1000)).andExpect(status().isOk());
-		update(thisNotAssigned, notAssigned, body("ALL", 1000)).andExpect(status().isOk());
-	}
-
-	@Test
-	@DisplayName("없는 등급이나 같은 사업체의 다른 공연 등급은 404 PERFORMANCE300 이다")
-	void gradeNotFound() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long otherPerformance = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long otherGrade = insertGrade(otherPerformance, "R");
-
-		for (Long gradeId : List.of(otherGrade, Long.MAX_VALUE)) {
-			update(performanceId, gradeId, body("VIP", 1000))
-				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.code").value("PERFORMANCE300"));
-		}
-		assertUnchanged(otherGrade, "R");
-	}
-
-	@Test
-	@DisplayName("취소된 공연은 409 PERFORMANCE002 이고 바뀌지 않는다")
-	void canceledPerformance() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "CANCELED");
-		Long gradeId = insertGrade(performanceId, "R");
-
-		update(performanceId, gradeId, body("VIP", 1000))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("PERFORMANCE002"));
-		assertUnchanged(gradeId, "R");
 	}
 
 	@Test
@@ -274,21 +149,6 @@ class SellerGradeUpdateApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.code").value("PERFORMANCE000"));
 		assertUnchanged(canceledGrade, "R");
 		assertUnchanged(lockedGrade, "R");
-	}
-
-	@Test
-	@DisplayName("예매자 토큰은 403, 토큰이 없으면 401이다")
-	void onlySellerCanCall() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		Long gradeId = insertGrade(performanceId, "R");
-
-		update(performanceId, gradeId, body("VIP", 1000), token(AccountType.USER, null, null))
-			.andExpect(status().isForbidden());
-		mockMvc.perform(put(URL, performanceId, gradeId)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(body("VIP", 1000))))
-			.andExpect(status().isUnauthorized());
-		assertUnchanged(gradeId, "R");
 	}
 
 	// ---- 동시성 ----

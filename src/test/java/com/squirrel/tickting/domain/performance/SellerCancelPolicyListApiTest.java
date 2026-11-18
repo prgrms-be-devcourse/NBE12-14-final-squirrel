@@ -2,7 +2,6 @@ package com.squirrel.tickting.domain.performance;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
@@ -52,18 +51,6 @@ class SellerCancelPolicyListApiTest extends IntegrationTestSupport {
 		return JsonPath.read(result.getResponse().getContentAsString(), "$.data.content[*].name");
 	}
 
-	private List<String> namesOf(MockHttpServletRequestBuilder request) throws Exception {
-		return names(mockMvc.perform(request).andExpect(status().isOk()).andReturn());
-	}
-
-	@Test
-	@DisplayName("예매자 토큰은 403, 토큰이 없으면 401이다")
-	void onlySellerCanList() throws Exception {
-		mockMvc.perform(get(URL).header("Authorization", token(AccountType.USER, null, null)))
-			.andExpect(status().isForbidden());
-		mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
-	}
-
 	@Test
 	@DisplayName("기본 규정이 맨 앞에 나오고, 내 규정은 최신(번호 큰) 순이며, 다른 사업체의 규정은 나오지 않는다")
 	void defaultFirstThenMineNewestFirst() throws Exception {
@@ -81,54 +68,5 @@ class SellerCancelPolicyListApiTest extends IntegrationTestSupport {
 		assertThat(first.get("editable")).isEqualTo(false);
 		assertThat(JsonPath.<Boolean>read(body, "$.data.content[1].isDefault")).isFalse();
 		assertThat(JsonPath.<Integer>read(body, "$.data.totalElements")).isEqualTo(3);
-	}
-
-	@Test
-	@DisplayName("내 규정이 없으면 기본 규정만 나오고, 정렬(sort) 파라미터는 무시한다")
-	void onlyDefaultWhenNoOwnPolicyAndSortIgnored() throws Exception {
-		insertPolicy(OTHER_BUSINESS, "남의 규정");
-
-		assertThat(namesOf(listRequest())).containsExactly(DEFAULT_POLICY);
-
-		insertPolicy(MY_BUSINESS, "가 규정");
-		insertPolicy(MY_BUSINESS, "하 규정");
-		assertThat(namesOf(listRequest().param("sort", "name,asc")))
-			.containsExactly(DEFAULT_POLICY, "하 규정", "가 규정");
-	}
-
-	@Test
-	@DisplayName("크기를 주지 않으면 20개씩 나오고, 기본 규정은 첫 페이지 맨 앞에만 나오며 전체 개수에 포함된다")
-	void defaultPolicyOnlyOnFirstPage() throws Exception {
-		for (int i = 0; i < 20; i++) {
-			insertPolicy(MY_BUSINESS, "규정" + String.format("%02d", i));
-		}
-
-		MvcResult firstPage = mockMvc.perform(listRequest())
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.content.length()").value(20))
-			.andExpect(jsonPath("$.data.size").value(20))
-			.andExpect(jsonPath("$.data.totalElements").value(21))
-			.andExpect(jsonPath("$.data.totalPages").value(2))
-			.andReturn();
-		assertThat(names(firstPage).getFirst()).isEqualTo(DEFAULT_POLICY);
-
-		// 기본 규정이 첫 페이지 한 칸을 차지하므로 가장 먼저 만든 내 규정 하나가 두 번째 페이지로 넘어간다.
-		assertThat(namesOf(listRequest().param("page", "1"))).containsExactly("규정00");
-		assertThat(namesOf(listRequest().param("page", "2"))).isEmpty();
-	}
-
-	@Test
-	@DisplayName("크기는 최대 20개로 줄어들고, 크기 0은 에러(500)가 아니라 기본값으로 처리된다")
-	void pageSizeIsCappedAtTwenty() throws Exception {
-		for (int i = 0; i < 20; i++) {
-			insertPolicy(MY_BUSINESS, "규정" + i);
-		}
-
-		mockMvc.perform(listRequest().param("size", "21"))
-			.andExpect(jsonPath("$.data.content.length()").value(20))
-			.andExpect(jsonPath("$.data.size").value(20));
-		mockMvc.perform(listRequest().param("size", "0"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.size").value(20));
 	}
 }

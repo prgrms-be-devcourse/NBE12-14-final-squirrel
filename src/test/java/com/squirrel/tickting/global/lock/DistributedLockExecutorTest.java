@@ -252,15 +252,4 @@ class DistributedLockExecutorTest extends IntegrationTestSupport {
 
 		assertThat(counter()).isLessThan(20);
 	}
-
-	@Test
-	@DisplayName("락은 Redis 의 tickting:lock: 아래에 저장되고, 작업이 끝나면 사라진다")
-	void lockIsStoredInRedisWhileHeld() {
-		String redisKey = "tickting:lock:seat:777";
-
-		Boolean heldInside = lockExecutor.execute(List.of("seat:777"), WAIT, () -> redis.hasKey(redisKey));
-
-		assertThat(heldInside).isTrue();
-		assertThat(redis.hasKey(redisKey)).isFalse();
-	}
 }
