@@ -19,6 +19,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -95,6 +96,15 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(ec.getStatus())
 			.body(ApiResponse.error(
 				"'" + e.getParameterName() + "' 값이 필요합니다.", ec.getCode()));
+	}
+
+	/** 업로드 파일이 multipart 크기 제한(spring.servlet.multipart)을 넘은 경우. 안 잡으면 500이라 여기서 400으로 바꾼다. */
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	public ResponseEntity<ApiResponse<Void>> handleUploadTooLarge(MaxUploadSizeExceededException e) {
+		CommonExceptionCode ec = CommonExceptionCode.INVALID_INPUT;
+		log.warn("[{}] 업로드 크기 초과: {}", ec.getCode(), e.getMessage());
+		return ResponseEntity.status(ec.getStatus())
+			.body(ApiResponse.error("업로드할 수 있는 파일 크기를 넘었습니다.", ec.getCode()));
 	}
 
 	/** sort에 엔티티에 없는 필드가 들어온 경우. 안 잡으면 500이라 여기서 400으로 바꾼다. */

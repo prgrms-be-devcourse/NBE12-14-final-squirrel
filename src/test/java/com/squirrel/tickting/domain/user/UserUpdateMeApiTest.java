@@ -129,8 +129,9 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"", "javascript:alert(1)", "ftp://cdn.example.com/a.png", "profile.png", "https://cdn.example.com/a b.png"})
-	@DisplayName("프로필 이미지가 http(s) 주소가 아니면 400 COMMON000 이다 (지우려면 빈 문자열이 아니라 생략한다)")
+	@ValueSource(strings = {"", "javascript:alert(1)", "ftp://cdn.example.com/a.png", "profile.png", "https://cdn.example.com/a b.png",
+		"http://cdn.example.com/a.png", "https://other.example.com/a.png", "https://cdn.example.com.evil.com/a.png"})
+	@DisplayName("프로필 이미지가 우리 저장소의 https 주소가 아니면 400 COMMON000 이다 (지우려면 빈 문자열이 아니라 생략한다)")
 	void invalidProfileImg(String profileImg) throws Exception {
 		String token = signupAndGetBearer();
 
