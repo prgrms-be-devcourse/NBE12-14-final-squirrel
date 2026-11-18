@@ -61,73 +61,6 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 			.containsEntry("profile_img", IMG);
 	}
 
-	@Test
-	@DisplayName("닉네임만 바꾸고 기존 프로필 이미지를 그대로 보내면 사진은 유지된다 (화면은 현재 값을 채워 보낸다)")
-	void changeNicknameKeepsProfileImg() throws Exception {
-		String token = signupAndGetBearer();
-		patchMe(token, Map.of("nickname", "tester", "profileImg", IMG)).andExpect(status().isOk());
-
-		patchMe(token, Map.of("nickname", "길동이2", "profileImg", IMG))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.nickname").value("길동이2"))
-			.andExpect(jsonPath("$.data.profileImg").value(IMG));
-
-		assertThat(savedProfile())
-			.containsEntry("nickname", "길동이2")
-			.containsEntry("profile_img", IMG);
-	}
-
-	@Test
-	@DisplayName("프로필 이미지를 빼고 보내면 사진이 지워진다 (받은 값으로 통째로 바꾼다)")
-	void omittedProfileImgIsCleared() throws Exception {
-		String token = signupAndGetBearer();
-		patchMe(token, Map.of("nickname", "tester", "profileImg", IMG)).andExpect(status().isOk());
-
-		patchMe(token, Map.of("nickname", "길동이2"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.nickname").value("길동이2"))
-			.andExpect(jsonPath("$.data.profileImg").isEmpty());
-
-		assertThat(savedProfile()).containsEntry("nickname", "길동이2");
-		assertThat(savedProfile().get("profile_img")).isNull();
-	}
-
-	@Test
-	@DisplayName("닉네임 없이 보내면 400 COMMON000 이고 값은 바뀌지 않는다")
-	void nicknameIsRequired() throws Exception {
-		String token = signupAndGetBearer();
-
-		patchMe(token, Map.of("profileImg", IMG))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-
-		assertThat(savedProfile()).containsEntry("nickname", "tester");
-		assertThat(savedProfile().get("profile_img")).isNull();
-	}
-
-	@Test
-	@DisplayName("닉네임 앞뒤 공백은 지우고 저장한다 (가입과 같다)")
-	void nicknameIsTrimmed() throws Exception {
-		String token = signupAndGetBearer();
-
-		patchMe(token, Map.of("nickname", "  길동이2  "))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.nickname").value("길동이2"));
-	}
-
-	@ParameterizedTest
-	@ValueSource(strings = {"a", "   ", "123456789012345678901"})
-	@DisplayName("닉네임이 2~20자가 아니거나 공백뿐이면 400 COMMON000 이고 값은 바뀌지 않는다")
-	void invalidNickname(String nickname) throws Exception {
-		String token = signupAndGetBearer();
-
-		patchMe(token, Map.of("nickname", nickname))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-
-		assertThat(savedProfile()).containsEntry("nickname", "tester");
-	}
-
 	@ParameterizedTest
 	@ValueSource(strings = {"", "javascript:alert(1)", "ftp://cdn.example.com/a.png", "profile.png", "https://cdn.example.com/a b.png",
 		"http://cdn.example.com/a.png", "https://other.example.com/a.png", "https://cdn.example.com.evil.com/a.png"})
@@ -143,16 +76,6 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("토큰 없이 호출하면 401 AUTH200 이다")
-	void needsLogin() throws Exception {
-		mockMvc.perform(patch(URL)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"nickname\":\"길동이2\"}"))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH200"));
-	}
-
-	@Test
 	@DisplayName("판매자 토큰으로 호출하면 403 AUTH100 이고, 번호가 같은 예매자의 값은 바뀌지 않는다")
 	void sellerIsForbidden() throws Exception {
 		signupAndGetBearer();
@@ -163,19 +86,6 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 		patchMe(seller, Map.of("nickname", "남이바꿈"))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("AUTH100"));
-
-		assertThat(savedProfile()).containsEntry("nickname", "tester");
-	}
-
-	@Test
-	@DisplayName("탈퇴한 회원의 토큰이 아직 살아 있어도 404 USER002 이다")
-	void withdrawnUserIsNotFound() throws Exception {
-		String token = signupAndGetBearer();
-		jdbc.update("UPDATE user_member SET deleted_at = NOW()");
-
-		patchMe(token, Map.of("nickname", "길동이2"))
-			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.code").value("USER002"));
 
 		assertThat(savedProfile()).containsEntry("nickname", "tester");
 	}

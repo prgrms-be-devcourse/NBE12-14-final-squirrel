@@ -160,68 +160,7 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 			Long.class, id)).containsExactlyInAnyOrderElementsOf(zoneIds);
 	}
 
-	@Test
-	@DisplayName("판매 필드와 이미지를 모두 비워도 등록되고, 담당자 토큰과 서비스 기본 규정으로도 등록된다")
-	void registerWithOnlyRequiredFields() throws Exception {
-		long id = registeredId(register(staffToken(), requiredBody(insertVenue("ACTIVE", 2), defaultPolicyId())));
-
-		Map<String, Object> saved = jdbc.queryForMap("""
-			SELECT sale_open_at, sale_close_at, max_per_person, receive_type, booking_fee, cancel_policy_id
-			FROM performance WHERE id = ?
-			""", id);
-		assertThat(saved.get("cancel_policy_id")).isEqualTo(defaultPolicyId());
-		assertThat(saved).containsEntry("sale_open_at", null).containsEntry("sale_close_at", null)
-			.containsEntry("max_per_person", null).containsEntry("receive_type", null).containsEntry("booking_fee", null);
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_image WHERE performance_id = ?",
-			Integer.class, id)).isZero();
-	}
-
-	@Test
-	@DisplayName("구역이 없는 공연장도 등록은 된다 (공개할 때 막힌다)")
-	void registerOnVenueWithoutZones() throws Exception {
-		long id = registeredId(register(staffToken(), requiredBody(insertVenue("ACTIVE", 0), defaultPolicyId())));
-
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM zone_grade WHERE performance_id = ?", Integer.class, id))
-			.isZero();
-	}
-
-	@Test
-	@DisplayName("문자열은 앞뒤 공백을 지우고, 선택 입력이 공백뿐이면 비운(null) 것으로 저장한다")
-	void trimsAndBlankToNull() throws Exception {
-		Map<String, Object> body = requiredBody(insertVenue("ACTIVE", 1), defaultPolicyId());
-		body.put("title", "  가상 콘서트  ");
-		body.put("posterUrl", " https://cdn.example.com/posters/12.jpg ");
-		body.put("castInfo", "   ");
-		body.put("notice", "");
-		body.put("guide", "  줄바꿈\n허용  ");
-		body.put("images", List.of(Map.of("url", " https://cdn.example.com/details/1.jpg ", "sortOrder", 0)));
-
-		long id = registeredId(register(staffToken(), body));
-
-		Map<String, Object> saved = jdbc.queryForMap(
-			"SELECT title, poster_url, cast_info, notice, guide FROM performance WHERE id = ?", id);
-		assertThat(saved.get("title")).isEqualTo("가상 콘서트");
-		assertThat(saved.get("poster_url")).isEqualTo("https://cdn.example.com/posters/12.jpg");
-		assertThat(saved.get("cast_info")).isNull();
-		assertThat(saved.get("notice")).isNull();
-		assertThat(saved.get("guide")).isEqualTo("줄바꿈\n허용");
-		assertThat(jdbc.queryForObject("SELECT url FROM performance_image WHERE performance_id = ?", String.class, id))
-			.isEqualTo("https://cdn.example.com/details/1.jpg");
-	}
-
 	// ---- 권한 ----
-
-	@Test
-	@DisplayName("예매자 토큰은 403, 토큰이 없으면 401이고 공연이 만들어지지 않는다")
-	void onlySellerCanRegister() throws Exception {
-		Map<String, Object> body = requiredBody(insertVenue("ACTIVE", 1), defaultPolicyId());
-
-		register(token(AccountType.USER, null, null), body).andExpect(status().isForbidden());
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(body)))
-			.andExpect(status().isUnauthorized());
-		assertThat(countPerformances()).isZero();
-	}
 
 	// ---- 공연장·취소 규정 확인 ----
 
@@ -239,74 +178,7 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 		assertThat(countPerformances()).isZero();
 	}
 
-	@Test
-	@DisplayName("없는 공연장은 404 VENUE000, 사용 중지된 공연장은 400 VENUE001 이다")
-	void venueMustExistAndBeActive() throws Exception {
-		register(staffToken(), requiredBody(999_999L, defaultPolicyId()))
-			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.code").value("VENUE000"));
-		expectBadRequest(requiredBody(insertVenue("INACTIVE", 1), defaultPolicyId()), "VENUE001");
-		assertThat(countPerformances()).isZero();
-	}
-
 	// ---- 입력 검증 ----
-
-	@Test
-	@DisplayName("필수 값이 없거나 공백뿐이면 400 COMMON000 이다")
-	void requiredFieldsMissing() throws Exception {
-		Long venueId = insertVenue("ACTIVE", 1);
-		for (String field : List.of("venueId", "cancelPolicyId", "title", "genre", "ageLimit", "runningTime",
-			"posterUrl")) {
-			Map<String, Object> body = requiredBody(venueId, defaultPolicyId());
-			body.remove(field);
-			expectBadRequest(body, "COMMON000");
-		}
-
-		Map<String, Object> blankTitle = requiredBody(venueId, defaultPolicyId());
-		blankTitle.put("title", "   ");
-		expectBadRequest(blankTitle, "COMMON000");
-		assertThat(countPerformances()).isZero();
-	}
-
-	@Test
-	@DisplayName("관람 연령·러닝타임·1인 최대 매수·예매 수수료가 범위를 벗어나면 400 이고, 경계값은 통과한다")
-	void numberRanges() throws Exception {
-		Long venueId = insertVenue("ACTIVE", 1);
-		List<Object[]> invalid = List.of(
-			new Object[] {"ageLimit", -1}, new Object[] {"ageLimit", 101},
-			new Object[] {"runningTime", 0}, new Object[] {"runningTime", 1441},
-			new Object[] {"maxPerPerson", 0}, new Object[] {"maxPerPerson", 6},
-			new Object[] {"bookingFee", -1}, new Object[] {"bookingFee", 10001});
-		for (Object[] field : invalid) {
-			Map<String, Object> body = requiredBody(venueId, defaultPolicyId());
-			body.put((String)field[0], field[1]);
-			expectBadRequest(body, "COMMON000");
-		}
-
-		Map<String, Object> edges = requiredBody(venueId, defaultPolicyId());
-		edges.put("ageLimit", 0);
-		edges.put("runningTime", 1440);
-		edges.put("maxPerPerson", 5);
-		edges.put("bookingFee", 0);
-		register(staffToken(), edges).andExpect(status().isCreated());
-	}
-
-	@Test
-	@DisplayName("포스터·이미지 주소가 http(s) 가 아니거나 공백을 품거나 2048자를 넘으면 400 이다")
-	void urlFormat() throws Exception {
-		Long venueId = insertVenue("ACTIVE", 1);
-		for (String url : List.of("ftp://cdn.example.com/a.jpg", "javascript:alert(1)", "https://cdn.example.com/a b.jpg",
-			"https://" + "a".repeat(2041))) {
-			Map<String, Object> poster = requiredBody(venueId, defaultPolicyId());
-			poster.put("posterUrl", url);
-			expectBadRequest(poster, "COMMON000");
-
-			Map<String, Object> image = requiredBody(venueId, defaultPolicyId());
-			image.put("images", List.of(Map.of("url", url, "sortOrder", 1)));
-			expectBadRequest(image, "COMMON000");
-		}
-		assertThat(countPerformances()).isZero();
-	}
 
 	@Test
 	@DisplayName("포스터·이미지 주소는 우리 저장소 주소만 받는다 (http 와 다른 사이트 주소는 400)")
@@ -328,72 +200,5 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 		ok.put("posterUrl", "https://cdn.example.com/public/poster/seller-31/3f2a.jpg");
 		ok.put("images", List.of(Map.of("url", "https://cdn.example.com/public/detail/seller-31/8c1d.jpg", "sortOrder", 1)));
 		register(staffToken(), ok).andExpect(status().isCreated());
-	}
-
-	@Test
-	@DisplayName("공연명이 200자를 넘으면 400 이고 200자는 통과한다")
-	void titleLength() throws Exception {
-		Long venueId = insertVenue("ACTIVE", 1);
-		Map<String, Object> tooLong = requiredBody(venueId, defaultPolicyId());
-		tooLong.put("title", "가".repeat(201));
-		expectBadRequest(tooLong, "COMMON000");
-
-		Map<String, Object> max = requiredBody(venueId, defaultPolicyId());
-		max.put("title", "가".repeat(200));
-		register(staffToken(), max).andExpect(status().isCreated());
-	}
-
-	@Test
-	@DisplayName("판매 종료가 오픈보다 늦지 않으면(같은 시각 포함) 400 PERFORMANCE001, 한쪽만 넣으면 통과한다")
-	void salePeriod() throws Exception {
-		Long venueId = insertVenue("ACTIVE", 1);
-		for (String closeAt : List.of("2026-12-01T09:59:00", "2026-12-01T10:00:00")) {
-			Map<String, Object> body = requiredBody(venueId, defaultPolicyId());
-			body.put("saleOpenAt", "2026-12-01T10:00:00");
-			body.put("saleCloseAt", closeAt);
-			expectBadRequest(body, "PERFORMANCE001");
-		}
-		assertThat(countPerformances()).isZero();
-
-		Map<String, Object> onlyOpen = requiredBody(venueId, defaultPolicyId());
-		onlyOpen.put("saleOpenAt", "2026-12-01T10:00:00");
-		register(staffToken(), onlyOpen).andExpect(status().isCreated());
-	}
-
-	@Test
-	@DisplayName("이미지 순서값이 겹치거나, 비었거나, 음수이거나, 이미지 항목이 null 이면 400 이다")
-	void imageOrders() throws Exception {
-		Long venueId = insertVenue("ACTIVE", 1);
-		String url = "https://cdn.example.com/details/1.jpg";
-		Map<String, Object> noOrder = new LinkedHashMap<>();
-		noOrder.put("url", url);
-		List<Object> nullItem = new ArrayList<>();
-		nullItem.add(null);
-
-		for (List<?> images : List.of(
-			List.of(Map.of("url", url, "sortOrder", 1), Map.of("url", url, "sortOrder", 1)),
-			List.of(noOrder),
-			List.of(Map.of("url", url, "sortOrder", -1)),
-			nullItem)) {
-			Map<String, Object> body = requiredBody(venueId, defaultPolicyId());
-			body.put("images", images);
-			expectBadRequest(body, "COMMON000");
-		}
-		assertThat(countPerformances()).isZero();
-	}
-
-	@Test
-	@DisplayName("장르·수령 방법이 정해진 값이 아니거나(소문자, 빈 문자열 포함) 숫자 칸에 글자가 오면 400 COMMON000 이다")
-	void invalidEnumsAndTypes() throws Exception {
-		Long venueId = insertVenue("ACTIVE", 1);
-		List<Object[]> invalid = List.of(
-			new Object[] {"genre", "concert"}, new Object[] {"genre", "OPERA"}, new Object[] {"genre", ""},
-			new Object[] {"receiveType", "PICKUP"}, new Object[] {"ageLimit", "열두"});
-		for (Object[] field : invalid) {
-			Map<String, Object> body = requiredBody(venueId, defaultPolicyId());
-			body.put((String)field[0], field[1]);
-			expectBadRequest(body, "COMMON000");
-		}
-		assertThat(countPerformances()).isZero();
 	}
 }

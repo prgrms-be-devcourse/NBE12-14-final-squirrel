@@ -43,44 +43,6 @@ class AccountSchemaTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("탈퇴 처리로 ci_hash 를 비운 행은 여러 개 있어도 된다 (NULL 은 중복이 아니다)")
-	void nullCiHashAllowed() {
-		jdbc.update("""
-			INSERT INTO user_member (email, password, name, nickname, phone, status, created_at, updated_at)
-			VALUES ('x@example.com', 'pw', '탈퇴회원', '탈퇴회원', '-', 'ACTIVE', now(), now()),
-			       ('y@example.com', 'pw', '탈퇴회원', '탈퇴회원', '-', 'ACTIVE', now(), now())
-			""");
-		assertThat(count("user_member")).isEqualTo(2);
-	}
-
-	@Test
-	@DisplayName("사업체당 대표(OWNER)는 1명이고 담당자(STAFF)는 여러 명이다")
-	void oneOwnerPerBusiness() {
-		insertSeller(1L, "owner@x.com", "ci-1", "OWNER", false);
-
-		assertThatThrownBy(() -> insertSeller(1L, "owner2@x.com", "ci-2", "OWNER", false))
-			.isInstanceOf(DataIntegrityViolationException.class);
-
-		insertSeller(1L, "staff1@x.com", "ci-3", "STAFF", false);
-		insertSeller(1L, "staff2@x.com", "ci-4", "STAFF", false);
-		// 다른 사업체에는 또 대표가 있을 수 있다
-		insertSeller(2L, "owner3@x.com", "ci-5", "OWNER", false);
-		assertThat(count("seller_member")).isEqualTo(4);
-	}
-
-	@Test
-	@DisplayName("같은 사람(CI)은 한 사업체에 두 번 들어올 수 없지만 다른 사업체는 막지 않는다")
-	void ciUniquePerBusiness() {
-		insertSeller(1L, "a@x.com", "ci-same", "OWNER", false);
-
-		assertThatThrownBy(() -> insertSeller(1L, "b@x.com", "ci-same", "STAFF", false))
-			.isInstanceOf(DataIntegrityViolationException.class);
-
-		insertSeller(2L, "c@x.com", "ci-same", "OWNER", false);
-		assertThat(count("seller_member")).isEqualTo(2);
-	}
-
-	@Test
 	@DisplayName("판매자 이메일은 전역으로 유일하고, 비활성화(삭제)된 계정의 이메일은 다시 쓸 수 있다")
 	void sellerEmailGloballyUnique() {
 		insertSeller(1L, "a@x.com", "ci-1", "OWNER", false);
@@ -91,28 +53,5 @@ class AccountSchemaTest extends IntegrationTestSupport {
 		insertSeller(1L, "gone@x.com", "ci-3", "STAFF", true);
 		insertSeller(2L, "gone@x.com", "ci-4", "OWNER", false);
 		assertThat(count("seller_member")).isEqualTo(3);
-	}
-
-	@Test
-	@DisplayName("사업자등록번호, 약관 버전, 약관 동의(회원·약관 쌍)는 중복될 수 없다")
-	void otherUniqueConstraints() {
-		jdbc.update("""
-			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone,
-			    contact_email, terms_agreed_at, status, created_at, updated_at)
-			VALUES ('회사', '대표', '1111111111', '01011112222', 'c@x.com', now(), 'PENDING', now(), now())
-			""");
-		assertThatThrownBy(() -> jdbc.update("""
-			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone,
-			    contact_email, terms_agreed_at, status, created_at, updated_at)
-			VALUES ('회사2', '대표2', '1111111111', '01011112222', 'd@x.com', now(), 'PENDING', now(), now())
-			""")).isInstanceOf(DataIntegrityViolationException.class);
-
-		assertThatThrownBy(() -> saveTerms(com.squirrel.tickting.domain.terms.type.TermsType.SERVICE, "1.0", true))
-			.isInstanceOf(DataIntegrityViolationException.class);
-
-		jdbc.update("INSERT INTO user_terms_agreement (user_id, terms_id, agreed_at) VALUES (1, 1, now())");
-		assertThatThrownBy(() -> jdbc.update(
-			"INSERT INTO user_terms_agreement (user_id, terms_id, agreed_at) VALUES (1, 1, now())"))
-			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 }

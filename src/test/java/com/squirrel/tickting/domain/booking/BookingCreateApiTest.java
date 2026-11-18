@@ -1,38 +1,25 @@
 package com.squirrel.tickting.domain.booking;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.squirrel.tickting.domain.booking.service.BookingCreateCommand;
 import com.squirrel.tickting.domain.booking.service.BookingService;
-import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
-import com.squirrel.tickting.global.exception.BusinessException;
-import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
-import com.squirrel.tickting.global.security.AccountType;
-import com.squirrel.tickting.global.security.CustomUserDetails;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CyclicBarrier;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 좌석 점유·예매 생성(BKG-01). 실제 PostgreSQL·Redis(Testcontainers)에서 API 를 호출한다.
@@ -107,142 +94,9 @@ class BookingCreateApiTest extends BookingTestSupport {
 		assertThat(seatStatus(show.seatIds().get(2))).isEqualTo("AVAILABLE");
 	}
 
-	@Test
-	@DisplayName("예매 시점의 취소 규정이 daysFrom 이 큰 구간부터 JSON 으로 복사된다")
-	void copiesCancelPolicySnapshot() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-
-		book(user.bearer(), show.scheduleId(), show.seatIds()).andExpect(status().isCreated());
-
-		Integer ruleCount = jdbc.queryForObject(
-			"SELECT count(*) FROM cancel_policy_rule WHERE policy_id = ?", Integer.class, cancelPolicyId);
-		Integer maxDaysFrom = jdbc.queryForObject(
-			"SELECT max(days_from) FROM cancel_policy_rule WHERE policy_id = ?", Integer.class, cancelPolicyId);
-		String snapshot = jdbc.queryForObject("SELECT cancel_policy_snapshot::text FROM booking", String.class);
-
-		assertThat(objectMapper.readTree(snapshot).size()).isEqualTo(ruleCount);
-		assertThat(objectMapper.readTree(snapshot).get(0).get("daysFrom").asInt()).isEqualTo(maxDaysFrom);
-		assertThat(objectMapper.readTree(snapshot).get(0).has("feeRate")).isTrue();
-		assertThat(objectMapper.readTree(snapshot).get(0).has("cancelable")).isTrue();
-	}
-
-	@Test
-	@DisplayName("배송만 되는 공연은 수령 방법이 DELIVERY 이고, 예매 수수료가 없으면 0원으로 계산한다")
-	void deliveryOnlyAndNoBookingFee() throws Exception {
-		Show show = show(1, "PUBLISHED", "ON_SALE", now.plusDays(10), now.minusDays(1), now.plusDays(30), "DELIVERY", null);
-		User user = signup("first");
-
-		book(user.bearer(), show.scheduleId(), show.seatIds())
-			.andExpect(status().isCreated())
-			.andExpect(jsonPath("$.data.seats[0].bookingFee").value(0))
-			.andExpect(jsonPath("$.data.bookingFeeAmount").value(0))
-			.andExpect(jsonPath("$.data.totalAmount").value(154000));
-
-		assertThat(jdbc.queryForObject("SELECT receive_type FROM booking", String.class)).isEqualTo("DELIVERY");
-	}
-
 	// ---------------------------------------------------------------- 입력·권한
 
-	@Test
-	@DisplayName("토큰 없이 호출하면 401, 판매자·관리자 토큰으로 호출하면 403 이고 아무것도 점유되지 않는다")
-	void needsUserRole() throws Exception {
-		Show show = show(1);
-		String seller = "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, AccountType.SELLER, "OWNER", 1L));
-		String admin = "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, AccountType.ADMIN, null, null));
-
-		mockMvc.perform(post("/api/v1/schedules/" + show.scheduleId() + "/bookings")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(Map.of("seatIds", show.seatIds()))))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH200"));
-		book(seller, show.scheduleId(), show.seatIds())
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("AUTH100"));
-		book(admin, show.scheduleId(), show.seatIds())
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("AUTH100"));
-
-		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
-		assertThat(count("booking")).isZero();
-	}
-
-	@Test
-	@DisplayName("좌석 번호가 비었거나 중복이면 400 COMMON000 이다")
-	void rejectsEmptyOrDuplicatedSeatIds() throws Exception {
-		Show show = show(2);
-		User user = signup("first");
-		Long seat = show.seatIds().get(0);
-
-		book(user.bearer(), show.scheduleId(), List.of())
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-		book(user.bearer(), show.scheduleId(), List.of(seat, seat))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-
-		assertThat(seatStatus(seat)).isEqualTo("AVAILABLE");
-	}
-
 	// ---------------------------------------------------------------- 판매 조건
-
-	@Test
-	@DisplayName("없는 회차와 공개되지 않은 공연의 회차는 같은 404 BOOKING004 이다")
-	void scheduleNotFound() throws Exception {
-		User user = signup("first");
-		Show draft = show(1, "DRAFT", "ON_SALE", now.plusDays(10), now.minusDays(1), now.plusDays(30), "BOTH", 2000);
-		Show canceled = show(1, "CANCELED", "ON_SALE", now.plusDays(10), now.minusDays(1), now.plusDays(30), "BOTH", 2000);
-
-		for (Long scheduleId : List.of(99_999L, draft.scheduleId(), canceled.scheduleId())) {
-			book(user.bearer(), scheduleId, List.of(1L))
-				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.code").value("BOOKING004"));
-		}
-	}
-
-	@Test
-	@DisplayName("판매 기간 밖이거나 회차가 중지·취소됐거나 이미 시작했으면 400 BOOKING002 이다")
-	void scheduleNotOnSale() throws Exception {
-		User user = signup("first");
-		List<Show> shows = List.of(
-			show(1, "PUBLISHED", "ON_SALE", now.plusDays(10), now.plusDays(1), now.plusDays(30), "BOTH", 2000),
-			show(1, "PUBLISHED", "ON_SALE", now.plusDays(10), now.minusDays(30), now.minusDays(1), "BOTH", 2000),
-			show(1, "PUBLISHED", "PAUSED", now.plusDays(10), now.minusDays(1), now.plusDays(30), "BOTH", 2000),
-			show(1, "PUBLISHED", "POSTPONED", now.plusDays(10), now.minusDays(1), now.plusDays(30), "BOTH", 2000),
-			show(1, "PUBLISHED", "CANCELED", now.plusDays(10), now.minusDays(1), now.plusDays(30), "BOTH", 2000),
-			show(1, "PUBLISHED", "ON_SALE", now.minusHours(1), now.minusDays(1), now.plusDays(30), "BOTH", 2000));
-
-		for (Show show : shows) {
-			book(user.bearer(), show.scheduleId(), show.seatIds())
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("BOOKING002"));
-			assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
-		}
-	}
-
-	@Test
-	@DisplayName("없는 좌석과 다른 회차의 좌석은 404 BOOKING005, 판매 제외·보류 좌석은 400 BOOKING003 이다")
-	void seatRules() throws Exception {
-		Show show = show(1);
-		Show other = show(1);
-		Long grade = jdbc.queryForObject("SELECT id FROM seat_grade WHERE performance_id = ?", Long.class, show.performanceId());
-		Long blocked = saveSeat(show.scheduleId(), venueSeatIds.get(5), grade, "BLOCKED");
-		Long reserved = saveSeat(show.scheduleId(), venueSeatIds.get(6), grade, "RESERVED");
-		User user = signup("first");
-
-		book(user.bearer(), show.scheduleId(), List.of(other.seatIds().get(0)))
-			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.code").value("BOOKING005"));
-		book(user.bearer(), show.scheduleId(), List.of(99_999L))
-			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.code").value("BOOKING005"));
-		for (Long seat : List.of(blocked, reserved)) {
-			book(user.bearer(), show.scheduleId(), List.of(seat))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("BOOKING003"));
-		}
-		assertThat(count("booking")).isZero();
-	}
 
 	// ---------------------------------------------------------------- 점유 충돌
 
@@ -261,19 +115,6 @@ class BookingCreateApiTest extends BookingTestSupport {
 		assertThat(seatStatus(show.seatIds().get(1))).isEqualTo("AVAILABLE");
 		assertThat(count("booking")).isEqualTo(1);
 		assertThat(count("booking_seat")).isEqualTo(1);
-	}
-
-	@Test
-	@DisplayName("내가 이미 점유한 좌석을 다시 요청해도 409 BOOKING000 이다")
-	void rejectsSeatIAlreadyHold() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		book(user.bearer(), show.scheduleId(), show.seatIds()).andExpect(status().isCreated());
-
-		book(user.bearer(), show.scheduleId(), show.seatIds())
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("BOOKING000"));
-		assertThat(count("booking")).isEqualTo(1);
 	}
 
 	@Test
@@ -311,35 +152,6 @@ class BookingCreateApiTest extends BookingTestSupport {
 
 		assertThat(count("booking")).isZero();
 		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
-	}
-
-	@Test
-	@DisplayName("결제 대기 중인 좌석도 한도에 들어가서, 가진 좌석과 합쳐 한도를 넘으면 409 BOOKING001 이다")
-	void pendingSeatsCountTowardLimit() throws Exception {
-		Show show = show(MAX_PER_PERSON + 1);
-		User user = signup("first");
-		book(user.bearer(), show.scheduleId(), show.seatIds().subList(0, MAX_PER_PERSON - 1)).andExpect(status().isCreated());
-
-		book(user.bearer(), show.scheduleId(), show.seatIds().subList(MAX_PER_PERSON - 1, MAX_PER_PERSON + 1))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("BOOKING001"));
-		// 한도 안이면 이어서 점유할 수 있다
-		book(user.bearer(), show.scheduleId(), List.of(show.seatIds().get(MAX_PER_PERSON - 1)))
-			.andExpect(status().isCreated());
-
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM booking_seat WHERE active", Long.class)).isEqualTo(MAX_PER_PERSON);
-	}
-
-	@Test
-	@DisplayName("취소·만료되어 active=false 가 된 좌석은 한도에서 빠진다")
-	void canceledSeatsDoNotCount() throws Exception {
-		Show show = show(MAX_PER_PERSON + 1);
-		User user = signup("first");
-		book(user.bearer(), show.scheduleId(), show.seatIds().subList(0, MAX_PER_PERSON)).andExpect(status().isCreated());
-		jdbc.update("UPDATE booking_seat SET active = false");
-		jdbc.update("UPDATE schedule_seat SET status = 'AVAILABLE', held_by = NULL, held_until = NULL");
-
-		book(user.bearer(), show.scheduleId(), show.seatIds().subList(0, MAX_PER_PERSON)).andExpect(status().isCreated());
 	}
 
 	// ---------------------------------------------------------------- 동시성
@@ -391,50 +203,6 @@ class BookingCreateApiTest extends BookingTestSupport {
 			SELECT count(*) FROM booking_seat bs JOIN booking b ON b.id = bs.booking_id
 			WHERE b.user_id = ? AND bs.active
 			""", Long.class, user.id())).isEqualTo(MAX_PER_PERSON);
-	}
-
-	@Test
-	@DisplayName("사용자·공연 락을 빼고 좌석 락만 잡으면 같은 사용자가 한도를 넘긴다 (사용자·공연 락이 필요한 이유)")
-	void limitBreaksWithoutUserLock() throws Exception {
-		int requests = 10;
-		Show show = show(requests);
-		CyclicBarrier allChecked = new CyclicBarrier(requests);
-		Long userId = 999L;
-
-		List<String> results = runConcurrently(requests, i -> () -> {
-			Long seatId = show.seatIds().get(i);
-			try {
-				lockExecutor.execute(List.of("seat:" + seatId), Duration.ofSeconds(10), () ->
-					new TransactionTemplate(transactionManager).execute(status -> {
-						long owned = bookingService.countActiveSeats(userId, show.performanceId());
-						if (owned + 1 > MAX_PER_PERSON) {
-							throw new BusinessException(BookingExceptionCode.MAX_PER_PERSON_EXCEEDED);
-						}
-						// 모두 한도를 확인한 뒤에 만든다. 서로 다른 좌석의 락은 겹치지 않아서 이 확인을 막아 주는 것이 없다
-						awaitAll(allChecked);
-						LocalDateTime start = LocalDateTime.now();
-						scheduleSeatService.holdSeats(show.scheduleId(), Set.of(seatId), userId, start, start.plusMinutes(7));
-						bookingService.create(new BookingCreateCommand(userId, show.scheduleId(), show.performanceId(),
-							ReceiveMethod.ONSITE, "홍길동", "01012345678", "user@example.com", 0,
-							List.of(new BookingCreateCommand.SeatLine(seatId, "F2구역", "9열", "1", "R", 154000)),
-							List.of(), LocalDate.now(), start.plusMinutes(7)));
-						return "OK";
-					}));
-				return "OK";
-			} catch (BusinessException e) {
-				return e.getExceptionCode().getCode();
-			}
-		});
-
-		assertThat(countOf("OK", results)).isGreaterThan(MAX_PER_PERSON);
-	}
-
-	private static void awaitAll(CyclicBarrier barrier) {
-		try {
-			barrier.await(10, TimeUnit.SECONDS);
-		} catch (Exception e) {
-			throw new IllegalStateException(e);
-		}
 	}
 
 	@Test

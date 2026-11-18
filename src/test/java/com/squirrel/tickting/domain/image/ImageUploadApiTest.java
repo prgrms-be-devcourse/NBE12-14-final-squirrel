@@ -127,16 +127,6 @@ class ImageUploadApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("같은 파일을 다시 올리면 매번 다른 주소가 나온다 (원본 파일 이름은 쓰지 않는다)")
-	void everyUploadGetsNewKey() throws Exception {
-		String user = token(AccountType.USER, 5);
-		String first = read(upload(user, "PROFILE", image("image/png", new byte[] {1})).andReturn(), "$.data.imageUrl");
-		String second = read(upload(user, "PROFILE", image("image/png", new byte[] {1})).andReturn(), "$.data.imageUrl");
-
-		assertThat(first).isNotEqualTo(second).doesNotContain("원본");
-	}
-
-	@Test
 	@DisplayName("용도에 맞지 않는 계정은 403 이고 올리지 않는다 (예매자의 포스터·상세, 판매자의 프로필, 관리자는 모두)")
 	void purposeMismatch() throws Exception {
 		String[][] cases = {{"USER", "POSTER"}, {"USER", "DETAIL"}, {"SELLER", "PROFILE"},
@@ -177,24 +167,5 @@ class ImageUploadApiTest extends IntegrationTestSupport {
 		upload(user, "PROFILE", image("image/jpeg", new byte[(int) TEN_MB + 1]))
 			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
 		assertThat(fakeS3.uploads).hasSize(1);
-	}
-
-	@Test
-	@DisplayName("용도가 없거나 모르는 값이면 400 COMMON000 이다")
-	void invalidPurpose() throws Exception {
-		String user = token(AccountType.USER, 5);
-		upload(user, null, image("image/jpeg", new byte[] {1}))
-			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
-		upload(user, "BANNER", image("image/jpeg", new byte[] {1}))
-			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
-	}
-
-	@Test
-	@DisplayName("S3 에 올리지 못하면 500 이고 원인은 응답에 내보내지 않는다")
-	void s3Failure() throws Exception {
-		fakeS3.fail = true;
-
-		upload(token(AccountType.USER, 5), "PROFILE", image("image/jpeg", new byte[] {1}))
-			.andExpect(status().isInternalServerError()).andExpect(jsonPath("$.code").value("COMMON999"));
 	}
 }

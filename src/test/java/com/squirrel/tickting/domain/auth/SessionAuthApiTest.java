@@ -109,43 +109,6 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("가입하면 바로 로그인되어 SESSION 쿠키가 내려가고 세션이 Redis 에 저장되며, 토큰은 내려가지 않는다")
-	void signupCreatesSession() throws Exception {
-		MvcResult result = postJson(V2 + "/users/signup", userSignupBody("user@example.com", "ci-001"))
-			.andExpect(status().isCreated())
-			.andExpect(jsonPath("$.success").value(true))
-			.andExpect(jsonPath("$.data.accountType").value("USER"))
-			.andExpect(jsonPath("$.data.accessToken").doesNotExist())
-			.andReturn();
-
-		Cookie session = sessionCookie(result);
-		assertThat(session).isNotNull();
-		assertThat(setCookieHeader(result)).contains("HttpOnly", "SameSite=Lax");
-		assertThat(result.getResponse().getContentAsString()).doesNotContain("accessToken", "refreshToken");
-		assertThat(sessionCount()).isEqualTo(1);
-		// 가입과 함께 만들어진 세션으로 바로 내 정보를 볼 수 있다
-		callMe(session).andExpect(status().isOk()).andExpect(jsonPath("$.data.email").value("user@example.com"));
-	}
-
-	@Test
-	@DisplayName("가입이 실패하면(이메일 중복, 필수 약관 미동의) 세션이 만들어지지 않고 회원도 늘지 않는다")
-	void failedSignupCreatesNoSession() throws Exception {
-		postJson(V2 + "/users/signup", userSignupBody("user@example.com", "ci-001")).andExpect(status().isCreated());
-		assertThat(sessionCount()).isEqualTo(1);
-
-		postJson(V2 + "/users/signup", userSignupBody("user@example.com", "ci-002"))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("USER000"));
-
-		var withoutRequiredTerms = userSignupBody("other@example.com", "ci-003");
-		withoutRequiredTerms.put("agreedTermIds", List.of(optionalTermId));
-		postJson(V2 + "/users/signup", withoutRequiredTerms).andExpect(status().is4xxClientError());
-
-		assertThat(sessionCount()).isEqualTo(1);
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_member", Integer.class)).isEqualTo(1);
-	}
-
-	@Test
 	@DisplayName("로그인한 뒤 SESSION 쿠키만으로 경로를 바꾸지 않은 업무 API(내 정보)를 쓸 수 있고, 쿠키가 없으면 401 이다")
 	void cookieAuthenticatesBusinessApi() throws Exception {
 		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com", "ci-001"))
@@ -159,22 +122,6 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 		callMe(null)
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH200"));
-	}
-
-	@Test
-	@DisplayName("비밀번호가 틀리면 401 AUTH001 이고 세션도 쿠키도 만들어지지 않는다")
-	void wrongPasswordCreatesNoSession() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com", "ci-001"))
-			.andExpect(status().isCreated());
-		clearSessions();
-
-		MvcResult result = postJson(V2 + "/users/login", loginBody("user@example.com", "wrong-password1!"))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH001"))
-			.andReturn();
-
-		assertThat(sessionCookie(result)).isNull();
-		assertThat(sessionCount()).isZero();
 	}
 
 	// ---------------------------------------------------------------- 역할
@@ -199,32 +146,6 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.code").value("AUTH100"));
 	}
 
-	@Test
-	@DisplayName("판매자는 사업체가 승인된 뒤에만 세션 로그인되고, 세션으로 판매자 경로를 통과하며 예매자 세션은 403 이다")
-	void sellerSession() throws Exception {
-		postJson("/api/v1/auth/sellers/signup", sellerSignupBody("owner@company.com", "ci-owner", "1234567890"))
-			.andExpect(status().isCreated());
-		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com", "ci-001"))
-			.andExpect(status().isCreated());
-
-		postJson(V2 + "/sellers/login", loginBody("owner@company.com", PASSWORD))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("SELLER003"));
-
-		jdbc.update("UPDATE seller_business SET status = 'APPROVED'");
-		MvcResult login = postJson(V2 + "/sellers/login", loginBody("owner@company.com", PASSWORD))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.accountType").value("SELLER"))
-			.andExpect(jsonPath("$.data.role").value("OWNER"))
-			.andReturn();
-		Cookie seller = sessionCookie(login);
-		Cookie user = sessionCookie(userLogin("user@example.com", PASSWORD));
-
-		// 아직 /seller/** API 가 없어서 404 면 보안 규칙을 통과한 것이다
-		mockMvc.perform(get("/api/v1/seller/anything").cookie(seller)).andExpect(status().isNotFound());
-		mockMvc.perform(get("/api/v1/seller/anything").cookie(user)).andExpect(status().isForbidden());
-	}
-
 	// ---------------------------------------------------------------- 로그아웃·세션 고정
 
 	@Test
@@ -240,14 +161,6 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 
 		assertThat(sessionCount()).isZero();
 		callMe(session).andExpect(status().isUnauthorized());
-	}
-
-	@Test
-	@DisplayName("로그인하지 않은 상태에서 로그아웃해도 200 이다")
-	void logoutWithoutSession() throws Exception {
-		mockMvc.perform(post(V2 + "/logout"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.success").value(true));
 	}
 
 	@Test

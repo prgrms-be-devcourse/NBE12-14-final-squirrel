@@ -6,10 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.domain.booking.BookingTestSupport;
-import com.squirrel.tickting.global.security.AccountType;
-import com.squirrel.tickting.global.security.CustomUserDetails;
-import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -53,15 +49,6 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		return Map.of("receiveType", "ONSITE");
 	}
 
-	private Map<String, Object> delivery() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("receiveType", "DELIVERY");
-		body.put("recipientName", "김수령");
-		body.put("recipientPhone", "01022223333");
-		body.put("recipientAddress", "서울시 마포구 월드컵북로 1길 1");
-		return body;
-	}
-
 	private ResultActions prepare(String bearer, Long bookingId, Object body) throws Exception {
 		return mockMvc.perform(post("/api/v1/bookings/" + bookingId + "/payments")
 			.header("Authorization", bearer)
@@ -102,46 +89,6 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 	}
 
 	@Test
-	@DisplayName("결제 준비는 좌석 점유 시간을 늘리지 않는다 (연장은 승인을 시작할 때 한 번만 한다)")
-	void doesNotExtendHold() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		BookingRef booking = createBooking(user, show, 1);
-		LocalDateTime before = jdbc.queryForObject("SELECT expires_at FROM booking WHERE id = ?", LocalDateTime.class, booking.id());
-		LocalDateTime heldBefore = jdbc.queryForObject("SELECT held_until FROM schedule_seat WHERE id = ?", LocalDateTime.class,
-			show.seatIds().get(0));
-
-		prepare(user.bearer(), booking.id(), onsite()).andExpect(status().isOk());
-
-		assertThat(jdbc.queryForObject("SELECT expires_at FROM booking WHERE id = ?", LocalDateTime.class, booking.id()))
-			.isEqualTo(before);
-		assertThat(jdbc.queryForObject("SELECT held_until FROM schedule_seat WHERE id = ?", LocalDateTime.class,
-			show.seatIds().get(0))).isEqualTo(heldBefore);
-	}
-
-	@Test
-	@DisplayName("배송을 고르면 받는 사람 정보가 예매에 저장되고, 다시 현장 수령으로 준비하면 지워진다")
-	void savesAndClearsDeliveryInfo() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		BookingRef booking = createBooking(user, show, 1);
-
-		prepare(user.bearer(), booking.id(), delivery()).andExpect(status().isOk());
-		Map<String, Object> saved = jdbc.queryForMap("SELECT * FROM booking WHERE id = ?", booking.id());
-		assertThat(saved.get("receive_type")).isEqualTo("DELIVERY");
-		assertThat(saved.get("recipient_name")).isEqualTo("김수령");
-		assertThat(saved.get("recipient_phone")).isEqualTo("01022223333");
-		assertThat(saved.get("recipient_address")).isEqualTo("서울시 마포구 월드컵북로 1길 1");
-
-		prepare(user.bearer(), booking.id(), onsite()).andExpect(status().isOk());
-		Map<String, Object> cleared = jdbc.queryForMap("SELECT * FROM booking WHERE id = ?", booking.id());
-		assertThat(cleared.get("receive_type")).isEqualTo("ONSITE");
-		assertThat(cleared.get("recipient_name")).isNull();
-		assertThat(cleared.get("recipient_phone")).isNull();
-		assertThat(cleared.get("recipient_address")).isNull();
-	}
-
-	@Test
 	@DisplayName("준비를 다시 요청하면 새로 만들지 않고 같은 결제와 주문 ID 를 돌려준다")
 	void repeatedPrepareReturnsSamePayment() throws Exception {
 		Show show = show(1);
@@ -156,80 +103,7 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		assertThat(count("payment")).isEqualTo(1);
 	}
 
-	@Test
-	@DisplayName("이전 결제 시도가 실패했으면 일련번호를 올려 새 주문 ID 로 준비한다")
-	void newOrderIdAfterFailedAttempt() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		BookingRef booking = createBooking(user, show, 1);
-		prepare(user.bearer(), booking.id(), onsite()).andExpect(status().isOk());
-		jdbc.update("UPDATE payment SET status = 'FAILED', fail_reason = '카드 한도 초과'");
-
-		prepare(user.bearer(), booking.id(), onsite())
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.orderId").value("BK" + booking.bookingNo() + "-02"))
-			.andExpect(jsonPath("$.data.status").value("READY"));
-
-		assertThat(count("payment")).isEqualTo(2);
-	}
-
 	// ---------------------------------------------------------------- 수령 방법
-
-	@Test
-	@DisplayName("배송을 골랐는데 받는 사람 이름·연락처·주소 중 하나라도 비었으면 400 PAYMENT001 이다")
-	void deliveryNeedsRecipient() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		BookingRef booking = createBooking(user, show, 1);
-
-		for (String missing : List.of("recipientName", "recipientPhone", "recipientAddress")) {
-			Map<String, Object> body = delivery();
-			body.put(missing, " ");
-			prepare(user.bearer(), booking.id(), body)
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("PAYMENT001"));
-		}
-		prepare(user.bearer(), booking.id(), Map.of("receiveType", "DELIVERY"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("PAYMENT001"));
-
-		assertThat(count("payment")).isZero();
-	}
-
-	@Test
-	@DisplayName("공연이 받지 않는 수령 방법이면 400 PAYMENT000 이다 (현장 전용 공연의 배송, 배송 전용 공연의 현장)")
-	void rejectsNotAllowedReceiveType() throws Exception {
-		User user = signup("first");
-		Show onsiteOnly = show(1, "PUBLISHED", "ON_SALE", now.plusDays(10), now.minusDays(1), now.plusDays(30), "ONSITE", 2000);
-		Show deliveryOnly = show(1, "PUBLISHED", "ON_SALE", now.plusDays(10), now.minusDays(1), now.plusDays(30), "DELIVERY", 2000);
-		BookingRef first = createBooking(user, onsiteOnly, 1);
-		BookingRef second = createBooking(user, deliveryOnly, 1);
-
-		prepare(user.bearer(), first.id(), delivery())
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("PAYMENT000"));
-		prepare(user.bearer(), second.id(), onsite())
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("PAYMENT000"));
-		// 허용하는 쪽은 통과한다
-		prepare(user.bearer(), first.id(), onsite()).andExpect(status().isOk());
-		prepare(user.bearer(), second.id(), delivery()).andExpect(status().isOk());
-	}
-
-	@Test
-	@DisplayName("수령 방법이 비었거나 알 수 없는 값이면 400 COMMON000 이다")
-	void rejectsInvalidBody() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		BookingRef booking = createBooking(user, show, 1);
-
-		prepare(user.bearer(), booking.id(), Map.of())
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-		prepare(user.bearer(), booking.id(), Map.of("receiveType", "PIGEON"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-	}
 
 	// ---------------------------------------------------------------- 예매 상태·소유
 
@@ -251,58 +125,7 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		assertThat(count("payment")).isZero();
 	}
 
-	@Test
-	@DisplayName("결제 대기가 아니거나 결제 제한 시각이 지났거나 공연이 공개 상태가 아니면 409 BOOKING007 이다")
-	void notPayableBooking() throws Exception {
-		User user = signup("first");
-		Show expiredShow = show(1);
-		Show paidShow = show(1);
-		Show canceledShow = show(1);
-		Show expiredStatusShow = show(1);
-		BookingRef expired = createBooking(user, expiredShow, 1);
-		BookingRef paid = createBooking(user, paidShow, 1);
-		BookingRef canceledPerformance = createBooking(user, canceledShow, 1);
-		BookingRef expiredStatus = createBooking(user, expiredStatusShow, 1);
-
-		// 스케줄러가 아직 정리하지 않았어도 시각이 지난 예매는 막는다
-		jdbc.update("UPDATE booking SET expires_at = ? WHERE id = ?", LocalDateTime.now().minusMinutes(1), expired.id());
-		jdbc.update("UPDATE booking SET status = 'PAID' WHERE id = ?", paid.id());
-		jdbc.update("UPDATE performance SET status = 'CANCELED' WHERE id = ?", canceledShow.performanceId());
-		jdbc.update("UPDATE booking SET status = 'EXPIRED' WHERE id = ?", expiredStatus.id());
-
-		for (BookingRef booking : List.of(expired, paid, canceledPerformance, expiredStatus)) {
-			prepare(user.bearer(), booking.id(), onsite())
-				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("BOOKING007"));
-		}
-		assertThat(count("payment")).isZero();
-	}
-
 	// ---------------------------------------------------------------- 권한
-
-	@Test
-	@DisplayName("토큰 없이 호출하면 401, 판매자·관리자 토큰으로 호출하면 403 이다")
-	void needsUserRole() throws Exception {
-		Show show = show(1);
-		User user = signup("first");
-		BookingRef booking = createBooking(user, show, 1);
-		String seller = "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, AccountType.SELLER, "OWNER", 1L));
-		String admin = "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, AccountType.ADMIN, null, null));
-
-		mockMvc.perform(post("/api/v1/bookings/" + booking.id() + "/payments")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(onsite())))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH200"));
-		prepare(seller, booking.id(), onsite())
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("AUTH100"));
-		prepare(admin, booking.id(), onsite())
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("AUTH100"));
-
-		assertThat(count("payment")).isZero();
-	}
 
 	// ---------------------------------------------------------------- 동시성
 

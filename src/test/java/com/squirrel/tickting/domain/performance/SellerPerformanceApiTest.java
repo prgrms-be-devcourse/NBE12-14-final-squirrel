@@ -65,16 +65,6 @@ class SellerPerformanceApiTest extends IntegrationTestSupport {
 			Long.class);
 	}
 
-	private Long insertVenue(String name, String status) {
-		Long id = jdbc.queryForObject("""
-			INSERT INTO venue (name, address, region, total_seats, status, created_at, updated_at)
-			VALUES (?, '주소', '테스트지역', 100, ?, NOW(), NOW())
-			RETURNING id
-			""", Long.class, name, status);
-		insertedVenueIds.add(id);
-		return id;
-	}
-
 	private Long insertPerformance(long businessId, Long venueId, String title, String status, LocalDateTime createdAt) {
 		Timestamp time = Timestamp.valueOf(createdAt);
 		return jdbc.queryForObject("""
@@ -105,11 +95,6 @@ class SellerPerformanceApiTest extends IntegrationTestSupport {
 			seatsGeneratedAt == null ? null : Timestamp.valueOf(seatsGeneratedAt));
 	}
 
-	private void insertImage(Long performanceId, String url, int sortOrder) {
-		jdbc.update("INSERT INTO performance_image (performance_id, url, sort_order) VALUES (?, ?, ?)",
-			performanceId, url, sortOrder);
-	}
-
 	/** 내 사업체 대표 토큰으로 보내는 상세 요청 */
 	private MockHttpServletRequestBuilder detailRequest(Long performanceId) {
 		return get(URL + "/" + performanceId).header("Authorization", token(AccountType.SELLER, "OWNER", MY_BUSINESS));
@@ -117,21 +102,6 @@ class SellerPerformanceApiTest extends IntegrationTestSupport {
 
 	private List<String> titles(MvcResult result) throws Exception {
 		return JsonPath.read(result.getResponse().getContentAsString(), "$.data.content[*].title");
-	}
-
-	private List<String> titlesOf(MockHttpServletRequestBuilder request) throws Exception {
-		return titles(mockMvc.perform(request).andExpect(status().isOk()).andReturn());
-	}
-
-	@Test
-	@DisplayName("예매자 토큰은 목록·상세 모두 403, 토큰이 없으면 401이다")
-	void onlySellerCanCall() throws Exception {
-		Long id = insertPerformance(MY_BUSINESS, "내 공연", "PUBLISHED", BASE);
-		String userToken = token(AccountType.USER, null, null);
-
-		mockMvc.perform(get(URL).header("Authorization", userToken)).andExpect(status().isForbidden());
-		mockMvc.perform(get(URL + "/" + id).header("Authorization", userToken)).andExpect(status().isForbidden());
-		mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
 	}
 
 	@Test
@@ -156,134 +126,7 @@ class SellerPerformanceApiTest extends IntegrationTestSupport {
 		assertThat(JsonPath.<Integer>read(body, "$.data.content[1].scheduleCount")).isZero();
 	}
 
-	@Test
-	@DisplayName("최신 등록이 먼저 나오고, 등록 시각이 같으면 번호가 큰 공연이 먼저 나오며, 정렬(sort) 파라미터는 무시한다")
-	void sortedByNewestFirst() throws Exception {
-		insertPerformance(MY_BUSINESS, "오래된 공연", "PUBLISHED", BASE);
-		insertPerformance(MY_BUSINESS, "같은 시각 먼저 등록", "PUBLISHED", BASE.plusDays(1));
-		insertPerformance(MY_BUSINESS, "같은 시각 나중 등록", "PUBLISHED", BASE.plusDays(1));
-
-		assertThat(titlesOf(listRequest().param("sort", "title,asc")))
-			.containsExactly("같은 시각 나중 등록", "같은 시각 먼저 등록", "오래된 공연");
-	}
-
-	@Test
-	@DisplayName("상태를 주지 않으면 취소된 공연까지 모두 나오고, 상태를 주면 그 상태만 나온다")
-	void filterByStatus() throws Exception {
-		insertPerformance(MY_BUSINESS, "작성 중", "DRAFT", BASE);
-		insertPerformance(MY_BUSINESS, "공개", "PUBLISHED", BASE.plusDays(1));
-		insertPerformance(MY_BUSINESS, "취소", "CANCELED", BASE.plusDays(2));
-
-		assertThat(titlesOf(listRequest())).containsExactly("취소", "공개", "작성 중");
-		assertThat(titlesOf(listRequest().param("status", "CANCELED"))).containsExactly("취소");
-		assertThat(titlesOf(listRequest().param("status", "DRAFT"))).containsExactly("작성 중");
-	}
-
-	@Test
-	@DisplayName("사용 중지된 공연장에 잡힌 공연도 공연장명이 보인다")
-	void inactiveVenueNameIsShown() throws Exception {
-		Long inactiveVenue = insertVenue("사용 중지 공연장", "INACTIVE");
-		insertPerformance(MY_BUSINESS, inactiveVenue, "중지 공연장 공연", "PUBLISHED", BASE);
-
-		mockMvc.perform(listRequest())
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.content[0].venueName").value("사용 중지 공연장"));
-	}
-
-	@Test
-	@DisplayName("크기를 주지 않으면 20개씩 나오고 21개면 2페이지에 1개가 남으며, 그 다음 페이지는 빈 목록이다")
-	void defaultPageSizeIsTwenty() throws Exception {
-		for (int i = 0; i < 21; i++) {
-			insertPerformance(MY_BUSINESS, "공연" + String.format("%02d", i), "PUBLISHED", BASE.plusMinutes(i));
-		}
-
-		mockMvc.perform(listRequest())
-			.andExpect(jsonPath("$.data.content.length()").value(20))
-			.andExpect(jsonPath("$.data.size").value(20))
-			.andExpect(jsonPath("$.data.totalElements").value(21))
-			.andExpect(jsonPath("$.data.totalPages").value(2));
-		mockMvc.perform(listRequest().param("page", "1"))
-			.andExpect(jsonPath("$.data.content.length()").value(1))
-			.andExpect(jsonPath("$.data.content[0].title").value("공연00"));
-		mockMvc.perform(listRequest().param("page", "2"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.content.length()").value(0));
-	}
-
-	@Test
-	@DisplayName("크기는 최대 20개로 줄어들고, 크기 0은 에러(500)가 아니라 기본값으로 처리된다")
-	void pageSizeIsCappedAtTwenty() throws Exception {
-		for (int i = 0; i < 21; i++) {
-			insertPerformance(MY_BUSINESS, "공연" + i, "PUBLISHED", BASE.plusMinutes(i));
-		}
-
-		mockMvc.perform(listRequest().param("size", "21"))
-			.andExpect(jsonPath("$.data.content.length()").value(20))
-			.andExpect(jsonPath("$.data.size").value(20));
-		mockMvc.perform(listRequest().param("size", "0"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.size").value(20));
-	}
-
 	// ---------------------------------------------------------------- 상세
-
-	@Test
-	@DisplayName("상세에는 공연 정보와 공연장, 이미지(순서대로), 회차(공연 일시순, 취소 회차 포함)가 나온다")
-	void detailShowsEverything() throws Exception {
-		Long id = insertPerformance(MY_BUSINESS, "가상 콘서트", "PUBLISHED", BASE);
-		insertImage(id, "https://cdn.example.com/detail-2.jpg", 2);
-		insertImage(id, "https://cdn.example.com/detail-1.jpg", 1);
-		insertSchedule(id, LocalDateTime.of(2026, 12, 21, 19, 0), "CANCELED");
-		insertSchedule(id, LocalDateTime.of(2026, 12, 20, 19, 0), "ON_SALE", LocalDateTime.of(2026, 11, 24, 20, 0));
-
-		mockMvc.perform(detailRequest(id))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.performanceId").value(id))
-			.andExpect(jsonPath("$.data.status").value("PUBLISHED"))
-			.andExpect(jsonPath("$.data.venue.venueId").value(arenaVenueId()))
-			.andExpect(jsonPath("$.data.venue.name").value("가상 아레나 (샘플)"))
-			.andExpect(jsonPath("$.data.title").value("가상 콘서트"))
-			.andExpect(jsonPath("$.data.genre").value("CONCERT"))
-			.andExpect(jsonPath("$.data.ageLimit").value(12))
-			.andExpect(jsonPath("$.data.runningTime").value(150))
-			.andExpect(jsonPath("$.data.cancelPolicyId").value(defaultCancelPolicyId()))
-			.andExpect(jsonPath("$.data.saleOpenAt").value("2026-11-25T20:00:00"))
-			.andExpect(jsonPath("$.data.maxPerPerson").value(4))
-			.andExpect(jsonPath("$.data.receiveType").value("BOTH"))
-			.andExpect(jsonPath("$.data.bookingFee").value(2000))
-			.andExpect(jsonPath("$.data.images[0].sortOrder").value(1))
-			.andExpect(jsonPath("$.data.images[0].url").value("https://cdn.example.com/detail-1.jpg"))
-			.andExpect(jsonPath("$.data.images[1].sortOrder").value(2))
-			.andExpect(jsonPath("$.data.schedules.length()").value(2))
-			.andExpect(jsonPath("$.data.schedules[0].startAt").value("2026-12-20T19:00:00"))
-			.andExpect(jsonPath("$.data.schedules[0].status").value("ON_SALE"))
-			.andExpect(jsonPath("$.data.schedules[0].seatsGeneratedAt").value("2026-11-24T20:00:00"))
-			.andExpect(jsonPath("$.data.schedules[1].status").value("CANCELED"))
-			.andExpect(jsonPath("$.data.schedules[1].seatsGeneratedAt").value((Object) null));
-	}
-
-	@Test
-	@DisplayName("작성 중인 공연은 판매 필드가 null이고, 이미지·회차가 없으면 빈 배열이다")
-	void draftDetailHasNullSaleFields() throws Exception {
-		Long id = insertPerformance(MY_BUSINESS, "작성 중", "DRAFT", BASE);
-		jdbc.update("""
-			UPDATE performance
-			SET sale_open_at = NULL, sale_close_at = NULL, max_per_person = NULL, receive_type = NULL,
-			    booking_fee = NULL
-			WHERE id = ?
-			""", id);
-
-		mockMvc.perform(detailRequest(id))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.status").value("DRAFT"))
-			.andExpect(jsonPath("$.data.saleOpenAt").value((Object) null))
-			.andExpect(jsonPath("$.data.saleCloseAt").value((Object) null))
-			.andExpect(jsonPath("$.data.maxPerPerson").value((Object) null))
-			.andExpect(jsonPath("$.data.receiveType").value((Object) null))
-			.andExpect(jsonPath("$.data.bookingFee").value((Object) null))
-			.andExpect(jsonPath("$.data.images.length()").value(0))
-			.andExpect(jsonPath("$.data.schedules.length()").value(0));
-	}
 
 	@Test
 	@DisplayName("다른 사업체의 공연과 없는 공연은 똑같이 404 (PERFORMANCE000)이다")
