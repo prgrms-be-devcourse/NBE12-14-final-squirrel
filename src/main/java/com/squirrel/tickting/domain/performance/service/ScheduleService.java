@@ -65,8 +65,9 @@ public class ScheduleService {
 			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE);
 		}
 
+		// 예매 스냅샷(booking_seat.grade_name, 문자열)에는 등급 코드를 그대로 저장한다. 화면 이름은 프론트가 정한다.
 		Map<Long, String> gradeNames = seatGradeRepository.findByPerformanceId(performance.getId()).stream()
-			.collect(Collectors.toMap(SeatGrade::getId, SeatGrade::getName));
+			.collect(Collectors.toMap(SeatGrade::getId, grade -> grade.getName().name()));
 		List<CancelPolicyRule> cancelRules =
 			cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(performance.getCancelPolicy().getId());
 		return new BookableSchedule(schedule.getId(), performance, gradeNames, cancelRules);
@@ -75,7 +76,7 @@ public class ScheduleService {
 	/**
 	 * 예매 생성에 필요한 회차 정보. 공연은 이미 초기화되어 있어서 트랜잭션이 끝난 뒤에도 값을 읽을 수 있다.
 	 *
-	 * @param gradeNames  등급 번호 → 등급 이름
+	 * @param gradeNames  등급 번호 → 등급 코드
 	 * @param cancelRules 취소 규정 구간. daysFrom 이 큰 구간부터
 	 */
 	public record BookableSchedule(Long scheduleId, Performance performance, Map<Long, String> gradeNames,

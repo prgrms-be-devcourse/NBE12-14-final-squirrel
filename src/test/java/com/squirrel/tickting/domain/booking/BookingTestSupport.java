@@ -67,7 +67,7 @@ public abstract class BookingTestSupport extends IntegrationTestSupport {
 
 	// ---------------------------------------------------------------- 데이터 만들기
 
-	/** 공연·회차·등급(R석 154,000원)과 판매 좌석. seatIds 는 판매 좌석(schedule_seat) 번호다. */
+	/** 공연·회차·등급(R, 154,000원)과 판매 좌석. seatIds 는 판매 좌석(schedule_seat) 번호다. */
 	protected record Show(Long performanceId, Long scheduleId, List<Long> seatIds) {
 	}
 
@@ -92,7 +92,7 @@ public abstract class BookingTestSupport extends IntegrationTestSupport {
 			VALUES (?, ?, ?, ?, ?) RETURNING id
 			""", Long.class, performanceId, startAt, scheduleStatus, now, now);
 		Long gradeId = jdbc.queryForObject("""
-			INSERT INTO seat_grade (performance_id, name, price, color) VALUES (?, 'R석', 154000, '#E8503A') RETURNING id
+			INSERT INTO seat_grade (performance_id, name, price) VALUES (?, 'R', 154000) RETURNING id
 			""", Long.class, performanceId);
 		List<Long> seatIds = new ArrayList<>();
 		for (int i = 0; i < seatCount; i++) {

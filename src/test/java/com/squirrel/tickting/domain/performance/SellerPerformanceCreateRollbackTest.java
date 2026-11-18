@@ -31,7 +31,10 @@ class SellerPerformanceCreateRollbackTest extends IntegrationTestSupport {
 
 	private static final long MY_BUSINESS = 793L;
 
-	/** 구역 초기화를 항상 실패시키는 등급 서비스로 바꿔 끼운다. (Mockito 없이 실패 상황을 만든다) */
+	/**
+	 * 구역 초기화를 항상 실패시키는 등급 서비스로 바꿔 끼운다. (Mockito 없이 실패 상황을 만든다)
+	 * 이 테스트는 공연 등록만 부르므로 등급 수정에만 쓰는 락·트랜잭션·설정값은 넘기지 않는다.
+	 */
 	@TestConfiguration(proxyBeanMethods = false)
 	static class FailingGradeConfig {
 
@@ -41,7 +44,7 @@ class SellerPerformanceCreateRollbackTest extends IntegrationTestSupport {
 			ZoneGradeRepository zoneGradeRepository, PerformanceRepository performanceRepository,
 			PerformanceScheduleRepository performanceScheduleRepository) {
 			return new GradeService(seatGradeRepository, zoneGradeRepository, performanceRepository,
-				performanceScheduleRepository) {
+				performanceScheduleRepository, null, null, null) {
 				@Override
 				public void initializeZones(Performance performance, List<Long> zoneIds) {
 					throw new IllegalStateException("구역 설정 저장 실패");

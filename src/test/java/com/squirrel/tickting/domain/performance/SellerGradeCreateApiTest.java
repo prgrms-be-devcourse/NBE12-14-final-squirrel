@@ -1,8 +1,6 @@
 package com.squirrel.tickting.domain.performance;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.groups.Tuple.tuple;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,8 +16,6 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -60,11 +56,10 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 	}
 
 	/** null 값도 본문에 넣으려고 Map.of 대신 LinkedHashMap 을 쓴다. */
-	private Map<String, Object> body(String name, Integer price, String color) {
+	private Map<String, Object> body(String name, Integer price) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("name", name);
 		body.put("price", price);
-		body.put("color", color);
 		return body;
 	}
 
@@ -94,59 +89,62 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 	}
 
 	private List<Map<String, Object>> savedGrades(Long performanceId) {
-		return jdbc.queryForList("SELECT id, name, price, color FROM seat_grade WHERE performance_id = ? ORDER BY id",
+		return jdbc.queryForList("SELECT id, name, price FROM seat_grade WHERE performance_id = ? ORDER BY id",
 			performanceId);
 	}
 
 	@Test
-	@DisplayName("등급을 추가하면 201 이고 명세의 모양으로 돌려주며, 이름은 앞뒤 공백(NBSP·전각 포함)만 지우고 색은 입력한 그대로 저장한다")
+	@DisplayName("등급을 추가하면 201 이고 등급 코드를 그대로 저장해 명세의 모양으로 돌려준다")
 	void created() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 
-		String response = add(performanceId, body(" \u00A0R 석\u3000 ", 154000, "#f2994a"))
+		String response = add(performanceId, body("R", 154000))
 			.andExpect(status().isCreated())
 			.andReturn().getResponse().getContentAsString();
 
 		List<Map<String, Object>> saved = savedGrades(performanceId);
 		assertThat(saved).hasSize(1);
-		assertThat(saved.getFirst()).containsEntry("name", "R 석").containsEntry("price", 154000)
-			.containsEntry("color", "#f2994a");
+		assertThat(saved.getFirst()).containsEntry("name", "R").containsEntry("price", 154000);
 		assertThat(JsonPath.<Map<String, Object>>read(response, "$.data")).containsExactlyInAnyOrderEntriesOf(Map.of(
 			"gradeId", ((Number) saved.getFirst().get("id")).intValue(),
-			"name", "R 석", "price", 154000, "color", "#f2994a"));
+			"name", "R", "price", 154000));
 	}
 
 	@Test
-	@DisplayName("가격은 0원과 10,000,000원까지 받고, 색을 빼거나 공백만 보내면 색 없이(null) 저장한다. 담당자도 추가할 수 있다")
+	@DisplayName("가격은 0원과 10,000,000원까지 받는다. 담당자도 추가할 수 있다")
 	void boundariesAndStaff() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 		String staff = token(AccountType.SELLER, "STAFF", MY_BUSINESS);
 
-		add(performanceId, body("초대석", 0, null), staff).andExpect(status().isCreated())
-			.andExpect(jsonPath("$.data.color").value(nullValue()));
-		add(performanceId, body("VVIP석", 10_000_000, "   ")).andExpect(status().isCreated());
+		add(performanceId, body("C", 0), staff).andExpect(status().isCreated());
+		add(performanceId, body("VIP", 10_000_000)).andExpect(status().isCreated());
 
-		assertThat(savedGrades(performanceId)).extracting(row -> row.get("price"), row -> row.get("color"))
-			.containsExactly(
-				tuple(0, null),
-				tuple(10_000_000, null));
+		assertThat(savedGrades(performanceId)).extracting(row -> row.get("price")).containsExactly(0, 10_000_000);
 	}
 
 	@Test
-	@DisplayName("입력 형식이 틀리면 400 COMMON000 이고 저장하지 않는다 (이름 없음·공백만(NBSP·전각 포함)·51자, 가격 없음·음수·상한 초과, 색 형식)")
+	@DisplayName("전석(ALL)도 다른 등급이 있는 공연에 만들어 둘 수 있다 (구역에 지정될 때 막는다)")
+	void allCanBeCreatedWithOtherGrades() throws Exception {
+		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
+		insertGrade(performanceId, "R");
+
+		add(performanceId, body("ALL", 50000)).andExpect(status().isCreated());
+
+		assertThat(savedGrades(performanceId)).extracting(row -> row.get("name")).containsExactly("R", "ALL");
+	}
+
+	@Test
+	@DisplayName("입력 형식이 틀리면 400 COMMON000 이고 저장하지 않는다 (등급 없음·목록에 없는 등급, 가격 없음·음수·상한 초과)")
 	void invalidInput() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 		List<Map<String, Object>> bodies = List.of(
-			body(null, 1000, null),
-			body("   ", 1000, null),
-			body("\u00A0\u3000", 1000, null),
-			body("가".repeat(51), 1000, null),
-			body("R석", null, null),
-			body("R석", -1, null),
-			body("R석", 10_000_001, null),
-			body("R석", 1000, "red"),
-			body("R석", 1000, "#FFF"),
-			body("R석", 1000, "#GGGGGG"));
+			body(null, 1000),
+			body("", 1000),
+			body("R석", 1000),
+			body("VVIP", 1000),
+			body("R", null),
+			body("R", -1),
+			body("R", 10_000_001));
 
 		for (Map<String, Object> body : bodies) {
 			add(performanceId, body)
@@ -156,27 +154,26 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 		assertThat(savedGrades(performanceId)).isEmpty();
 	}
 
-	@ParameterizedTest
-	@ValueSource(strings = {"R석", "r석", "R 석", " r 석 ", "R\t석", "R\n석", "R\u3000석", "R\u00A0석"})
-	@DisplayName("같은 공연에 대소문자와 공백(띄어쓰기·탭·줄바꿈·전각 공백·NBSP)을 무시하면 같은 이름의 등급이 있으면 409 PERFORMANCE302 다")
-	void duplicatedName(String name) throws Exception {
+	@Test
+	@DisplayName("같은 공연에 같은 등급이 있으면 409 PERFORMANCE302 다")
+	void duplicatedName() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
-		insertGrade(performanceId, "R석");
+		insertGrade(performanceId, "R");
 
-		add(performanceId, body(name, 1000, null))
+		add(performanceId, body("R", 1000))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("PERFORMANCE302"));
 		assertThat(savedGrades(performanceId)).hasSize(1);
 	}
 
 	@Test
-	@DisplayName("다른 공연에 같은 이름의 등급이 있어도 추가할 수 있다")
+	@DisplayName("다른 공연에 같은 등급이 있어도 추가할 수 있다")
 	void sameNameInOtherPerformance() throws Exception {
 		Long other = insertPerformance(MY_BUSINESS, "DRAFT");
-		insertGrade(other, "R석");
+		insertGrade(other, "R");
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 
-		add(performanceId, body("R석", 1000, null)).andExpect(status().isCreated());
+		add(performanceId, body("R", 1000)).andExpect(status().isCreated());
 	}
 
 	@Test
@@ -184,7 +181,7 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 	void canceledPerformance() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "CANCELED");
 
-		add(performanceId, body("R석", 1000, null))
+		add(performanceId, body("R", 1000))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("PERFORMANCE002"));
 		assertThat(savedGrades(performanceId)).isEmpty();
@@ -200,10 +197,10 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 		insertSchedule(onlyCanceledGenerated, "CANCELED", true);
 		insertSchedule(onlyCanceledGenerated, "ON_SALE", false);
 
-		add(generated, body("R석", 1000, null))
+		add(generated, body("R", 1000))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("PERFORMANCE301"));
-		add(onlyCanceledGenerated, body("R석", 1000, null)).andExpect(status().isCreated());
+		add(onlyCanceledGenerated, body("R", 1000)).andExpect(status().isCreated());
 		assertThat(savedGrades(generated)).isEmpty();
 	}
 
@@ -215,7 +212,7 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 		insertSchedule(othersLocked, "ON_SALE", true);
 
 		for (Long performanceId : List.of(othersCanceled, othersLocked, Long.MAX_VALUE)) {
-			add(performanceId, body("R석", 1000, null))
+			add(performanceId, body("R", 1000))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("PERFORMANCE000"));
 		}
@@ -228,11 +225,11 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 	void onlySellerCanCall() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
 
-		add(performanceId, body("R석", 1000, null), token(AccountType.USER, null, null))
+		add(performanceId, body("R", 1000), token(AccountType.USER, null, null))
 			.andExpect(status().isForbidden());
 		mockMvc.perform(post(URL, performanceId)
 				.contentType(MediaType.APPLICATION_JSON)
-				.content(objectMapper.writeValueAsString(body("R석", 1000, null))))
+				.content(objectMapper.writeValueAsString(body("R", 1000))))
 			.andExpect(status().isUnauthorized());
 		assertThat(savedGrades(performanceId)).isEmpty();
 	}
