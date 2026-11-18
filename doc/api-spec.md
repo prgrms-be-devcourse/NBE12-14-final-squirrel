@@ -911,10 +911,11 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자, 구현됨)
 
-Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED/EXPIRED`), `page`, `size`
+Query: `status`(`PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 
 - 로그인한 예매자 본인의 예매만 나옵니다. 회원 번호는 토큰에서 꺼냅니다. 판매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
-- `status`를 비우면 **모든 상태**가 나옵니다. 결제하지 않고 시간이 지난 예매(`EXPIRED`)도 포함합니다.
+- 결제 완료·취소된 예매(`PAID`, `PARTIAL_CANCELED`, `CANCELED`)만 나옵니다. `status`를 비우면 이 셋이 모두 나옵니다.
+- 결제 대기(`PENDING`)와 시간 초과(`EXPIRED`)는 나오지 않고, `status`로 보내면 400입니다. 결제 대기는 결제 화면에서 이어 가는 진행 중 기록이고, 시간 초과는 돈이 나가지 않은 무효 예매라 내역에서 뺍니다. 화면에서 거르면 한 페이지 개수와 전체 개수가 어긋나서 서버가 조회할 때 거릅니다.
 - 최신 예매순(`createdAt` 내림차순)이고, 같은 시각이면 번호가 큰 예매가 먼저라 페이지를 넘겨도 순서가 바뀌지 않습니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
 - `size` 기본 20, 최대 20. 크기가 20을 넘으면 에러가 아니라 20으로 줄어듭니다.
 - `seatCount`와 `totalAmount`는 **처음 예매 기준**입니다. 일부 취소해도 취소된 좌석까지 세고, 금액도 처음 결제 금액 그대로입니다. (둘의 기준을 맞추려는 것. 남은 좌석과 환불 금액은 상세 BKG-05에서 봅니다)
@@ -949,7 +950,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED/EXPIRED`), `page`, `size
 }
 ```
 
-**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값 또는 `PENDING`·`EXPIRED`
 
 ### BKG-05 내 예매 상세 — `GET /api/v1/bookings/{bookingId}` (예매자)
 
