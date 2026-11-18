@@ -67,7 +67,16 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 전석(ALL)과 다른 등급이 함께 구역에 지정되려 함. 함께 보이면 "전석"이 틀린 말이 된다.
 	 * 구역에 지정되지 않은 등급은 예매자 화면에 보이지 않아서 만들어 두는 것은 막지 않는다
 	 */
-	GRADE_ALL_MIXED("PERFORMANCE303", HttpStatus.CONFLICT, "전석은 다른 등급과 함께 구역에 지정할 수 없습니다.");
+	GRADE_ALL_MIXED("PERFORMANCE303", HttpStatus.CONFLICT, "전석은 다른 등급과 함께 구역에 지정할 수 없습니다."),
+	/** 구역 설정에 이 공연의 공연장에 없는 구역(다른 공연장의 구역이나 없는 구역 번호)을 보냄 */
+	ZONE_NOT_FOUND_IN_VENUE("PERFORMANCE304", HttpStatus.BAD_REQUEST, "이 공연의 공연장에 없는 구역입니다."),
+	/**
+	 * 구역에 이 공연의 등급이 아닌 등급을 지정하려 함. 없는 등급 번호와 다른 공연(남의 공연 포함)의 등급을
+	 * 같은 코드·메시지로 답해서 다른 사업체의 등급 번호가 있는지 알려주지 않는다
+	 */
+	GRADE_NOT_IN_PERFORMANCE("PERFORMANCE305", HttpStatus.BAD_REQUEST, "이 공연의 등급이 아닙니다."),
+	/** 구역 상태와 등급 지정이 맞지 않음. ASSIGNED 인데 등급이 없거나, UNSET·INTENTIONALLY_UNSOLD 인데 등급이 있음 */
+	ZONE_ASSIGNMENT_INVALID("PERFORMANCE306", HttpStatus.BAD_REQUEST, "구역 상태와 등급 지정이 맞지 않습니다.");
 
 	private final String code;
 	private final HttpStatus status;

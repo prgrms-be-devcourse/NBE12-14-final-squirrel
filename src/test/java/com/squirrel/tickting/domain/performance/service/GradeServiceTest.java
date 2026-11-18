@@ -16,7 +16,9 @@ import com.squirrel.tickting.domain.performance.infra.repository.SeatGradeReposi
 import com.squirrel.tickting.domain.performance.infra.repository.ZoneGradeRepository;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
+import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.util.List;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -105,5 +108,45 @@ class GradeServiceTest {
 			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.PERFORMANCE_NOT_FOUND);
 		verifyNoInteractions(lockExecutor);
 		verify(seatGradeRepository, never()).findByIdAndPerformanceId(any(), any());
+	}
+
+	@Test
+	@DisplayName("구역 설정에 같은 구역이 두 번 오면 COMMON000 이고 공연 조회·락 전에 끝난다")
+	void zoneAssignDuplicatedZone() {
+		var request = new SellerGradeRequest.ZoneAssign(List.of(
+			new SellerGradeRequest.Item(1L, ZoneAssignmentStatus.UNSET, null),
+			new SellerGradeRequest.Item(1L, ZoneAssignmentStatus.INTENTIONALLY_UNSOLD, null)));
+
+		assertThatThrownBy(() -> gradeService.updateZoneGrades(BUSINESS_ID, PERFORMANCE_ID, request))
+			.isInstanceOf(BusinessException.class)
+			.extracting("exceptionCode").isEqualTo(CommonExceptionCode.INVALID_INPUT);
+		verifyNoInteractions(performanceRepository, zoneGradeRepository, seatGradeRepository, lockExecutor);
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {"ASSIGNED,", "UNSET,5", "INTENTIONALLY_UNSOLD,5"})
+	@DisplayName("구역 상태와 gradeId 가 맞지 않으면 PERFORMANCE306 이고 공연 조회·락 전에 끝난다")
+	void zoneAssignInvalidCombination(ZoneAssignmentStatus status, Long gradeId) {
+		var request = new SellerGradeRequest.ZoneAssign(List.of(
+			new SellerGradeRequest.Item(1L, ZoneAssignmentStatus.UNSET, null),
+			new SellerGradeRequest.Item(2L, status, gradeId)));
+
+		assertThatThrownBy(() -> gradeService.updateZoneGrades(BUSINESS_ID, PERFORMANCE_ID, request))
+			.isInstanceOf(BusinessException.class)
+			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.ZONE_ASSIGNMENT_INVALID);
+		verifyNoInteractions(performanceRepository, zoneGradeRepository, seatGradeRepository, lockExecutor);
+	}
+
+	@Test
+	@DisplayName("구역 설정에서 다른 사업체의 공연이거나 없는 공연이면 락을 잡기 전에 PERFORMANCE000 으로 끝난다")
+	void zoneAssignNotMineBeforeLock() {
+		when(performanceRepository.findByIdAndBusinessId(PERFORMANCE_ID, BUSINESS_ID)).thenReturn(Optional.empty());
+		var request = new SellerGradeRequest.ZoneAssign(List.of(
+			new SellerGradeRequest.Item(1L, ZoneAssignmentStatus.ASSIGNED, 5L)));
+
+		assertThatThrownBy(() -> gradeService.updateZoneGrades(BUSINESS_ID, PERFORMANCE_ID, request))
+			.isInstanceOf(BusinessException.class)
+			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.PERFORMANCE_NOT_FOUND);
+		verifyNoInteractions(lockExecutor, zoneGradeRepository);
 	}
 }
