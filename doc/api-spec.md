@@ -80,7 +80,7 @@
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 구현됨 |
 | BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 구현됨 |
 | BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 구현됨 |
-| BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 미구현 |
+| BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 구현됨 |
 | BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 미구현 |
 | BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 미구현 |
 | SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 구현됨 |
@@ -908,9 +908,16 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - **결제 대행사 구현**은 `app.payment.gateway`로 고릅니다. `toss`(운영 기본)는 `.env`의 `TOSS_SECRET_KEY`가 필요하고, `mock`은 키 없이 흐름만 확인합니다(`prod` 프로필에서는 등록되지 않음). **로컬에서는 `.env`에 `PAYMENT_GATEWAY`를 반드시 넣어야 앱이 뜹니다.** 키 없이 돌리려면 `PAYMENT_GATEWAY=mock`, 실제 토스 테스트 결제를 쓰려면 `PAYMENT_GATEWAY=toss`와 `TOSS_SECRET_KEY`를 넣습니다. 결제창을 여는 클라이언트 키는 프론트가 읽습니다.
 - Mock 은 결제 키 접두사로 결과를 고릅니다. `reject_` 거절, `unavailable_` 결과 모름, `slow_` 느린 성공, 그 밖의 값은 성공입니다.
 
-### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자)
+### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자, 구현됨)
 
 Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED/EXPIRED`), `page`, `size`
+
+- 로그인한 예매자 본인의 예매만 나옵니다. 회원 번호는 토큰에서 꺼냅니다. 판매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- `status`를 비우면 **모든 상태**가 나옵니다. 결제하지 않고 시간이 지난 예매(`EXPIRED`)도 포함합니다.
+- 최신 예매순(`createdAt` 내림차순)이고, 같은 시각이면 번호가 큰 예매가 먼저라 페이지를 넘겨도 순서가 바뀌지 않습니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
+- `size` 기본 20, 최대 20. 크기가 20을 넘으면 에러가 아니라 20으로 줄어듭니다.
+- `seatCount`와 `totalAmount`는 **처음 예매 기준**입니다. 일부 취소해도 취소된 좌석까지 세고, 금액도 처음 결제 금액 그대로입니다. (둘의 기준을 맞추려는 것. 남은 좌석과 환불 금액은 상세 BKG-05에서 봅니다)
+- `performanceTitle`·`posterUrl`·`scheduleStartAt`은 예매 때 복사한 값이 아니라 지금 값입니다. 회차가 연기되면 바뀐 일시가 보이고, 예매한 뒤 공연이 취소돼도 내역에 남습니다. 공연·회차 정보가 없으면 그 값만 `null`입니다.
 
 **응답 200**
 
@@ -940,6 +947,8 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED/EXPIRED`), `page`, `size
   }
 }
 ```
+
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값
 
 ### BKG-05 내 예매 상세 — `GET /api/v1/bookings/{bookingId}` (예매자)
 

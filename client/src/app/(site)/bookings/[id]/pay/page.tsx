@@ -2,12 +2,25 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { ApiError, api, useApi } from "@/lib/api";
+import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
+import { useEffect, useRef, useState } from "react";
+import { ApiError, api, useApi, useMockSeen } from "@/lib/api";
 import { dateTimeText, won } from "@/lib/format";
 import type { BookingDetail, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
+
+// 결제창을 여는 클라이언트 키다. 브라우저에 내려가도 되는 키라 NEXT_PUBLIC_ 을 쓴다. (시크릿 키는 Spring 만 읽는다)
+const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+
+function isTossError(error: unknown): error is { code: string; message: string } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    typeof (error as { message?: unknown }).message === "string"
+  );
+}
 
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -30,6 +43,49 @@ export default function PayPage() {
   const [recipient, setRecipient] = useState({ name: "", phone: "", address: "" });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Spring 이 아니라 목 데이터가 답한 상태에서는 토스 승인이 의미가 없어서 결제창을 열지 않는다.
+  const mockSeen = useMockSeen();
+  const useToss = Boolean(TOSS_CLIENT_KEY) && !mockSeen;
+  const widgetsRef = useRef<TossPaymentsWidgets | null>(null);
+  const [widgetState, setWidgetState] = useState<"loading" | "ready" | "error">("loading");
+
+  const pending = booking.data?.status === "PENDING";
+  const totalAmount = booking.data?.totalAmount;
+
+  useEffect(() => {
+    if (!useToss || !pending || totalAmount === undefined || !TOSS_CLIENT_KEY) return;
+    let cancelled = false;
+    const destroyers: (() => Promise<void>)[] = [];
+
+    (async () => {
+      try {
+        const toss = await loadTossPayments(TOSS_CLIENT_KEY);
+        // 회원 번호를 토스에 보내지 않으려고 비회원 키를 쓴다. 결제 소유자는 서버가 주문 번호로 확인한다.
+        const widgets = toss.widgets({ customerKey: ANONYMOUS });
+        await widgets.setAmount({ currency: "KRW", value: totalAmount });
+        const [methods, agreement] = await Promise.all([
+          widgets.renderPaymentMethods({ selector: "#toss-methods" }),
+          widgets.renderAgreement({ selector: "#toss-agreement" }),
+        ]);
+        destroyers.push(methods.destroy, agreement.destroy);
+        if (cancelled) {
+          destroyers.forEach((destroy) => void destroy());
+          return;
+        }
+        widgetsRef.current = widgets;
+        setWidgetState("ready");
+      } catch {
+        if (!cancelled) setWidgetState("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      widgetsRef.current = null;
+      destroyers.forEach((destroy) => void destroy());
+    };
+  }, [useToss, pending, totalAmount]);
 
   if (booking.loading) return <Loading />;
   if (booking.error) {
@@ -63,16 +119,32 @@ export default function PayPage() {
               }
             : { receiveType },
       });
-      // 토스 결제창은 아직 연동 전이라, 결제 승인 API 를 테스트 값으로 바로 호출한다.
-      // 실제 연동 때는 이 자리에 토스 SDK(클라이언트 키만 사용)로 결제창을 띄우고
-      // 돌려받은 paymentKey 로 승인한다. 승인 호출 자체는 서버가 토스를 부른다.
+      const widgets = widgetsRef.current;
+      if (widgets) {
+        // 금액은 서버가 계산한 값이 기준이다. 화면에 렌더한 금액과 다르면 서버 값으로 다시 맞춘다.
+        if (ready.amount !== b.totalAmount) await widgets.setAmount({ currency: "KRW", value: ready.amount });
+        // 성공하면 successUrl 로 이동하고 거기서 승인한다. 승인 API 는 서버가 토스를 부른다.
+        // 이동하면 이 줄 아래는 실행되지 않고, 구매자가 창을 닫으면 아래 catch 로 온다.
+        await widgets.requestPayment({
+          orderId: ready.orderId,
+          orderName: ready.orderName,
+          successUrl: `${window.location.origin}/bookings/${b.bookingId}/pay/success`,
+          failUrl: `${window.location.origin}/bookings/${b.bookingId}/pay/fail`,
+        });
+        return;
+      }
+      // 키가 없거나 목 데이터일 때만 쓰는 임시 승인이다. 토스를 거치지 않는다.
       await api<PaymentConfirmed>("/api/v1/payments/confirm", {
         method: "POST",
         body: { paymentKey: `test_${Date.now()}`, orderId: ready.orderId, amount: ready.amount },
       });
       router.push(`/bookings/${b.bookingId}`);
     } catch (error) {
-      setMessage(error instanceof ApiError ? error.message : "결제에 실패했습니다");
+      if (error instanceof ApiError) setMessage(error.message);
+      else if (isTossError(error)) {
+        // 구매자가 결제창을 닫은 경우도 여기로 온다. 실패가 아니라 취소라서 안내만 한다.
+        setMessage(error.code.includes("CANCEL") ? "결제를 취소했습니다" : error.message);
+      } else setMessage("결제에 실패했습니다");
     } finally {
       setBusy(false);
     }
@@ -202,13 +274,31 @@ export default function PayPage() {
             )}
           </section>
 
-          {message && <p className="text-sm text-accent-strong">{message}</p>}
-          <button type="button" className="btn btn-primary btn-lg w-full" disabled={busy} onClick={pay}>
+          {useToss && (
+            <section className="card overflow-hidden p-2">
+              <div id="toss-methods" />
+              <div id="toss-agreement" />
+              {widgetState === "loading" && <p className="p-4 text-center text-sm text-muted">결제 수단을 불러오는 중</p>}
+              {widgetState === "error" && (
+                <p className="p-4 text-center text-sm text-accent-strong">결제창을 불러오지 못했습니다. 새로고침해 주세요</p>
+              )}
+            </section>
+          )}
+
+          {message && <p role="alert" className="text-sm text-accent-strong">{message}</p>}
+          <button
+            type="button"
+            className="btn btn-primary btn-lg w-full"
+            disabled={busy || (useToss && widgetState !== "ready")}
+            onClick={pay}
+          >
             {busy ? "결제 처리 중" : `${won(b.totalAmount)} 결제하기`}
           </button>
-          <p className="text-center text-xs text-muted">
-            토스페이먼츠 결제창은 연결 전이라 테스트 결제로 승인됩니다
-          </p>
+          {!useToss && (
+            <p className="text-center text-xs text-muted">
+              {TOSS_CLIENT_KEY ? "연결된 서버가 없어 목 데이터로 결제를 승인합니다" : "토스 클라이언트 키가 없어 테스트 결제로 승인합니다"}
+            </p>
+          )}
         </>
       )}
     </div>

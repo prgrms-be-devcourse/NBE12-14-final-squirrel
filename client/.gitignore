@@ -39,6 +39,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# 키 이름만 적은 예시 파일은 올린다
-!.env.example
