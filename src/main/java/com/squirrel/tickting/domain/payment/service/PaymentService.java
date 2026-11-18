@@ -6,6 +6,9 @@ import com.squirrel.tickting.domain.payment.type.PaymentStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
+import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,7 +19,17 @@ public class PaymentService {
 
 	private static final String ORDER_ID_PREFIX = "BK";
 
+	/** 승인을 거친 결제 상태. 환불되면 결제 상태가 일부·전액 환불로 바뀌어도 승인 기록은 그대로 보여야 해서 함께 찾는다. */
+	private static final Set<PaymentStatus> APPROVED_STATUSES =
+		EnumSet.of(PaymentStatus.DONE, PaymentStatus.PARTIAL_CANCELED, PaymentStatus.CANCELED);
+
 	private final PaymentRepository paymentRepository;
+
+	/** 예매의 승인된 결제. 결제 대기·만료된 예매처럼 승인된 결제가 없으면 비어서 돌아온다. */
+	@Transactional(readOnly = true)
+	public Optional<Payment> findApproved(Long bookingId) {
+		return paymentRepository.findFirstByBookingIdAndStatusInOrderByIdDesc(bookingId, APPROVED_STATUSES);
+	}
 
 	/**
 	 * 결제 준비(READY) 건을 돌려준다. 이미 승인을 기다리는 준비 건이 있으면 새로 만들지 않고 그것을 그대로 돌려준다.

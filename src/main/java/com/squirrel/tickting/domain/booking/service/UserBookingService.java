@@ -1,12 +1,18 @@
 package com.squirrel.tickting.domain.booking.service;
 
+import com.squirrel.tickting.domain.booking.dto.UserBookingResponse;
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
+import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
 import com.squirrel.tickting.domain.booking.infra.repository.UserBookingRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -17,6 +23,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 예매자(User) 화면의 예매 조회. 예매 도메인을 예매 생성·취소(C)와 판매자 조회(A)가 함께 쓰므로,
@@ -30,17 +37,19 @@ public class UserBookingService {
 	private static final Sort LATEST = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"));
 
 	/**
-	 * 내 예매에 보이는 상태. 결제 대기(PENDING)는 결제 화면에서 이어 가는 진행 중 기록이고, 만료(EXPIRED)는 돈이 나가지 않은 무효 예매라 내역에서 뺀다.
+	 * 내 예매 목록에 보이는 상태. 만료(EXPIRED)는 돈이 나가지 않은 무효 예매라 내역에서 뺀다.
+	 * 결제 대기(PENDING)는 남긴다. 화면이 목록에서 결제 화면으로 이어 가게 해서, 7분 안에는 결제를 마저 할 수 있어야 하기 때문이다.
 	 * 화면에서 거르면 한 페이지에 보이는 개수와 전체 개수가 어긋나므로 조회할 때 거른다.
 	 */
-	private static final Set<BookingStatus> VISIBLE_STATUSES =
-		EnumSet.of(BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED, BookingStatus.CANCELED);
+	private static final Set<BookingStatus> VISIBLE_STATUSES = EnumSet.of(
+		BookingStatus.PENDING, BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED, BookingStatus.CANCELED);
 
 	private final UserBookingRepository userBookingRepository;
+	private final ObjectMapper objectMapper;
 
 	/**
 	 * 한 예매자의 예매 목록. 상태를 주지 않으면(null) 내 예매에 보이는 상태가 모두 나온다.
-	 * 보이지 않는 상태(PENDING, EXPIRED)를 고르면 400 이다. pageable 은 페이지 번호와 크기만 쓰고 정렬은 최신 예매순으로 고정한다.
+	 * 보이지 않는 상태(EXPIRED)를 고르면 400 이다. pageable 은 페이지 번호와 크기만 쓰고 정렬은 최신 예매순으로 고정한다.
 	 */
 	@Transactional(readOnly = true)
 	public Page<Booking> getMyBookings(Long userId, BookingStatus status, Pageable pageable) {
@@ -62,5 +71,33 @@ public class UserBookingService {
 			.collect(Collectors.toMap(
 				row -> row.get("bookingId", Long.class),
 				row -> row.get("seatCount", Long.class).intValue()));
+	}
+
+	/**
+	 * 내 예매 하나. 목록과 달리 상태와 상관없이 찾는다. (결제 화면이 결제 대기 예매를 읽고, 7분이 지나면 만료됐다고 보여 줘야 한다)
+	 * 남의 예매도 없는 예매와 같은 404 로 답해서 번호가 있는지 알려주지 않는다.
+	 */
+	@Transactional(readOnly = true)
+	public Booking getMyBooking(Long userId, Long bookingId) {
+		return userBookingRepository.findByIdAndUserId(bookingId, userId)
+			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
+	}
+
+	/** 예매한 좌석 전부. 취소된 좌석도 active=false 로 함께 보여 준다. */
+	@Transactional(readOnly = true)
+	public List<BookingSeat> getSeats(Long bookingId) {
+		return userBookingRepository.findSeats(bookingId);
+	}
+
+	/**
+	 * 예매할 때 복사해 둔 취소 규정 구간. 판매자가 나중에 규정을 바꿔도 이 예매는 예매 당시 규정을 따른다.
+	 * 공연에서 먼 구간부터(daysFrom 큰 순) 돌려준다.
+	 */
+	public List<UserBookingResponse.CancelRule> readCancelPolicy(Booking booking) {
+		UserBookingResponse.CancelRule[] rules =
+			objectMapper.readValue(booking.getCancelPolicySnapshot(), UserBookingResponse.CancelRule[].class);
+		return Arrays.stream(rules)
+			.sorted(Comparator.comparing(UserBookingResponse.CancelRule::daysFrom).reversed())
+			.toList();
 	}
 }
