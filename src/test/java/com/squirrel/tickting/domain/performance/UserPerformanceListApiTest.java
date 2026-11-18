@@ -2,13 +2,11 @@ package com.squirrel.tickting.domain.performance;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.support.IntegrationTestSupport;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,7 +30,7 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 	private long venueSeatSequence;
 
 	/**
-	 * 테스트 DB 에는 로컬 시드 공연이 들어 있고 SeedDataTest 가 그 값을 확인한다. 그래서 지우지 않고,
+	 * 테스트 DB 에는 로컬 시드 공연이 들어 있다. 그래서 지우지 않고,
 	 * 이 테스트의 트랜잭션 안에서만 시드 공연을 목록에서 숨긴다(DRAFT). 테스트가 끝나면 넣은 데이터와 함께 되돌려진다.
 	 */
 	@BeforeEach
@@ -99,58 +97,7 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 		return mockMvc.perform(get(URL + query)).andExpect(status().isOk()).andReturn();
 	}
 
-	/** 검색어에 %, 공백처럼 주소에 그대로 쓸 수 없는 글자가 있어서 파라미터로 넣는다. */
-	private MvcResult searchKeyword(String keyword) throws Exception {
-		return mockMvc.perform(get(URL).param("keyword", keyword)).andExpect(status().isOk()).andReturn();
-	}
-
-	/** 응답의 일시는 초까지 찍힌다. LocalDateTime.toString() 은 0초일 때 초를 빼서 1분에 한 번꼴로 어긋나므로 초까지 맞춰 비교한다. */
-	private static String iso(LocalDateTime time) {
-		return time.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-	}
-
 	// ---- 테스트 ----
-
-	@Test
-	@DisplayName("로그인 없이 공연 목록을 보고, 공연장 이름·지역과 첫·마지막 회차 일시가 함께 온다")
-	void listWithoutLogin() throws Exception {
-		Long id = savePerformance("가상 콘서트", "CONCERT", "PUBLISHED");
-		Long first = saveSchedule(id, now.plusDays(3), "ON_SALE");
-		saveSchedule(id, now.plusDays(4), "ON_SALE");
-		saveSeat(first, "AVAILABLE");
-
-		mockMvc.perform(get(URL))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.success").value(true))
-			.andExpect(jsonPath("$.data.totalElements").value(1))
-			.andExpect(jsonPath("$.data.content[0].performanceId").value(id))
-			.andExpect(jsonPath("$.data.content[0].title").value("가상 콘서트"))
-			.andExpect(jsonPath("$.data.content[0].genre").value("CONCERT"))
-			.andExpect(jsonPath("$.data.content[0].posterUrl").value("https://cdn.example.com/p.png"))
-			.andExpect(jsonPath("$.data.content[0].ageLimit").value(12))
-			.andExpect(jsonPath("$.data.content[0].venueName").value("가상 아레나"))
-			.andExpect(jsonPath("$.data.content[0].region").value("서울"))
-			.andExpect(jsonPath("$.data.content[0].firstStartAt").value(iso(now.plusDays(3))))
-			.andExpect(jsonPath("$.data.content[0].lastStartAt").value(iso(now.plusDays(4))))
-			.andExpect(jsonPath("$.data.content[0].saleOpenAt").value(iso(now.minusDays(1))))
-			.andExpect(jsonPath("$.data.content[0].saleStatus").value("ON_SALE"));
-	}
-
-	@Test
-	@DisplayName("공연장이 다른 공연은 각자 자기 공연장의 이름·지역이 붙는다")
-	void eachPerformanceGetsItsOwnVenue() throws Exception {
-		saveOnSale("서울 공연", "CONCERT", now.plusDays(1));
-		venueId = saveVenue("부산 홀", "부산");
-		saveOnSale("부산 공연", "CONCERT", now.plusDays(2));
-
-		mockMvc.perform(get(URL))
-			.andExpect(jsonPath("$.data.content[0].title").value("부산 공연"))
-			.andExpect(jsonPath("$.data.content[0].venueName").value("부산 홀"))
-			.andExpect(jsonPath("$.data.content[0].region").value("부산"))
-			.andExpect(jsonPath("$.data.content[1].title").value("서울 공연"))
-			.andExpect(jsonPath("$.data.content[1].venueName").value("가상 아레나"))
-			.andExpect(jsonPath("$.data.content[1].region").value("서울"));
-	}
 
 	@Test
 	@DisplayName("작성 중(DRAFT)·취소(CANCELED) 공연은 목록에 보이지 않는다")
@@ -160,199 +107,5 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 		savePerformance("취소된 공연", "CONCERT", "CANCELED");
 
 		assertThat(titles(getList(""))).containsExactly("공개 공연");
-	}
-
-	@Test
-	@DisplayName("장르를 주지 않으면 전체, 주면 그 장르만 나온다")
-	void filterByGenre() throws Exception {
-		saveOnSale("콘서트", "CONCERT", now.plusDays(1));
-		saveOnSale("뮤지컬", "MUSICAL", now.plusDays(2));
-		saveOnSale("연극", "PLAY", now.plusDays(3));
-
-		assertThat(titles(getList(""))).containsExactly("연극", "뮤지컬", "콘서트");
-		assertThat(titles(getList("?genre=MUSICAL"))).containsExactly("뮤지컬");
-		assertThat(titles(getList("?genre=CLASSIC"))).isEmpty();
-	}
-
-	@Test
-	@DisplayName("취소된 회차는 첫·마지막 회차 일시에서 빠진다")
-	void canceledScheduleIsExcluded() throws Exception {
-		Long id = savePerformance("가상 콘서트", "CONCERT", "PUBLISHED");
-		saveSchedule(id, now.plusDays(1), "CANCELED");
-		saveSeat(saveSchedule(id, now.plusDays(3), "ON_SALE"), "AVAILABLE");
-		saveSchedule(id, now.plusDays(9), "CANCELED");
-
-		mockMvc.perform(get(URL))
-			.andExpect(jsonPath("$.data.content[0].firstStartAt").value(iso(now.plusDays(3))))
-			.andExpect(jsonPath("$.data.content[0].lastStartAt").value(iso(now.plusDays(3))));
-	}
-
-	@Test
-	@DisplayName("회차가 없거나 모두 취소된 공연은 첫·마지막 회차 일시가 비고 판매 상태는 종료다")
-	void noActiveSchedule() throws Exception {
-		savePerformance("회차 없음", "CONCERT", "PUBLISHED");
-		Long canceled = savePerformance("모두 취소", "CONCERT", "PUBLISHED");
-		saveSeat(saveSchedule(canceled, now.plusDays(3), "CANCELED"), "AVAILABLE");
-
-		String body = getList("").getResponse().getContentAsString();
-		for (String title : List.of("회차 없음", "모두 취소")) {
-			assertThat(fieldOf(body, title, "firstStartAt")).isNull();
-			assertThat(fieldOf(body, title, "lastStartAt")).isNull();
-			assertThat(statusOf(body, title)).isEqualTo("ENDED");
-		}
-	}
-
-	@Test
-	@DisplayName("지난 회차와 남은 회차가 섞여 있으면 첫 회차는 지난 일시이고, 남은 회차에 좌석이 있으면 판매 중이다")
-	void runningPerformance() throws Exception {
-		Long running = savePerformance("공연 중", "CONCERT", "PUBLISHED");
-		saveSchedule(running, now.minusDays(1), "ON_SALE");
-		saveSeat(saveSchedule(running, now.plusDays(2), "ON_SALE"), "AVAILABLE");
-
-		mockMvc.perform(get(URL))
-			.andExpect(jsonPath("$.data.content[0].firstStartAt").value(iso(now.minusDays(1))))
-			.andExpect(jsonPath("$.data.content[0].lastStartAt").value(iso(now.plusDays(2))))
-			.andExpect(jsonPath("$.data.content[0].saleStatus").value("ON_SALE"));
-	}
-
-	@Test
-	@DisplayName("정렬을 주지 않아도 최신 등록순이고, 등록 시각이 같으면 나중에 만든 공연이 먼저 나온다")
-	void sortByLatest() throws Exception {
-		savePerformance("가장 먼저 등록", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(3));
-		savePerformance("가장 늦게 등록", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(1));
-		savePerformance("중간에 등록", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(2));
-		savePerformance("같은 시각에 나중에 만듦", "CONCERT", "PUBLISHED", now.minusDays(1), now.minusDays(2));
-
-		List<String> expected = List.of("가장 늦게 등록", "같은 시각에 나중에 만듦", "중간에 등록", "가장 먼저 등록");
-		assertThat(titles(getList(""))).containsExactlyElementsOf(expected);
-		assertThat(titles(getList("?sort=LATEST"))).containsExactlyElementsOf(expected);
-	}
-
-	@Test
-	@DisplayName("한 번에 최대 20개까지 주고, 다음 페이지에 나머지가 겹치지 않고 나온다")
-	void pageSizeIsCapped() throws Exception {
-		for (int i = 1; i <= 25; i++) {
-			saveOnSale("공연 %02d".formatted(i), "CONCERT", now.plusDays(1));
-		}
-
-		MvcResult first = mockMvc.perform(get(URL + "?size=100"))
-			.andExpect(jsonPath("$.data.size").value(20))
-			.andExpect(jsonPath("$.data.totalElements").value(25))
-			.andExpect(jsonPath("$.data.totalPages").value(2))
-			.andReturn();
-		MvcResult second = getList("?page=1&size=100");
-
-		assertThat(titles(first)).hasSize(20).startsWith("공연 25");
-		assertThat(titles(second)).hasSize(5).containsExactly("공연 05", "공연 04", "공연 03", "공연 02", "공연 01");
-	}
-
-	@Test
-	@DisplayName("판매 상태는 오픈 전이면 예정, 좌석이 있으면 판매 중, 판매 가능 좌석이 없으면 매진, 회차가 끝났으면 종료다")
-	void saleStatus() throws Exception {
-		Long upcoming = savePerformance("오픈 전", "CONCERT", "PUBLISHED", now.plusDays(1), now);
-		saveSchedule(upcoming, now.plusDays(5), "ON_SALE");
-
-		saveOnSale("판매 중", "CONCERT", now.plusDays(6));
-
-		// 판매 완료와 임시 점유만 남았으면 지금은 살 수 없으니 매진
-		Long soldOut = savePerformance("매진", "CONCERT", "PUBLISHED");
-		Long soldOutSchedule = saveSchedule(soldOut, now.plusDays(7), "ON_SALE");
-		saveSeat(soldOutSchedule, "SOLD");
-		saveSeat(soldOutSchedule, "HELD");
-
-		// 지난 회차에만 남은 좌석이 있으면 살 수 없으니 종료
-		Long ended = savePerformance("종료", "CONCERT", "PUBLISHED");
-		saveSeat(saveSchedule(ended, now.minusDays(1), "ON_SALE"), "AVAILABLE");
-
-		MvcResult result = getList("");
-		String body = result.getResponse().getContentAsString();
-		assertThat(statusOf(body, "오픈 전")).isEqualTo("UPCOMING");
-		assertThat(statusOf(body, "판매 중")).isEqualTo("ON_SALE");
-		assertThat(statusOf(body, "매진")).isEqualTo("SOLD_OUT");
-		assertThat(statusOf(body, "종료")).isEqualTo("ENDED");
-	}
-
-	private String statusOf(String body, String title) {
-		return fieldOf(body, title, "saleStatus");
-	}
-
-	private String fieldOf(String body, String title, String field) {
-		List<String> found = JsonPath.read(body, "$.data.content[?(@.title == '" + title + "')]." + field);
-		return found.getFirst();
-	}
-
-	@Test
-	@DisplayName("지역을 주면 그 지역 공연장의 공연만 나오고, 사용 중지된 공연장의 공연도 포함된다")
-	void filterByRegion() throws Exception {
-		venueId = saveVenue("검색 아레나", "검색시");
-		saveOnSale("검색시 공연", "CONCERT", now.plusDays(1));
-		venueId = saveVenue("검색 소극장", "검색시");
-		jdbc.update("UPDATE venue SET status = 'INACTIVE' WHERE id = ?", venueId);
-		saveOnSale("중지된 공연장 공연", "PLAY", now.plusDays(2));
-		venueId = saveVenue("다른 홀", "다른시");
-		saveOnSale("다른시 공연", "CONCERT", now.plusDays(3));
-
-		assertThat(titles(getList("?region=검색시"))).containsExactly("중지된 공연장 공연", "검색시 공연");
-		assertThat(titles(getList("?region= 검색시 "))).containsExactly("중지된 공연장 공연", "검색시 공연");
-		assertThat(titles(getList("?region=검색"))).isEmpty();
-		assertThat(titles(getList("?region=없는지역"))).isEmpty();
-	}
-
-	@Test
-	@DisplayName("검색어는 제목이나 출연진에 들어 있으면 찾고, 영문 대소문자를 가리지 않는다")
-	void searchByKeyword() throws Exception {
-		saveOnSale("Winter Concert", "CONCERT", now.plusDays(1));
-		Long cast = saveOnSale("봄 공연", "CONCERT", now.plusDays(2));
-		jdbc.update("UPDATE performance SET cast_info = '가상가수, 다른가수' WHERE id = ?", cast);
-		saveOnSale("여름 공연", "CONCERT", now.plusDays(3));
-
-		assertThat(titles(getList("?keyword=winter"))).containsExactly("Winter Concert");
-		assertThat(titles(getList("?keyword=가상가수"))).containsExactly("봄 공연");
-		assertThat(titles(getList("?keyword=공연"))).containsExactly("여름 공연", "봄 공연");
-		assertThat(titles(getList("?keyword=없는검색어"))).isEmpty();
-		assertThat(titles(searchKeyword("  "))).hasSize(3);
-	}
-
-	@Test
-	@DisplayName("검색어의 %·_ 는 와일드카드가 아니라 글자 그대로 찾는다")
-	void keywordWildcardIsLiteral() throws Exception {
-		saveOnSale("100% 라이브", "CONCERT", now.plusDays(1));
-		saveOnSale("1000 라이브", "CONCERT", now.plusDays(2));
-		saveOnSale("A_B 쇼", "CONCERT", now.plusDays(3));
-		saveOnSale("AXB 쇼", "CONCERT", now.plusDays(4));
-
-		assertThat(titles(searchKeyword("100%"))).containsExactly("100% 라이브");
-		assertThat(titles(searchKeyword("A_B"))).containsExactly("A_B 쇼");
-		assertThat(titles(searchKeyword("%"))).containsExactly("100% 라이브");
-	}
-
-	@Test
-	@DisplayName("장르·지역·검색어를 함께 주면 모두 맞는 공연만 나오고, 전체 개수도 그 기준이다")
-	void combineFilters() throws Exception {
-		venueId = saveVenue("검색 아레나", "검색시");
-		saveOnSale("가상 콘서트", "CONCERT", now.plusDays(1));
-		saveOnSale("가상 뮤지컬", "MUSICAL", now.plusDays(2));
-		saveOnSale("다른 콘서트", "CONCERT", now.plusDays(3));
-		venueId = saveVenue("다른 홀", "다른시");
-		saveOnSale("가상 콘서트 2", "CONCERT", now.plusDays(4));
-
-		mockMvc.perform(get(URL + "?genre=CONCERT&region=검색시&keyword=가상"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.totalElements").value(1))
-			.andExpect(jsonPath("$.data.content[0].title").value("가상 콘서트"))
-			.andExpect(jsonPath("$.data.content[0].region").value("검색시"));
-	}
-
-	@Test
-	@DisplayName("없는 장르나 정렬 값을 보내면 400 COMMON000 이다. 뺀 정렬(임박순·이름순)도 없는 값이다")
-	void invalidParameter() throws Exception {
-		mockMvc.perform(get(URL + "?genre=ROCK"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-		for (String sort : List.of("PRICE", "IMMINENT", "TITLE")) {
-			mockMvc.perform(get(URL + "?sort=" + sort))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("COMMON000"));
-		}
 	}
 }

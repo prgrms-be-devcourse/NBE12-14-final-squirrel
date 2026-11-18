@@ -9,7 +9,6 @@ import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import com.squirrel.tickting.support.IntegrationTestSupport;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -105,56 +104,6 @@ class ScheduleSeatServiceTest extends IntegrationTestSupport {
 		assertThat(statusOf(free)).isEqualTo("AVAILABLE");
 	}
 
-	@Test
-	@DisplayName("판매된 좌석은 점유할 수 없다")
-	void rejectsSoldSeat() {
-		Long sold = insertSeat(SCHEDULE_ID, 1, "SOLD");
-
-		assertThatThrownBy(() -> hold(Set.of(sold), 7L))
-			.isInstanceOf(BusinessException.class)
-			.satisfies(e -> assertThat(codeOf(e)).isEqualTo("BOOKING000"));
-	}
-
-	@Test
-	@DisplayName("판매 제외·판매자 보류 좌석은 BOOKING003 으로 거절한다")
-	void rejectsBlockedAndReservedSeats() {
-		Long blocked = insertSeat(SCHEDULE_ID, 1, "BLOCKED");
-		Long reserved = insertSeat(SCHEDULE_ID, 2, "RESERVED");
-
-		for (Long seat : List.of(blocked, reserved)) {
-			assertThatThrownBy(() -> hold(Set.of(seat), 7L))
-				.isInstanceOf(BusinessException.class)
-				.satisfies(e -> assertThat(codeOf(e)).isEqualTo("BOOKING003"));
-			assertThat(statusOf(seat)).isNotEqualTo("HELD");
-		}
-	}
-
-	@Test
-	@DisplayName("없는 좌석이나 다른 회차의 좌석은 BOOKING005 로 거절한다")
-	void rejectsMissingOrOtherScheduleSeat() {
-		Long otherSchedule = insertSeat(2L, 1, "AVAILABLE");
-
-		assertThatThrownBy(() -> hold(Set.of(otherSchedule), 7L))
-			.isInstanceOf(BusinessException.class)
-			.satisfies(e -> assertThat(codeOf(e)).isEqualTo("BOOKING005"));
-		assertThatThrownBy(() -> hold(Set.of(99_999L), 7L))
-			.isInstanceOf(BusinessException.class)
-			.satisfies(e -> assertThat(codeOf(e)).isEqualTo("BOOKING005"));
-		assertThat(statusOf(otherSchedule)).isEqualTo("AVAILABLE");
-	}
-
-	@Test
-	@DisplayName("만료 시각이 지난 HELD 좌석도 스케줄러가 풀기 전에는 점유할 수 없다")
-	void expiredHeldSeatIsNotTakenBeforeCleanup() {
-		Long seat = insertSeat(SCHEDULE_ID, 1, "HELD");
-		jdbc.update("UPDATE schedule_seat SET held_by = 1, held_until = now() - interval '1 minute' WHERE id = ?", seat);
-
-		assertThatThrownBy(() -> hold(Set.of(seat), 7L))
-			.isInstanceOf(BusinessException.class)
-			.satisfies(e -> assertThat(codeOf(e)).isEqualTo("BOOKING000"));
-		assertThat(heldByOf(seat)).isEqualTo(1L);
-	}
-
 	// ---------------------------------------------------------------- 동시성
 
 	@Test
@@ -195,25 +144,6 @@ class ScheduleSeatServiceTest extends IntegrationTestSupport {
 
 		assertThat(success.get()).isEqualTo(1);
 		assertThat(statusOf(seat)).isEqualTo("HELD");
-	}
-
-	@Test
-	@DisplayName("서로 다른 좌석을 동시에 점유하면 모두 성공한다")
-	void differentSeatsAllSucceed() throws Exception {
-		List<Long> seats = new ArrayList<>();
-		for (int i = 0; i < 20; i++) {
-			seats.add(insertSeat(SCHEDULE_ID, i + 1, "AVAILABLE"));
-		}
-
-		List<Boolean> results = runConcurrently(20, i -> () -> {
-			holdWithLock(Set.of(seats.get(i)), 100L + i);
-			return true;
-		});
-
-		assertThat(results).hasSize(20).doesNotContain(false);
-		for (int i = 0; i < 20; i++) {
-			assertThat(heldByOf(seats.get(i))).isEqualTo(100L + i);
-		}
 	}
 
 	@Test

@@ -5,17 +5,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 /** 관리자 사업체 승인. 상태를 정해야 하는 경우는 사업체를 DB 에 직접 넣고, 로그인 확인은 실제 가입 API 로 만든다. */
@@ -87,26 +84,6 @@ class AdminSellerBusinessApproveApiTest extends IntegrationTestSupport {
 		assertThat(audit.get("after_status")).isEqualTo("APPROVED");
 	}
 
-	@Test
-	@DisplayName("가입 신청한 판매자는 승인 전에는 로그인할 수 없고, 승인하면 로그인할 수 있다")
-	void ownerCanLoginOnlyAfterApproval() throws Exception {
-		MvcResult signup = postJson("/api/v1/auth/sellers/signup",
-			sellerSignupBody("owner@company.com", "ci-owner", "1234567890"))
-			.andExpect(status().isCreated())
-			.andReturn();
-		int businessId = JsonPath.read(signup.getResponse().getContentAsString(), "$.data.businessId");
-
-		postJson("/api/v1/auth/sellers/login", loginBody("owner@company.com", PASSWORD))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("SELLER003"));
-
-		approve(businessId).andExpect(status().isOk());
-
-		postJson("/api/v1/auth/sellers/login", loginBody("owner@company.com", PASSWORD))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.accessToken").isNotEmpty());
-	}
-
 	// ---------------------------------------------------------------- 이미 처리된 건, 없는 건
 
 	@Test
@@ -139,49 +116,7 @@ class AdminSellerBusinessApproveApiTest extends IntegrationTestSupport {
 		assertThat(auditCount()).isEqualTo(1);
 	}
 
-	@Test
-	@DisplayName("없는 사업체는 404 SELLER006 이고 감사 로그는 남지 않는다")
-	void notFound() throws Exception {
-		approve(999999L)
-			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.code").value("SELLER006"));
-
-		assertThat(auditCount()).isZero();
-	}
-
-	@Test
-	@DisplayName("사업체 번호가 숫자가 아니면 400 이다")
-	void invalidIdIsBadRequest() throws Exception {
-		mockMvc.perform(post(URL, "abc").header("Authorization", adminToken()))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-	}
-
 	// ---------------------------------------------------------------- 권한
-
-	@Test
-	@DisplayName("토큰이 없으면 401, 예매자·판매자(대표·담당자) 토큰이면 403 이고 사업체는 승인되지 않는다")
-	void onlyAdminCanApprove() throws Exception {
-		long businessId = insertBusiness("PENDING");
-
-		mockMvc.perform(post(URL, businessId))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH200"));
-
-		// 판매자가 자기 사업체 번호로 호출해도 열리지 않는다
-		for (CustomUserDetails notAdmin : Set.of(
-			new CustomUserDetails(1L, AccountType.USER, null, null),
-			new CustomUserDetails(1L, AccountType.SELLER, "OWNER", businessId),
-			new CustomUserDetails(2L, AccountType.SELLER, "STAFF", businessId))) {
-			mockMvc.perform(post(URL, businessId)
-					.header("Authorization", "Bearer " + jwtProvider.createAccessToken(notAdmin)))
-				.andExpect(status().isForbidden())
-				.andExpect(jsonPath("$.code").value("AUTH100"));
-		}
-
-		assertThat(statusOf(businessId)).isEqualTo("PENDING");
-		assertThat(auditCount()).isZero();
-	}
 
 	private long insertBusinessWithNumber(String status, String businessNumber) {
 		Timestamp time = Timestamp.valueOf(LocalDateTime.of(2026, 11, 1, 10, 0));

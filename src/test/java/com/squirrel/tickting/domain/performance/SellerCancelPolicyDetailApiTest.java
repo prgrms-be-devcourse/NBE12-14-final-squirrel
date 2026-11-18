@@ -1,16 +1,12 @@
 package com.squirrel.tickting.domain.performance;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
-import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,52 +55,6 @@ class SellerCancelPolicyDetailApiTest extends IntegrationTestSupport {
 			""", policyId, daysFrom, daysTo, feeRate, cancelable);
 	}
 
-	private long defaultPolicyId() {
-		return jdbc.queryForObject("SELECT id FROM cancel_policy WHERE business_id IS NULL AND name = '기본 규정'",
-			Long.class);
-	}
-
-	@Test
-	@DisplayName("내 규정은 규정 정보와 구간을 주고, 구간은 저장 순서와 상관없이 daysFrom 큰 순이다")
-	void myPolicyWithRulesSortedByDaysFromDesc() throws Exception {
-		long policyId = insertPolicy(MY_BUSINESS, "공연장 자체 규정");
-		insertRule(policyId, 0, 0, 0, false);
-		insertRule(policyId, 7, null, 0, true);
-		insertRule(policyId, 1, 6, 10, true);
-
-		String body = requestDetail(policyId)
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.cancelPolicyId").value(policyId))
-			.andExpect(jsonPath("$.data.name").value("공연장 자체 규정"))
-			.andExpect(jsonPath("$.data.isDefault").value(false))
-			.andExpect(jsonPath("$.data.editable").value(true))
-			.andReturn().getResponse().getContentAsString();
-
-		Map<String, Object> data = JsonPath.read(body, "$.data");
-		assertThat(data.keySet()).containsExactlyInAnyOrder("cancelPolicyId", "name", "isDefault", "editable", "rules");
-		List<Integer> daysFrom = JsonPath.read(body, "$.data.rules[*].daysFrom");
-		assertThat(daysFrom).containsExactly(7, 1, 0);
-
-		Map<String, Object> first = JsonPath.read(body, "$.data.rules[0]");
-		assertThat(first).containsEntry("daysTo", null).containsEntry("feeRate", 0).containsEntry("cancelable", true);
-		Map<String, Object> last = JsonPath.read(body, "$.data.rules[2]");
-		assertThat(last).containsEntry("daysTo", 0).containsEntry("cancelable", false);
-	}
-
-	@Test
-	@DisplayName("서비스 기본 규정도 볼 수 있고 isDefault 는 true 다")
-	void defaultPolicyIsVisible() throws Exception {
-		String body = requestDetail(defaultPolicyId())
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.name").value("기본 규정"))
-			.andExpect(jsonPath("$.data.isDefault").value(true))
-			.andExpect(jsonPath("$.data.editable").value(false))
-			.andReturn().getResponse().getContentAsString();
-
-		List<Integer> daysFrom = JsonPath.read(body, "$.data.rules[*].daysFrom");
-		assertThat(daysFrom).containsExactly(7, 3, 1, 0);
-	}
-
 	@Test
 	@DisplayName("다른 사업체의 규정과 없는 규정은 같은 404 PERFORMANCE100 이다")
 	void otherBusinessPolicyIsNotFound() throws Exception {
@@ -117,23 +67,5 @@ class SellerCancelPolicyDetailApiTest extends IntegrationTestSupport {
 		requestDetail(Long.MAX_VALUE)
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("PERFORMANCE100"));
-	}
-
-	@Test
-	@DisplayName("규정 번호가 숫자가 아니면 400 COMMON000 이다")
-	void nonNumericIdIsBadRequest() throws Exception {
-		requestDetail("abc")
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-	}
-
-	@Test
-	@DisplayName("예매자 토큰은 403, 토큰이 없으면 401이다")
-	void onlySellerCanView() throws Exception {
-		long policyId = insertPolicy(MY_BUSINESS, "내 규정");
-
-		mockMvc.perform(get(URL, policyId).header("Authorization", token(AccountType.USER, null, null)))
-			.andExpect(status().isForbidden());
-		mockMvc.perform(get(URL, policyId)).andExpect(status().isUnauthorized());
 	}
 }

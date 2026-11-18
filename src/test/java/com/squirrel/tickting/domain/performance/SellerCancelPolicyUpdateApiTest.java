@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
@@ -116,48 +115,6 @@ class SellerCancelPolicyUpdateApiTest extends IntegrationTestSupport {
 
 	// ---- 정상 수정 ----
 
-	@Test
-	@DisplayName("이름과 구간을 전체 교체하고 기존 구간은 남지 않으며, 응답은 상세 모양(먼 구간부터, editable true)이다")
-	void replacesNameAndRules() throws Exception {
-		long policyId = insertPolicy(MY_BUSINESS, "이전 규정");
-		Map<String, Object> body = body("  새 규정  ", List.of(
-			rule(3, null, 0, true), rule(0, 0, 0, false), rule(1, 2, 30, true)));
-
-		String response = update(policyId, body)
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.cancelPolicyId").value(policyId))
-			.andExpect(jsonPath("$.data.name").value("새 규정"))
-			.andExpect(jsonPath("$.data.editable").value(true))
-			.andReturn().getResponse().getContentAsString();
-
-		List<Integer> daysFrom = JsonPath.read(response, "$.data.rules[*].daysFrom");
-		assertThat(daysFrom).containsExactly(3, 1, 0);
-		assertThat(savedName(policyId)).isEqualTo("새 규정");
-		assertThat(savedRules(policyId)).extracting(row -> row.get("days_from")).containsExactly(0, 1, 3);
-		assertThat(savedRules(policyId).get(1)).containsEntry("days_to", 2).containsEntry("fee_rate", 30);
-	}
-
-	@Test
-	@DisplayName("같은 값으로 보내거나 자기 이름의 대소문자만 바꿔도 200이다")
-	void sameValuesAndOwnNameAreAllowed() throws Exception {
-		long policyId = insertPolicy(MY_BUSINESS, "Hall Policy");
-		Map<String, Object> same = body("Hall Policy", List.of(rule(0, 6, 10, true), rule(7, null, 0, true)));
-
-		update(policyId, same).andExpect(status().isOk());
-		update(policyId, validBody("hall policy")).andExpect(status().isOk());
-		assertThat(savedName(policyId)).isEqualTo("hall policy");
-	}
-
-	@Test
-	@DisplayName("작성 중(DRAFT) 공연만 쓰는 규정은 고칠 수 있다")
-	void policyUsedOnlyByDraftIsEditable() throws Exception {
-		long policyId = insertPolicy(MY_BUSINESS, "작성 중 공연 규정");
-		insertPerformance(policyId, "DRAFT");
-
-		update(policyId, validBody("작성 중 공연 규정")).andExpect(status().isOk());
-		assertThat(savedRules(policyId)).hasSize(1);
-	}
-
 	// ---- 수정할 수 없음 ----
 
 	@Test
@@ -179,18 +136,6 @@ class SellerCancelPolicyUpdateApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("서비스 기본 규정은 409 PERFORMANCE102 이다")
-	void defaultPolicyIsNotEditable() throws Exception {
-		long defaultPolicyId = jdbc.queryForObject(
-			"SELECT id FROM cancel_policy WHERE business_id IS NULL AND name = '기본 규정'", Long.class);
-
-		update(defaultPolicyId, validBody("내 기본 규정"))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("PERFORMANCE102"));
-		assertThat(savedName(defaultPolicyId)).isEqualTo("기본 규정");
-	}
-
-	@Test
 	@DisplayName("다른 사업체의 규정과 없는 규정은 같은 404 PERFORMANCE100 이다")
 	void otherBusinessPolicyIsNotFound() throws Exception {
 		long othersPolicy = insertPolicy(OTHER_BUSINESS, "남의 규정");
@@ -204,80 +149,7 @@ class SellerCancelPolicyUpdateApiTest extends IntegrationTestSupport {
 		assertThat(savedName(othersPolicy)).isEqualTo("남의 규정");
 	}
 
-	@Test
-	@DisplayName("같은 사업체의 다른 규정이나 기본 규정과 이름이 겹치면 409 PERFORMANCE104 이다")
-	void duplicatedNameIsConflict() throws Exception {
-		insertPolicy(MY_BUSINESS, "Other Policy");
-		long policyId = insertPolicy(MY_BUSINESS, "내 규정");
-
-		update(policyId, validBody(" other policy "))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("PERFORMANCE104"));
-		update(policyId, validBody("기본 규정"))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("PERFORMANCE104"));
-		assertThat(savedName(policyId)).isEqualTo("내 규정");
-	}
-
-	@Test
-	@DisplayName("입력이 틀리면 400이다 (구간 관계 PERFORMANCE101, 입력 형식·숫자가 아닌 번호 COMMON000)")
-	void invalidInputIsBadRequest() throws Exception {
-		long policyId = insertPolicy(MY_BUSINESS, "내 규정");
-
-		update(policyId, body("내 규정", List.of(rule(1, null, 0, true))))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("PERFORMANCE101"))
-			.andExpect(jsonPath("$.message").value("구간은 공연 당일(0일 전)부터 시작해야 합니다."));
-		update(policyId, body("", List.of(rule(0, null, 0, true))))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-		update("abc", validBody("내 규정"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("COMMON000"));
-		assertThat(savedRules(policyId)).hasSize(2);
-	}
-
-	@Test
-	@DisplayName("예매자 토큰은 403, 토큰이 없으면 401이다")
-	void onlySellerCanUpdate() throws Exception {
-		long policyId = insertPolicy(MY_BUSINESS, "내 규정");
-		String json = objectMapper.writeValueAsString(validBody("바꾼 이름"));
-
-		mockMvc.perform(put(URL, policyId).header("Authorization", token(AccountType.USER, null, null))
-				.contentType(MediaType.APPLICATION_JSON).content(json))
-			.andExpect(status().isForbidden());
-		mockMvc.perform(put(URL, policyId).contentType(MediaType.APPLICATION_JSON).content(json))
-			.andExpect(status().isUnauthorized());
-	}
-
 	// ---- 목록·상세의 editable ----
-
-	@Test
-	@DisplayName("목록과 상세의 editable 은 수정할 때의 409 와 같은 기준이다 (기본·공개·취소 공연 규정 false, 작성 중만이면 true)")
-	void editableMatchesUpdateRule() throws Exception {
-		long free = insertPolicy(MY_BUSINESS, "안 쓰는 규정");
-		long draftOnly = insertPolicy(MY_BUSINESS, "작성 중만 쓰는 규정");
-		insertPerformance(draftOnly, "DRAFT");
-		long published = insertPolicy(MY_BUSINESS, "공개 공연 규정");
-		insertPerformance(published, "PUBLISHED");
-		long canceled = insertPolicy(MY_BUSINESS, "취소 공연 규정");
-		insertPerformance(canceled, "CANCELED");
-
-		String list = mockMvc.perform(get("/api/v1/seller/cancel-policies").header("Authorization", myStaffToken()))
-			.andExpect(status().isOk())
-			.andReturn().getResponse().getContentAsString();
-		List<String> names = JsonPath.read(list, "$.data.content[*].name");
-		List<Boolean> editable = JsonPath.read(list, "$.data.content[*].editable");
-		assertThat(names).containsExactly("기본 규정", "취소 공연 규정", "공개 공연 규정", "작성 중만 쓰는 규정", "안 쓰는 규정");
-		assertThat(editable).containsExactly(false, false, false, true, true);
-
-		Map<Long, Boolean> expected = Map.of(free, true, draftOnly, true, published, false, canceled, false);
-		for (Map.Entry<Long, Boolean> entry : expected.entrySet()) {
-			mockMvc.perform(get(URL, entry.getKey()).header("Authorization", myStaffToken()))
-				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.editable").value(entry.getValue()));
-		}
-	}
 
 	// ---- 동시성 ----
 

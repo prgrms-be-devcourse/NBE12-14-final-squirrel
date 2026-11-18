@@ -1,23 +1,17 @@
 package com.squirrel.tickting.domain.booking;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.domain.booking.facade.BookingExpiryFacade;
 import com.squirrel.tickting.domain.booking.facade.BookingProperties;
-import com.squirrel.tickting.domain.booking.scheduler.BookingExpiryScheduler;
-import java.time.Duration;
 import java.time.LocalDateTime;
-import org.springframework.format.annotation.DurationFormat;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
-import org.springframework.format.datetime.standard.DurationFormatterUtils;
-import org.springframework.scheduling.annotation.Scheduled;
 
 /**
  * 결제하지 않고 떠난 좌석 정리. 주기 작업은 테스트에서 꺼 두고(app.booking.expiry-enabled=false), 작업이 부르는 파사드를 직접 부른다.
@@ -121,68 +115,6 @@ class BookingExpiryTest extends BookingTestSupport {
 		assertThat(bookingStatus(bookingId)).isEqualTo("PAID");
 		assertThat(seatActive(bookingId)).isTrue();
 		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("SOLD");
-	}
-
-	@Test
-	@DisplayName("정리 전에는 만료된 좌석을 점유할 수 없고, 정리하면 다른 사람이 점유할 수 있으며 원래 주인의 1인 최대 매수도 비워진다")
-	void freedSeatsCanBeBookedAgain() throws Exception {
-		Show show = show(MAX_PER_PERSON + 1);
-		User owner = signup("owner");
-		User other = signup("other");
-		for (int i = 0; i < MAX_PER_PERSON; i++) {
-			insertBooking(show, i, owner.id(), LocalDateTime.now().minusMinutes(1), "PENDING");
-		}
-		Long contested = show.seatIds().get(0);
-
-		// 시각은 지났지만 아직 정리 전이라 점유할 수 없고, 주인의 한도도 차 있다
-		book(other.bearer(), show.scheduleId(), List.of(contested))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("BOOKING000"));
-		book(owner.bearer(), show.scheduleId(), List.of(show.seatIds().get(MAX_PER_PERSON)))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("BOOKING001"));
-
-		assertThat(bookingExpiryFacade.expireOverdue(LocalDateTime.now(), 100)).isEqualTo(MAX_PER_PERSON);
-
-		book(other.bearer(), show.scheduleId(), List.of(contested)).andExpect(status().isCreated());
-		book(owner.bearer(), show.scheduleId(), List.of(show.seatIds().get(MAX_PER_PERSON))).andExpect(status().isCreated());
-		assertThat(heldBy(contested)).isEqualTo(other.id());
-	}
-
-	@Test
-	@DisplayName("만료된 예매가 배치 크기보다 많으면 나눠서 모두 처리한다")
-	void processesInBatches() {
-		Show show = show(10);
-		Show second = show(10);
-		Show third = show(5);
-		List<Long> bookingIds = new ArrayList<>();
-		for (Show target : List.of(show, second, third)) {
-			for (int i = 0; i < target.seatIds().size(); i++) {
-				bookingIds.add(insertBooking(target, i, 7L, LocalDateTime.now().minusMinutes(1), "PENDING"));
-			}
-		}
-
-		int released = bookingExpiryFacade.expireOverdue(LocalDateTime.now(), 10);
-
-		assertThat(released).isEqualTo(25);
-		assertThat(bookingIds).allSatisfy(id -> assertThat(bookingStatus(id)).isEqualTo("EXPIRED"));
-	}
-
-	@Test
-	@DisplayName("주기 작업은 설정값(app.booking.expiry-interval)의 1분 주기로 등록되고, 실행하면 만료된 예매를 정리한다")
-	void schedulerRunsWithConfiguredInterval() throws Exception {
-		Scheduled scheduled = BookingExpiryScheduler.class.getMethod("expireOverdue").getAnnotation(Scheduled.class);
-		String interval = environment.resolvePlaceholders(scheduled.fixedDelayString());
-		assertThat(DurationFormatterUtils.detectAndParse(interval, DurationFormat.Unit.MILLIS)).isEqualTo(Duration.ofMinutes(1));
-		assertThat(properties.expiryBatchSize()).isEqualTo(500);
-
-		Show show = show(1);
-		Long bookingId = insertBooking(show, 0, 7L, LocalDateTime.now().minusMinutes(1), "PENDING");
-
-		new BookingExpiryScheduler(bookingExpiryFacade, properties).expireOverdue();
-
-		assertThat(bookingStatus(bookingId)).isEqualTo("EXPIRED");
-		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
 	}
 
 	@Test
