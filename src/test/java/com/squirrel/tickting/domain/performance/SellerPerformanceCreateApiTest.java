@@ -309,13 +309,25 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("포스터·이미지 주소는 http 주소도 받는다")
-	void httpUrlAccepted() throws Exception {
+	@DisplayName("포스터·이미지 주소는 우리 저장소 주소만 받는다 (http 와 다른 사이트 주소는 400)")
+	void onlyOurImageUrlAccepted() throws Exception {
 		Long venueId = insertVenue("ACTIVE", 1);
-		Map<String, Object> body = requiredBody(venueId, defaultPolicyId());
-		body.put("posterUrl", "http://cdn.example.com/posters/12.jpg");
-		body.put("images", List.of(Map.of("url", "http://cdn.example.com/details/12-1.jpg", "sortOrder", 1)));
-		register(staffToken(), body).andExpect(status().isCreated());
+		for (String url : List.of("http://cdn.example.com/posters/12.jpg", "https://other.example.com/posters/12.jpg",
+			"https://cdn.example.com.evil.com/posters/12.jpg")) {
+			Map<String, Object> poster = requiredBody(venueId, defaultPolicyId());
+			poster.put("posterUrl", url);
+			expectBadRequest(poster, "COMMON000");
+
+			Map<String, Object> image = requiredBody(venueId, defaultPolicyId());
+			image.put("images", List.of(Map.of("url", url, "sortOrder", 1)));
+			expectBadRequest(image, "COMMON000");
+		}
+		assertThat(countPerformances()).isZero();
+
+		Map<String, Object> ok = requiredBody(venueId, defaultPolicyId());
+		ok.put("posterUrl", "https://cdn.example.com/public/poster/seller-31/3f2a.jpg");
+		ok.put("images", List.of(Map.of("url", "https://cdn.example.com/public/detail/seller-31/8c1d.jpg", "sortOrder", 1)));
+		register(staffToken(), ok).andExpect(status().isCreated());
 	}
 
 	@Test
