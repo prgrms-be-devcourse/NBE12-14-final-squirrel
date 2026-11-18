@@ -28,4 +28,7 @@ public interface VenueSeatRepository extends JpaRepository<VenueSeat, Long> {
 	/** 번호로 좌석을 읽으면서 구역도 함께 읽는다. 좌석마다 구역을 다시 조회하지 않게 한다. */
 	@Query("SELECT s FROM VenueSeat s JOIN FETCH s.zone WHERE s.id IN :ids")
 	List<VenueSeat> findAllWithZone(@Param("ids") Collection<Long> ids);
+
+	/** 구역의 모든 좌석. 구역 안의 표시 순서(sort_order)이고 같으면 번호순이다. */
+	List<VenueSeat> findByZoneIdOrderBySortOrderAscIdAsc(Long zoneId);
 }
