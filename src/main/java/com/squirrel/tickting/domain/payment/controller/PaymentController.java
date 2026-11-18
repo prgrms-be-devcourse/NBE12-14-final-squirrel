@@ -37,4 +37,17 @@ public class PaymentController {
 		PaymentResponse.Prepared prepared = paymentFacade.prepare(account.getId(), bookingId, request);
 		return ResponseEntity.ok(ApiResponse.success(prepared));
 	}
+
+	/** 결제 금액은 요청으로 받은 값을 믿지 않는다. 서버가 저장한 금액과 비교만 하고 토스에도 저장한 금액을 보낸다. */
+	@Operation(summary = "결제 승인",
+		description = "토스 결제창이 성공한 뒤 paymentKey·orderId·amount 로 호출한다. 검증 → 토스 승인 → 예매 결제 완료(PAID)·좌석 판매 완료(SOLD)."
+			+ " 토스 통신 오류로 승인 여부를 모르면 502 이고, 결제는 승인 중으로 남아 서버가 확정한다.")
+	@PostMapping("/payments/confirm")
+	public ResponseEntity<ApiResponse<PaymentResponse.Confirmed>> confirm(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@Valid @RequestBody PaymentRequest.Confirm request
+	) {
+		PaymentResponse.Confirmed confirmed = paymentFacade.confirm(account.getId(), request);
+		return ResponseEntity.ok(ApiResponse.success(confirmed));
+	}
 }
