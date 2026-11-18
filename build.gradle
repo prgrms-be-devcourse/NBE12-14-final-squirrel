@@ -27,6 +27,8 @@ dependencies {
 	implementation 'org.redisson:redisson:4.8.0'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	// 외부 API(토스 등)를 부르는 RestClient 를 쓰기 위한 자동 설정. Spring Boot 4 부터 webmvc 스타터에 들어 있지 않다.
+	implementation 'org.springframework.boot:spring-boot-starter-restclient'
 	implementation 'org.flywaydb:flyway-database-postgresql'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
