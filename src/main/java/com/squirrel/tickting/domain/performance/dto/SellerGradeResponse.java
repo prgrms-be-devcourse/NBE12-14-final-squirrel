@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.performance.dto;
 
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
+import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -31,12 +32,10 @@ public class SellerGradeResponse {
 	public record Grade(
 		@Schema(description = "등급 번호")
 		Long gradeId,
-		@Schema(description = "등급명", example = "VIP석")
-		String name,
+		@Schema(description = "등급 코드. 화면 이름과 색은 프론트가 정한다", example = "VIP")
+		SeatGradeName name,
 		@Schema(description = "가격(원)", example = "165000")
-		Integer price,
-		@Schema(description = "좌석도 색", example = "#E8503A")
-		String color
+		Integer price
 	) {
 
 		public static Grade from(SeatGrade grade) {
@@ -44,7 +43,6 @@ public class SellerGradeResponse {
 				.gradeId(grade.getId())
 				.name(grade.getName())
 				.price(grade.getPrice())
-				.color(grade.getColor())
 				.build();
 		}
 	}

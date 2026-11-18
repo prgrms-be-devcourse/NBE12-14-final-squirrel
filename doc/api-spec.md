@@ -91,7 +91,7 @@
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
-| SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 미구현 |
+| SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 구현됨 |
 | SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 미구현 |
 | SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 미구현 |
 | SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 미구현 |
@@ -558,7 +558,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
   - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
   - 일시 중지(`PAUSED`)·연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다.
-- `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다.
+- `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다. `name`은 등급 코드(SLR-08의 표)이고 화면 이름과 색은 프론트가 정합니다.
 - `cancelPolicy`: 공연이 고른 취소 규정의 구간입니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
 - `venue`·`seller`는 정보가 없으면 `null`, `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다.
 - `seller`에는 사업체 상태·반려 사유·심사자와 판매자 계정 정보가 들어가지 않습니다. (3부 3-8)
@@ -610,9 +610,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
     "grades": [
       {
         "gradeId": 20,
-        "name": "VIP석",
-        "price": 165000,
-        "color": "#E8503A"
+        "name": "VIP",
+        "price": 165000
       }
     ],
     "cancelPolicy": [
@@ -682,8 +681,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
         "zoneId": 12,
         "name": "F2구역",
         "floor": "1층",
-        "grade": "R석",
-        "color": "#F2994A",
+        "grade": "R",
         "price": 154000,
         "remaining": 38,
         "total": 220
@@ -693,7 +691,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 }
 ```
 
-`INTENTIONALLY_UNSOLD` 구역은 `grade`·`color`·`price`가 `null`이고 판매 제외입니다. 공개 공연에는 `UNSET` 구역이 없습니다. (혹시 있으면 판매하지 않는 구역과 같이 `null`)
+`grade`는 등급 코드(SLR-08의 표)이고 화면 이름과 색은 프론트가 정합니다. `INTENTIONALLY_UNSOLD` 구역은 `grade`·`price`가 `null`이고 판매 제외입니다. 공개 공연에는 `UNSET` 구역이 없습니다. (혹시 있으면 판매하지 않는 구역과 같이 `null`)
 
 **에러**: 404 `PERFORMANCE200` 볼 수 없는 회차(없음, 공개되지 않은 공연, 취소된 회차) · 400 `COMMON000` 회차 번호가 숫자가 아님
 
@@ -747,6 +745,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 좌석 점유(7분)와 `PENDING` 예매 생성은 한 트랜잭션.
 
+- `gradeName`: 예매할 때의 등급 코드(SLR-08의 표)를 그대로 저장한 값입니다. 화면 이름은 프론트가 정합니다.
+
 **요청**
 
 ```json
@@ -771,7 +771,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
         "zoneName": "F2구역",
         "rowLabel": "9열",
         "seatNumber": "6",
-        "gradeName": "R석",
+        "gradeName": "R",
         "price": 154000,
         "bookingFee": 2000
       },
@@ -780,7 +780,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
         "zoneName": "F2구역",
         "rowLabel": "9열",
         "seatNumber": "7",
-        "gradeName": "R석",
+        "gradeName": "R",
         "price": 154000,
         "bookingFee": 2000
       }
@@ -983,7 +983,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED/EXPIRED`), `page`, `size
         "zoneName": "F2구역",
         "rowLabel": "9열",
         "seatNumber": "6",
-        "gradeName": "R석",
+        "gradeName": "R",
         "price": 154000,
         "bookingFee": 2000,
         "active": true,
@@ -1228,7 +1228,7 @@ Body 없음. `DRAFT` → `PUBLISHED`.
 }
 ```
 
-**에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환) · 400 `ASSIGNED` 구역 없음(모든 구역이 의도적 미판매)
+**에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환) · 400 `ASSIGNED` 구역 없음(모든 구역이 의도적 미판매) · 409 `PERFORMANCE303` 전석(`ALL`)과 다른 등급이 함께 구역에 지정됨
 
 ### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances` (구현됨)
 
@@ -1337,9 +1337,8 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
     "grades": [
       {
         "gradeId": 20,
-        "name": "VIP석",
-        "price": 165000,
-        "color": "#E8503A"
+        "name": "VIP",
+        "price": 165000
       }
     ],
     "zones": [
@@ -1377,6 +1376,16 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 - `locked`: 판매 좌석이 생성되어 등급·가격·구역 설정을 수정할 수 없는 상태입니다. 취소(`CANCELED`)되지 않은 회차 중 하나라도 판매 좌석을 만들었으면(`seats_generated_at`이 있음) `true`입니다. 가격은 좌석을 만들 때 복사되므로 일부 회차만 만든 상태에서 고치면 회차끼리 가격이 어긋나기 때문입니다. 취소된 회차는 더 팔리지 않고 환불은 예매 때 저장한 가격으로 해서 세지 않습니다. SLR-09·10·11의 "좌석 생성 후라 수정 불가"(409)도 같은 기준입니다.
 - `grades`: 가격 높은 순, 가격이 같으면 번호순입니다. 등급이 없으면 빈 배열입니다.
+- `name`: 등급 코드입니다(아래 표). 서버는 코드만 내리고, 화면에 보이는 이름("VIP석")과 색은 프론트가 코드마다 정합니다. 코드는 추가만 하고 이름을 바꾸거나 지우지 않습니다(이미 저장된 코드를 프론트가 계속 보여 줄 수 있게). 프론트는 모르는 코드가 오면 코드를 그대로 보여 줍니다.
+
+| 코드 | 표시 예 | 코드 | 표시 예 |
+| --- | --- | --- | --- |
+| `VIP` | VIP석 | `OP` | OP석 |
+| `R` | R석 | `VIEW_LIMITED` | 시야제한석 |
+| `S` | S석 | `ALL` | 전석 |
+| `A` | A석 | `STANDING` | 스탠딩석 |
+| `B` | B석 | `VIP_STANDING` | VIP 스탠딩석 |
+| `C` | C석 | `RESERVED` | 지정석 |
 - `zones`: 공연의 구역 설정(`zone_grade`) 행마다 하나씩, 공연장 구역 순서(`sortOrder`)순(같으면 구역 번호순)입니다. `gradeId`는 `ASSIGNED`일 때만 있고 나머지는 `null`입니다.
 
 **에러**: 404 `PERFORMANCE000` 다른 사업체의 공연이거나 없는 공연 (번호가 있는지 알려주지 않으려고 같은 404)
@@ -1384,16 +1393,16 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 ### SLR-09 등급 추가 — `POST /api/v1/seller/performances/{performanceId}/grades` (구현됨)
 
 - 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 공연당 등급 개수의 상한은 없습니다.
-- `name`: 필수, 공백만은 안 됨, 앞뒤 공백을 지우고 저장, 최대 50자. 같은 공연 안에서 **대소문자와 공백(띄어쓰기·탭·줄바꿈·전각 공백·NBSP)을 무시하면 같은 이름**이면 409입니다(`R 석`·`r석`·`R석`은 같은 이름). 저장·표시는 입력한 그대로이고 앞뒤 공백(NBSP·전각 포함)만 지웁니다.
+- `name`: 필수, SLR-08의 등급 코드 중 하나. 목록에 없는 값은 400입니다. 같은 공연에는 같은 등급을 하나만 둘 수 있어서, 이미 있는 등급이면 409입니다.
 - `price`: 필수, 0원 이상 10,000,000원 이하(임시). 0원은 무료 좌석입니다.
-- `color`: 선택, `#RRGGBB`(6자리 16진수, 대소문자 모두 허용). 빼거나 공백만 보내면 색 없음(`null`)입니다.
+- 전석(`ALL`)은 다른 등급과 함께 만들어 둘 수 있습니다. 새 등급은 아직 어느 구역에도 지정되지 않아 예매자 화면에 보이지 않기 때문입니다. 전석과 다른 등급이 **함께 구역에 지정되는 것**은 SLR-10·11·04에서 막습니다(409 `PERFORMANCE303`).
 - 취소되지 않은 회차 중 하나라도 판매 좌석을 만들었으면(SLR-08의 `locked`) 추가할 수 없습니다.
-- 판정 순서: 입력 형식 400 → 공연 404 → 취소된 공연 409 → 등급명 중복 409 → `locked` 409. 다른 사업체의 공연은 취소·`locked` 상태와 상관없이 404입니다.
+- 판정 순서: 입력 형식 400 → 공연 404 → 취소된 공연 409 → 같은 등급 409 → `locked` 409. 다른 사업체의 공연은 취소·`locked` 상태와 상관없이 404입니다.
 
 **요청**
 
 ```json
-{ "name": "R석", "price": 154000, "color": "#F2994A" }
+{ "name": "R", "price": 154000 }
 ```
 
 **응답 201**
@@ -1405,18 +1414,25 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
   "message": "",
   "data": {
     "gradeId": 21,
-    "name": "R석",
-    "price": 154000,
-    "color": "#F2994A"
+    "name": "R",
+    "price": 154000
   }
 }
 ```
 
-**에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 등급명 중복 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가
+**에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 같은 등급이 이미 있음 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가
 
-### SLR-10 등급 수정 — `PUT /api/v1/seller/performances/{performanceId}/grades/{gradeId}`
+### SLR-10 등급 수정 — `PUT /api/v1/seller/performances/{performanceId}/grades/{gradeId}` (구현됨)
 
-요청은 SLR-09와 같은 필드.
+요청은 SLR-09와 같은 필드이고 입력 규칙도 같습니다.
+
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
+- 등급과 가격을 **전체 교체**합니다.
+- 자기 등급 그대로(가격만 바꾸는 경우 포함)는 200입니다. 같은 공연의 **다른 등급**과 같은 등급으로 바꾸면 409입니다.
+- 구역에 지정된(`ASSIGNED`) 등급을 전석(`ALL`)으로 바꾸거나 전석을 다른 등급으로 바꿔서, 전석과 다른 등급이 함께 구역에 지정되면 409 `PERFORMANCE303`입니다. 구역에 지정되지 않은 등급은 예매자 화면에 보이지 않아 검사하지 않습니다.
+- 경로의 공연에 속한 등급만 고칠 수 있습니다. 같은 사업체의 다른 공연 등급도 404입니다.
+- 판정 순서: 입력 형식 400 → 공연 404 → 취소된 공연 409 → 등급 404 → 같은 등급 409 → 전석 섞임 409 → `locked` 409. 다른 사업체의 공연은 취소·`locked` 상태와 상관없이 404입니다.
+- 가격을 고치는 순간 판매 좌석 생성이 고치기 전 가격을 복사하지 않도록 공연 단위 락(`performance:{공연 번호}`)을 잡습니다. 1초 안에 못 잡으면 409 `COMMON004`(잠시 후 다시 시도)입니다.
 
 **응답 200**
 
@@ -1427,18 +1443,19 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
   "message": "",
   "data": {
     "gradeId": 21,
-    "name": "R석",
-    "price": 150000,
-    "color": "#F2994A"
+    "name": "R",
+    "price": 150000
   }
 }
 ```
 
-**에러**(코드 미정): 404 등급 없음 · 409 좌석 생성 후라 수정 불가
+**에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 404 `PERFORMANCE300` 없는 등급·이 공연의 등급이 아님 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 같은 등급이 이미 있음 · 409 `PERFORMANCE303` 전석과 다른 등급이 함께 지정됨 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가 · 409 `COMMON004` 락 대기 초과
 
 ### SLR-11 구역별 상태·등급 설정 — `PATCH /api/v1/seller/performances/{performanceId}/zone-grades`
 
 요청에 포함된 구역만 변경합니다. 빠진 구역은 기존 상태를 유지합니다. `ASSIGNED`는 `gradeId`가 필요하고, `INTENTIONALLY_UNSOLD`와 `UNSET`은 `gradeId: null`로 보냅니다. 의도적 미판매와 아직 설정하지 않은 상태를 구분합니다.
+
+전석(`ALL`)과 다른 등급이 함께 `ASSIGNED`로 지정되면 409 `PERFORMANCE303`입니다. 구역 하나씩이 아니라 **요청을 적용한 뒤의 최종 상태**(요청에 없는 구역 포함)로 판단합니다. 그래서 R석·S석 구역을 한 요청에 모두 전석으로 바꾸는 것은 됩니다.
 
 **요청**
 
@@ -1464,9 +1481,8 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
     "grades": [
       {
         "gradeId": 21,
-        "name": "R석",
-        "price": 154000,
-        "color": "#F2994A"
+        "name": "R",
+        "price": 154000
       }
     ],
     "zones": [
@@ -1493,7 +1509,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**(코드 미정): 400 다른 공연장의 구역 · 400 다른 공연의 등급 · 400 상태와 `gradeId` 조합 오류 · 409 좌석 생성 후라 수정 불가
+**에러**(코드 미정): 400 다른 공연장의 구역 · 400 다른 공연의 등급 · 400 상태와 `gradeId` 조합 오류 · 409 `PERFORMANCE303` 전석과 다른 등급이 함께 지정됨 · 409 좌석 생성 후라 수정 불가
 
 ### SLR-12 회차 추가 — `POST /api/v1/seller/performances/{performanceId}/schedules`
 

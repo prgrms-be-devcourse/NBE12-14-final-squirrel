@@ -90,7 +90,7 @@ class UserPerformanceDetailApiTest extends IntegrationTestSupport {
 
 	private Long saveGrade(Long performanceId, String name, int price) {
 		return jdbc.queryForObject("""
-			INSERT INTO seat_grade (performance_id, name, price, color) VALUES (?, ?, ?, '#E8503A') RETURNING id
+			INSERT INTO seat_grade (performance_id, name, price) VALUES (?, ?, ?) RETURNING id
 			""", Long.class, performanceId, name, price);
 	}
 
@@ -218,9 +218,9 @@ class UserPerformanceDetailApiTest extends IntegrationTestSupport {
 	@DisplayName("등급은 구역에 지정된 것만 비싼 순으로 한 번씩 나온다")
 	void onlyAssignedGrades() throws Exception {
 		Long id = savePerformance("PUBLISHED");
-		Long rGrade = saveGrade(id, "R석", 154_000);
-		Long vipGrade = saveGrade(id, "VIP석", 165_000);
-		saveGrade(id, "S석", 132_000);
+		Long rGrade = saveGrade(id, "R", 154_000);
+		Long vipGrade = saveGrade(id, "VIP", 165_000);
+		saveGrade(id, "S", 132_000);
 		assignZone(id, rGrade);
 		assignZone(id, rGrade);
 		assignZone(id, vipGrade);
@@ -229,9 +229,8 @@ class UserPerformanceDetailApiTest extends IntegrationTestSupport {
 		mockMvc.perform(get(URL + id))
 			.andExpect(jsonPath("$.data.grades.length()").value(2))
 			.andExpect(jsonPath("$.data.grades[0].gradeId").value(vipGrade))
-			.andExpect(jsonPath("$.data.grades[0].name").value("VIP석"))
+			.andExpect(jsonPath("$.data.grades[0].name").value("VIP"))
 			.andExpect(jsonPath("$.data.grades[0].price").value(165_000))
-			.andExpect(jsonPath("$.data.grades[0].color").value("#E8503A"))
 			.andExpect(jsonPath("$.data.grades[1].gradeId").value(rGrade));
 	}
 

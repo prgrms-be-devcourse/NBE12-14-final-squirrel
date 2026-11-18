@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.performance.infra.repository;
 
+import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,4 +15,13 @@ public interface ZoneGradeRepository extends JpaRepository<ZoneGrade, Long> {
 	 */
 	@Query("SELECT z FROM ZoneGrade z LEFT JOIN FETCH z.grade WHERE z.performance.id = :performanceId")
 	List<ZoneGrade> findAllWithGradeByPerformanceId(@Param("performanceId") Long performanceId);
+
+	/** 구역에 지정(ASSIGNED)된 등급. 전석과 다른 등급이 함께 지정되는지 보는 데 쓴다. (여러 구역에 붙은 등급도 한 번) */
+	@Query("""
+		SELECT DISTINCT zg.grade
+		FROM ZoneGrade zg
+		WHERE zg.performance.id = :performanceId
+		  AND zg.assignmentStatus = com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus.ASSIGNED
+		""")
+	List<SeatGrade> findAssignedGrades(@Param("performanceId") Long performanceId);
 }
