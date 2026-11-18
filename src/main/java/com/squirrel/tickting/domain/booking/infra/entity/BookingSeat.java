@@ -32,7 +32,7 @@ public class BookingSeat {
 	private Long id;
 
 	/** 예매 번호 (booking) */
-	@Column(nullable = false)
+	@Column(name = "booking_id", nullable = false)
 	private Long bookingId;
 
 	/** 판매 좌석 번호 (schedule_seat). 끝난 회차의 좌석을 지우면 비게 된다. */

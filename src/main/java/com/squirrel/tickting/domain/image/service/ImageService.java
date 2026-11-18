@@ -8,7 +8,6 @@ import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.s3.S3Uploader;
 import com.squirrel.tickting.global.security.AccountType;
 import java.io.IOException;
-import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,12 +23,6 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class ImageService {
 
-	/** 허용하는 파일 형식과 저장할 확장자. gif 는 용량이 커지기 쉬워서 받지 않는다. */
-	private static final Map<String, String> ALLOWED_TYPES = Map.of(
-		"image/jpeg", "jpg",
-		"image/png", "png",
-		"image/webp", "webp");
-
 	/** 10MB. application.yaml 의 spring.servlet.multipart.max-file-size 와 같은 값이다. */
 	private static final long MAX_SIZE = 10L * 1024 * 1024;
 
@@ -44,7 +37,7 @@ public class ImageService {
 			throw new BusinessException(CommonExceptionCode.INVALID_INPUT, "이미지 파일을 선택해 주세요.");
 		}
 		// 형식은 요청이 보낸 값이라 완전히 믿을 수는 없다. 그래도 S3 에 이 값으로 저장되어 브라우저는 그 형식으로만 읽는다.
-		String extension = file.getContentType() == null ? null : ALLOWED_TYPES.get(file.getContentType());
+		String extension = extensionOf(file.getContentType());
 		if (extension == null) {
 			throw new BusinessException(CommonExceptionCode.INVALID_INPUT, "jpg, png, webp 형식의 이미지만 올릴 수 있습니다.");
 		}
@@ -59,5 +52,18 @@ public class ImageService {
 		} catch (IOException e) {
 			throw new BusinessException(CommonExceptionCode.INTERNAL_ERROR);
 		}
+	}
+
+	/** 허용하는 파일 형식의 확장자. 그 밖의 형식은 null 이다. gif 는 용량이 커지기 쉬워서 받지 않는다. */
+	private static String extensionOf(String contentType) {
+		if (contentType == null) {
+			return null;
+		}
+		return switch (contentType) {
+			case "image/jpeg" -> "jpg";
+			case "image/png" -> "png";
+			case "image/webp" -> "webp";
+			default -> null;
+		};
 	}
 }

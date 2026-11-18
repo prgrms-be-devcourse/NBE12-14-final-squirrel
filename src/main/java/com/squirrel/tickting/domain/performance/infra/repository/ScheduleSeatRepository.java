@@ -11,8 +11,21 @@ import org.springframework.data.repository.query.Param;
 
 public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long> {
 
-	/** 한 회차 안에서 번호로 좌석을 찾는다. 다른 회차의 좌석은 걸러진다. */
-	List<ScheduleSeat> findByScheduleIdAndIdIn(Long scheduleId, Collection<Long> ids);
+	/**
+	 * 한 회차 안에서 번호로 좌석을 찾는다. 다른 회차의 좌석은 걸러진다.
+	 * 점유할 좌석을 구역·열·번호(공연장 좌석)와 등급까지 함께 읽는다. 점유한 좌석을 예매에 복사할 때 좌석마다 다시 조회하지 않게 한다.
+	 * 공연장 좌석·등급 행이 없는 이상한 데이터도 좌석은 그대로 나오도록 LEFT JOIN 이다.
+	 */
+	@Query("""
+		SELECT s
+		FROM ScheduleSeat s
+		LEFT JOIN FETCH s.venueSeat vs
+		LEFT JOIN FETCH vs.zone
+		LEFT JOIN FETCH s.grade
+		WHERE s.scheduleId = :scheduleId
+		  AND s.id IN :ids
+		""")
+	List<ScheduleSeat> findWithLocationByScheduleIdAndIdIn(@Param("scheduleId") Long scheduleId, @Param("ids") Collection<Long> ids);
 
 	/**
 	 * 점유할 수 있는(AVAILABLE) 좌석만 HELD 로 바꾸고 바뀐 행 수를 돌려준다.

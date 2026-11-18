@@ -1,7 +1,7 @@
 package com.squirrel.tickting.domain.performance.controller;
 
 import com.squirrel.tickting.domain.performance.dto.UserPerformanceResponse;
-import com.squirrel.tickting.domain.performance.facade.UserPerformanceFacade;
+import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserScheduleSeatController {
 
 	/** 구역 이름·좌석 수는 공연장 서비스에서 받아 붙여야 해서 파사드를 부른다. */
-	private final UserPerformanceFacade userPerformanceFacade;
+	private final UserPerformanceService userPerformanceService;
 
 	@Operation(summary = "구역 요약",
 		description = "회차의 구역별 등급·가격과 잔여석을 공연장의 화면 순서대로 준다. 공개된 공연의 취소되지 않은 회차만 볼 수 있고 그 밖은 404 다. "
@@ -34,7 +34,7 @@ public class UserScheduleSeatController {
 		@Parameter(description = "회차 번호")
 		@PathVariable Long scheduleId
 	) {
-		UserPerformanceResponse.ZoneSummary response = userPerformanceFacade.getZoneSummary(scheduleId);
+		UserPerformanceResponse.ZoneSummary response = userPerformanceService.getZoneSummary(scheduleId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
@@ -48,7 +48,7 @@ public class UserScheduleSeatController {
 		@Parameter(description = "구역 번호")
 		@PathVariable Long zoneId
 	) {
-		UserPerformanceResponse.ZoneSeats response = userPerformanceFacade.getZoneSeats(scheduleId, zoneId);
+		UserPerformanceResponse.ZoneSeats response = userPerformanceService.getZoneSeats(scheduleId, zoneId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

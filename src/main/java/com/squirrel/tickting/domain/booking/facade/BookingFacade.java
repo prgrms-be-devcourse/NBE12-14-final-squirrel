@@ -7,26 +7,23 @@ import com.squirrel.tickting.domain.booking.service.BookingService;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
 import com.squirrel.tickting.domain.performance.service.ScheduleService;
 import com.squirrel.tickting.domain.performance.service.ScheduleService.BookableSchedule;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import com.squirrel.tickting.domain.user.service.UserMemberService;
-import com.squirrel.tickting.domain.venue.service.VenueService;
-import com.squirrel.tickting.domain.venue.service.VenueService.SeatLocation;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -48,7 +45,6 @@ public class BookingFacade {
 	private final BookingProperties properties;
 	private final ScheduleService scheduleService;
 	private final ScheduleSeatService scheduleSeatService;
-	private final VenueService venueService;
 	private final UserMemberService userMemberService;
 	private final BookingService bookingService;
 
@@ -91,15 +87,13 @@ public class BookingFacade {
 
 		LocalDateTime expiresAt = now.plus(properties.holdDuration());
 		List<ScheduleSeat> held = scheduleSeatService.holdSeats(scheduleId, seatIds, userId, now, expiresAt);
-		Map<Long, ScheduleSeat> heldById = held.stream().collect(Collectors.toMap(ScheduleSeat::getId, Function.identity()));
-		Map<Long, SeatLocation> locations = venueService.getSeatLocations(
-			held.stream().map(ScheduleSeat::getVenueSeatId).toList());
 		UserMember user = userMemberService.getMe(userId);
 
-		// 응답의 좌석 순서는 요청한 순서를 따른다
-		List<BookingCreateCommand.SeatLine> lines = seatIds.stream()
-			.map(heldById::get)
-			.map(seat -> toLine(seat, locations.get(seat.getVenueSeatId()), schedule.gradeNames()))
+		// 응답의 좌석 순서는 요청한 순서를 따른다. (좌석은 최대 몇 장이라 목록에서 순서를 찾아도 부담이 없다)
+		List<Long> requestedOrder = List.copyOf(seatIds);
+		List<BookingCreateCommand.SeatLine> lines = held.stream()
+			.sorted(Comparator.comparingInt(seat -> requestedOrder.indexOf(seat.getId())))
+			.map(BookingFacade::toLine)
 			.toList();
 
 		return bookingService.create(new BookingCreateCommand(
@@ -120,10 +114,14 @@ public class BookingFacade {
 			expiresAt));
 	}
 
-	private static BookingCreateCommand.SeatLine toLine(ScheduleSeat seat, SeatLocation location,
-		Map<Long, String> gradeNames) {
-		return new BookingCreateCommand.SeatLine(seat.getId(), location.zoneName(), location.rowLabel(),
-			location.seatNumber(), gradeNames.get(seat.getGradeId()), seat.getPrice());
+	/**
+	 * 예매에는 점유한 좌석의 위치와 등급을 문자열로 복사해 둔다. (공연장·등급이 나중에 바뀌어도 예매 당시 그대로 보이게)
+	 * 구역·열·번호는 좌석의 공연장 좌석 연관에서, 등급은 좌석의 등급 연관에서 꺼낸다. 등급은 코드를 그대로 저장하고 화면 이름은 프론트가 정한다.
+	 */
+	private static BookingCreateCommand.SeatLine toLine(ScheduleSeat seat) {
+		VenueSeat venueSeat = seat.getVenueSeat();
+		return new BookingCreateCommand.SeatLine(seat.getId(), venueSeat.getZone().getName(), venueSeat.getRowLabel(),
+			venueSeat.getSeatNumber(), seat.getGrade().getName().name(), seat.getPrice());
 	}
 
 	/** 점유할 때는 수령 방법을 정하지 않아서 기본값을 넣고, 결제 준비 때 확정한다. 배송만 되는 공연이 아니면 현장 수령이다. */

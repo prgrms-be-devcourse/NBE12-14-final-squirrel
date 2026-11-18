@@ -1,11 +1,8 @@
 package com.squirrel.tickting.domain.booking.infra.repository;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
-import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
-import jakarta.persistence.Tuple;
 import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -41,22 +38,6 @@ public interface UserBookingRepository extends Repository<Booking, Long> {
 		Pageable pageable
 	);
 
-	/**
-	 * 예매별 좌석 수. 취소된 좌석도 센다. (처음 예매한 좌석 수라서 처음 결제 금액 total_amount 와 기준이 같다)
-	 * 결과 타입을 따로 만들지 않고 JPA 의 Tuple 로 받는다. (별칭 bookingId, seatCount)
-	 */
-	@Query("""
-		SELECT bs.bookingId AS bookingId, COUNT(bs) AS seatCount
-		FROM BookingSeat bs
-		WHERE bs.bookingId IN :bookingIds
-		GROUP BY bs.bookingId
-		""")
-	List<Tuple> countSeats(@Param("bookingIds") Collection<Long> bookingIds);
-
 	/** 한 예매자의 예매 하나. 회원 번호를 조건에 넣어서 남의 예매는 없는 것처럼 비어서 돌아온다. */
 	Optional<Booking> findByIdAndUserId(Long id, Long userId);
-
-	/** 예매한 좌석 전부(취소된 좌석 포함). 예매한 순서대로 보여 주려고 번호순으로 읽는다. */
-	@Query("SELECT bs FROM BookingSeat bs WHERE bs.bookingId = :bookingId ORDER BY bs.id")
-	List<BookingSeat> findSeats(@Param("bookingId") Long bookingId);
 }

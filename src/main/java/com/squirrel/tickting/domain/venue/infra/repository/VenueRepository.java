@@ -2,7 +2,6 @@ package com.squirrel.tickting.domain.venue.infra.repository;
 
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
 import com.squirrel.tickting.domain.venue.type.VenueStatus;
-import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -44,7 +43,4 @@ public interface VenueRepository extends JpaRepository<Venue, Long> {
 		@Param("pattern") String pattern,
 		Pageable pageable
 	);
-
-	/** 지역이 정확히 같은 공연장. 사용 중지된 공연장도 포함한다. (예매자 공연 목록의 지역 검색) */
-	List<Venue> findAllByRegion(String region);
 }

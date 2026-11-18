@@ -11,6 +11,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import lombok.Builder;
 
@@ -44,16 +45,19 @@ public class UserBookingResponse {
 		LocalDateTime createdAt
 	) {
 
-		/** 공연·회차는 논리 FK 라 행이 없을 수 있다. 없으면 그 값만 비우고(null) 예매 내역은 그대로 보여 준다. */
-		public static Summary from(Booking booking, int seatCount, Performance performance, PerformanceSchedule schedule) {
+		/**
+		 * 공연·회차·좌석 수는 예매의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다.
+		 * 회차는 연기되면 바뀐 일시가 보이도록 예매 때 복사하지 않고 지금 값을 읽는다. 공연이 취소돼도 예매 내역에는 제목이 남는다.
+		 */
+		public static Summary from(Booking booking) {
 			return Summary.builder()
 				.bookingId(booking.getId())
 				.bookingNo(booking.getBookingNo())
 				.status(booking.getStatus())
-				.performanceTitle(performance == null ? null : performance.getTitle())
-				.posterUrl(performance == null ? null : performance.getPosterUrl())
-				.scheduleStartAt(schedule == null ? null : schedule.getStartAt())
-				.seatCount(seatCount)
+				.performanceTitle(booking.getPerformance().getTitle())
+				.posterUrl(booking.getPerformance().getPosterUrl())
+				.scheduleStartAt(booking.getSchedule().getStartAt())
+				.seatCount(booking.getBookingSeats().size())
 				.totalAmount(booking.getTotalAmount())
 				.createdAt(booking.getCreatedAt())
 				.build();
@@ -73,9 +77,9 @@ public class UserBookingResponse {
 		String bookingNo,
 		@Schema(description = "예매 상태")
 		BookingStatus status,
-		@Schema(description = "공연. 공연 정보가 없으면 번호만 있고 나머지는 null")
+		@Schema(description = "공연")
 		PerformanceInfo performance,
-		@Schema(description = "회차. 회차 정보가 없으면 번호만 있고 나머지는 null")
+		@Schema(description = "회차. 연기되면 바뀐 일시")
 		ScheduleInfo schedule,
 		@Schema(description = "수령 방법")
 		ReceiveMethod receiveType,
@@ -109,28 +113,36 @@ public class UserBookingResponse {
 		LocalDateTime canceledAt
 	) {
 
-		/** 공연·회차는 논리 FK 라 행이 없을 수 있다. 화면이 객체를 바로 읽으므로 객체는 두고 번호만 채운다. */
-		public static Detail from(Booking booking, List<BookingSeat> seats, List<CancelRule> cancelPolicy,
-			Performance performance, PerformanceSchedule schedule, Payment payment) {
+		/** 공연·회차·좌석·결제는 예매의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
+		public static Detail from(Booking booking, List<CancelRule> cancelPolicy) {
 			return Detail.builder()
 				.bookingId(booking.getId())
 				.bookingNo(booking.getBookingNo())
 				.status(booking.getStatus())
-				.performance(PerformanceInfo.from(booking.getPerformanceId(), performance))
-				.schedule(ScheduleInfo.from(booking.getScheduleId(), schedule))
+				.performance(PerformanceInfo.from(booking.getPerformance()))
+				.schedule(ScheduleInfo.from(booking.getSchedule()))
 				.receiveType(booking.getReceiveType())
 				.orderer(new Orderer(booking.getOrdererName(), booking.getOrdererPhone(), booking.getOrdererEmail()))
 				.delivery(booking.getReceiveType() == ReceiveMethod.DELIVERY ? Delivery.from(booking) : null)
-				.seats(seats.stream().map(Seat::from).toList())
+				.seats(booking.getBookingSeats().stream().map(Seat::from).toList())
 				.ticketAmount(booking.getTicketAmount())
 				.bookingFeeAmount(booking.getBookingFeeAmount())
 				.totalAmount(booking.getTotalAmount())
-				.payment(payment == null ? null : PaymentInfo.from(payment))
+				.payment(approvedPayment(booking))
 				.cancelPolicy(cancelPolicy)
 				.expiresAt(booking.getStatus() == BookingStatus.PENDING ? booking.getExpiresAt() : null)
 				.createdAt(booking.getCreatedAt())
 				.canceledAt(booking.getCanceledAt())
 				.build();
+		}
+
+		/** 승인된 결제 중 가장 최근 것. 결제 대기·만료된 예매처럼 승인된 결제가 없으면 null 이다. */
+		private static PaymentInfo approvedPayment(Booking booking) {
+			return booking.getPayments().stream()
+				.filter(payment -> payment.getStatus().isApproved())
+				.max(Comparator.comparing(Payment::getId))
+				.map(PaymentInfo::from)
+				.orElse(null);
 		}
 	}
 
@@ -142,10 +154,8 @@ public class UserBookingResponse {
 		String posterUrl
 	) {
 
-		static PerformanceInfo from(Long performanceId, Performance performance) {
-			return performance == null
-				? new PerformanceInfo(performanceId, null, null)
-				: new PerformanceInfo(performanceId, performance.getTitle(), performance.getPosterUrl());
+		static PerformanceInfo from(Performance performance) {
+			return new PerformanceInfo(performance.getId(), performance.getTitle(), performance.getPosterUrl());
 		}
 	}
 
@@ -156,10 +166,8 @@ public class UserBookingResponse {
 		ScheduleStatus status
 	) {
 
-		static ScheduleInfo from(Long scheduleId, PerformanceSchedule schedule) {
-			return schedule == null
-				? new ScheduleInfo(scheduleId, null, null)
-				: new ScheduleInfo(scheduleId, schedule.getStartAt(), schedule.getStatus());
+		static ScheduleInfo from(PerformanceSchedule schedule) {
+			return new ScheduleInfo(schedule.getId(), schedule.getStartAt(), schedule.getStatus());
 		}
 	}
 

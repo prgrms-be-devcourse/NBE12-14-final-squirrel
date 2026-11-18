@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.facade.SellerPerformanceFacade;
 import com.squirrel.tickting.domain.performance.service.GradeService;
+import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
@@ -42,6 +43,7 @@ public class SellerPerformanceController {
 	private static final int MAX_PAGE_SIZE = 20;
 
 	private final SellerPerformanceFacade sellerPerformanceFacade;
+	private final SellerPerformanceService sellerPerformanceService;
 	private final GradeService gradeService;
 
 	/** 사업체 번호를 경로나 쿼리로 받지 않고 토큰에서 꺼낸다. 받으면 남의 사업체 번호를 넣어 볼 수 있기 때문이다. */
@@ -60,7 +62,7 @@ public class SellerPerformanceController {
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
 		PageResponse<SellerPerformanceResponse.Summary> response = PageResponse.from(
-			sellerPerformanceFacade.getList(account.getBusinessId(), status, pageRequest));
+			sellerPerformanceService.searchMine(account.getBusinessId(), status, pageRequest));
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
@@ -86,7 +88,7 @@ public class SellerPerformanceController {
 		@AuthenticationPrincipal CustomUserDetails account,
 		@PathVariable Long performanceId
 	) {
-		SellerPerformanceResponse.Detail response = sellerPerformanceFacade.getDetail(account.getBusinessId(),
+		SellerPerformanceResponse.Detail response = sellerPerformanceService.getMine(account.getBusinessId(),
 			performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
@@ -101,7 +103,7 @@ public class SellerPerformanceController {
 		@AuthenticationPrincipal CustomUserDetails account,
 		@PathVariable Long performanceId
 	) {
-		SellerGradeResponse.Overview response = sellerPerformanceFacade.getGrades(account.getBusinessId(),
+		SellerGradeResponse.Overview response = gradeService.getOverview(account.getBusinessId(),
 			performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
@@ -153,7 +155,7 @@ public class SellerPerformanceController {
 		@PathVariable Long performanceId,
 		@Valid @RequestBody SellerGradeRequest.ZoneAssign request
 	) {
-		SellerGradeResponse.Overview response = sellerPerformanceFacade.updateZoneGrades(account.getBusinessId(),
+		SellerGradeResponse.Overview response = gradeService.updateZoneGrades(account.getBusinessId(),
 			performanceId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}

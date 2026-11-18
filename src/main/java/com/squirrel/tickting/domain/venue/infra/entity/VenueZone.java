@@ -14,6 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Formula;
 
 /** 공연장 구역. 가격과 등급을 구역 단위로 정하고, 좌석 조회도 구역 요약 → 구역 상세 2단계로 한다. */
 @Entity
@@ -42,4 +43,8 @@ public class VenueZone {
 	/** 화면에 보여줄 순서 */
 	@Column(nullable = false)
 	private Integer sortOrder;
+
+	/** 구역의 전체 좌석 수. 좌석 행을 읽지 않고 구역을 읽을 때 함께 센다. (읽기 전용) */
+	@Formula("(SELECT COUNT(*) FROM venue_seat vs WHERE vs.zone_id = id)")
+	private Long seatCount;
 }

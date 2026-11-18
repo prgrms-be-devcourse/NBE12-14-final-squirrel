@@ -16,7 +16,4 @@ public interface VenueZoneRepository extends JpaRepository<VenueZone, Long> {
 		ORDER BY z.sortOrder, z.id
 		""")
 	List<Long> findIdsByVenueId(@Param("venueId") Long venueId);
-
-	/** 공연장의 모든 구역. (idx_venue_zone_venue 를 탄다) */
-	List<VenueZone> findByVenueId(Long venueId);
 }

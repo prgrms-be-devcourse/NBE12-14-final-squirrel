@@ -2,7 +2,6 @@ package com.squirrel.tickting.domain.booking.service;
 
 import com.squirrel.tickting.domain.booking.dto.UserBookingResponse;
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
-import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
 import com.squirrel.tickting.domain.booking.infra.repository.UserBookingRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
@@ -13,9 +12,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -27,7 +24,8 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * 예매자(User) 화면의 예매 조회. 예매 도메인을 예매 생성·취소(C)와 판매자 조회(A)가 함께 쓰므로,
- * 같은 파일을 동시에 고치지 않게 역할 이름을 붙여 나눈다. 공연 제목·회차 일시는 공연 도메인이라 파사드가 붙인다.
+ * 같은 파일을 동시에 고치지 않게 역할 이름을 붙여 나눈다.
+ * 공연 제목·회차 일시·좌석·결제는 예매의 읽기 전용 연관에서 꺼내므로, 지연 로딩이 되도록 응답을 이 트랜잭션 안에서 만든다.
  */
 @Service
 @RequiredArgsConstructor
@@ -52,25 +50,13 @@ public class UserBookingService {
 	 * 보이지 않는 상태(EXPIRED)를 고르면 400 이다. pageable 은 페이지 번호와 크기만 쓰고 정렬은 최신 예매순으로 고정한다.
 	 */
 	@Transactional(readOnly = true)
-	public Page<Booking> getMyBookings(Long userId, BookingStatus status, Pageable pageable) {
+	public Page<UserBookingResponse.Summary> getMyBookings(Long userId, BookingStatus status, Pageable pageable) {
 		if (status != null && !VISIBLE_STATUSES.contains(status)) {
 			throw new BusinessException(CommonExceptionCode.INVALID_INPUT);
 		}
 		Collection<BookingStatus> statuses = status == null ? VISIBLE_STATUSES : EnumSet.of(status);
 		Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST);
-		return userBookingRepository.findMine(userId, statuses, sorted);
-	}
-
-	/** 예매 번호 → 처음 예매한 좌석 수(취소된 좌석 포함). 목록 한 페이지의 예매를 한 번에 센다. */
-	@Transactional(readOnly = true)
-	public Map<Long, Integer> countSeats(Collection<Long> bookingIds) {
-		if (bookingIds.isEmpty()) {
-			return Map.of();
-		}
-		return userBookingRepository.countSeats(bookingIds).stream()
-			.collect(Collectors.toMap(
-				row -> row.get("bookingId", Long.class),
-				row -> row.get("seatCount", Long.class).intValue()));
+		return userBookingRepository.findMine(userId, statuses, sorted).map(UserBookingResponse.Summary::from);
 	}
 
 	/**
@@ -78,22 +64,17 @@ public class UserBookingService {
 	 * 남의 예매도 없는 예매와 같은 404 로 답해서 번호가 있는지 알려주지 않는다.
 	 */
 	@Transactional(readOnly = true)
-	public Booking getMyBooking(Long userId, Long bookingId) {
-		return userBookingRepository.findByIdAndUserId(bookingId, userId)
+	public UserBookingResponse.Detail getMyBooking(Long userId, Long bookingId) {
+		Booking booking = userBookingRepository.findByIdAndUserId(bookingId, userId)
 			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
-	}
-
-	/** 예매한 좌석 전부. 취소된 좌석도 active=false 로 함께 보여 준다. */
-	@Transactional(readOnly = true)
-	public List<BookingSeat> getSeats(Long bookingId) {
-		return userBookingRepository.findSeats(bookingId);
+		return UserBookingResponse.Detail.from(booking, readCancelPolicy(booking));
 	}
 
 	/**
 	 * 예매할 때 복사해 둔 취소 규정 구간. 판매자가 나중에 규정을 바꿔도 이 예매는 예매 당시 규정을 따른다.
 	 * 공연에서 먼 구간부터(daysFrom 큰 순) 돌려준다.
 	 */
-	public List<UserBookingResponse.CancelRule> readCancelPolicy(Booking booking) {
+	private List<UserBookingResponse.CancelRule> readCancelPolicy(Booking booking) {
 		UserBookingResponse.CancelRule[] rules =
 			objectMapper.readValue(booking.getCancelPolicySnapshot(), UserBookingResponse.CancelRule[].class);
 		return Arrays.stream(rules)

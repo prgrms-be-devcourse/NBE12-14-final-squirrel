@@ -63,14 +63,15 @@ public class SellerPerformanceResponse {
 		LocalDateTime createdAt
 	) {
 
-		public static Summary from(Performance performance, String venueName, long scheduleCount) {
+		/** 공연장명과 회차 수는 공연의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
+		public static Summary from(Performance performance) {
 			return Summary.builder()
 				.performanceId(performance.getId())
 				.title(performance.getTitle())
 				.status(performance.getStatus())
 				.posterUrl(performance.getPosterUrl())
-				.venueName(venueName)
-				.scheduleCount(scheduleCount)
+				.venueName(performance.getVenue().getName())
+				.scheduleCount(performance.getSchedules().size())
 				.createdAt(performance.getCreatedAt())
 				.build();
 		}
@@ -124,12 +125,12 @@ public class SellerPerformanceResponse {
 		LocalDateTime updatedAt
 	) {
 
-		public static Detail from(PerformanceDetail detail, String venueName) {
+		public static Detail from(PerformanceDetail detail) {
 			Performance performance = detail.performance();
 			return Detail.builder()
 				.performanceId(performance.getId())
 				.status(performance.getStatus())
-				.venue(new Venue(performance.getVenueId(), venueName))
+				.venue(new Venue(performance.getVenueId(), performance.getVenue().getName()))
 				.title(performance.getTitle())
 				.genre(performance.getGenre())
 				.ageLimit(performance.getAgeLimit())

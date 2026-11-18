@@ -1,14 +1,20 @@
 package com.squirrel.tickting.domain.performance.infra.entity;
 
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
 import jakarta.persistence.Column;
+import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -42,16 +48,28 @@ public class ScheduleSeat {
 	private Long scheduleId;
 
 	/** 복사해 온 원본 좌석 번호 (venue_seat) */
-	@Column(nullable = false)
+	@Column(name = "venue_seat_id", nullable = false)
 	private Long venueSeatId;
+
+	/** 읽기 전용 연관. 구역 좌석 조회가 열·번호를 바로 꺼내 쓰려는 것이다. 저장·점유는 venueSeatId 를 쓴다. */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "venue_seat_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private VenueSeat venueSeat;
 
 	/** 구역별 조회를 조인 없이 하려고 복사해 둔 구역 번호 (venue_zone) */
 	@Column(nullable = false)
 	private Long zoneId;
 
 	/** 등급 번호 (seat_grade). 판매 제외 좌석은 비어 있다. */
-	@Column
+	@Column(name = "grade_id")
 	private Long gradeId;
+
+	/** 읽기 전용 연관. 예매에 등급 이름을 복사할 때 쓴다. 판매 제외 좌석은 비어 있다. 점유·저장은 gradeId 를 쓴다. */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "grade_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private SeatGrade grade;
 
 	/** 등급 가격을 복사한 값. 판매 제외 좌석은 비어 있다. */
 	@Column

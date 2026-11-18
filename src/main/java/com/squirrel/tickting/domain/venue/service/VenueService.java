@@ -1,20 +1,13 @@
 package com.squirrel.tickting.domain.venue.service;
 
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
-import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
-import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueRepository;
-import com.squirrel.tickting.domain.venue.infra.repository.VenueSeatRepository;
 import com.squirrel.tickting.domain.venue.infra.repository.VenueZoneRepository;
 import com.squirrel.tickting.domain.venue.type.VenueStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.VenueExceptionCode;
 import com.squirrel.tickting.global.util.LikeUtil;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,7 +20,6 @@ public class VenueService {
 
 	private final VenueRepository venueRepository;
 	private final VenueZoneRepository venueZoneRepository;
-	private final VenueSeatRepository venueSeatRepository;
 
 	/**
 	 * 판매자가 공연을 등록할 때 고르는 공연장 목록. 사용 중인 공연장만, 이름순으로 준다.
@@ -39,51 +31,6 @@ public class VenueService {
 		// 지역이 없으면 쿼리가 "모든 지역"으로 읽도록 null 대신 빈 문자열을 넘긴다.
 		String regionCondition = region == null ? "" : region.trim();
 		return venueRepository.search(VenueStatus.ACTIVE, regionCondition, LikeUtil.containsPattern(keyword), pageable);
-	}
-
-	/** 공연장 번호별 이름. 사용 중지된 공연장도 포함한다. (이미 잡힌 공연의 장소는 계속 보여야 한다) */
-	@Transactional(readOnly = true)
-	public Map<Long, String> getNames(Collection<Long> venueIds) {
-		return venueRepository.findAllById(venueIds).stream()
-			.collect(Collectors.toMap(Venue::getId, Venue::getName));
-	}
-
-	/**
-	 * 공연장 번호별 공연장. 예매자 공연 목록처럼 이름 말고 지역까지 필요한 곳에서 쓴다.
-	 * getNames 와 같이 사용 중지된 공연장도 포함하고, 번호 목록으로 한 번에 읽어 공연마다 조회하지 않게 한다.
-	 */
-	@Transactional(readOnly = true)
-	public Map<Long, Venue> getVenues(Collection<Long> venueIds) {
-		return venueRepository.findAllById(venueIds).stream()
-			.collect(Collectors.toMap(Venue::getId, Function.identity()));
-	}
-
-	/**
-	 * 지역이 정확히 같은 공연장의 번호 목록. 예매자 공연 목록의 지역 검색에서 쓴다.
-	 * getVenues 와 같이 사용 중지된 공연장도 포함한다. (이미 잡힌 공연은 공연장이 중지돼도 그 지역에서 찾을 수 있어야 한다)
-	 */
-	@Transactional(readOnly = true)
-	public List<Long> getIdsByRegion(String region) {
-		return venueRepository.findAllByRegion(region).stream()
-			.map(Venue::getId)
-			.toList();
-	}
-
-	/**
-	 * 공연장의 구역 번호별 표시 정보와 좌석 수. 공연의 등급·구역 조회(SLR-08)에서 구역 설정과 합쳐 쓴다.
-	 * getNames 와 같이 사용 중지된 공연장도 읽는다. (이미 잡힌 공연의 구역은 계속 보여야 한다) 좌석이 없는 구역은 0석이다.
-	 */
-	@Transactional(readOnly = true)
-	public Map<Long, VenueZoneInfo> getZoneInfos(Long venueId) {
-		Map<Long, Long> seatCounts = venueSeatRepository.countByZone(venueId).stream()
-			.collect(Collectors.toMap(count -> count.getZoneId(), count -> count.getSeatCount()));
-		return venueZoneRepository.findByVenueId(venueId).stream()
-			.collect(Collectors.toMap(VenueZone::getId, zone -> new VenueZoneInfo(
-				zone.getId(),
-				zone.getName(),
-				zone.getFloor(),
-				zone.getSortOrder(),
-				seatCounts.getOrDefault(zone.getId(), 0L))));
 	}
 
 	/**
@@ -99,29 +46,5 @@ public class VenueService {
 			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE);
 		}
 		return venueZoneRepository.findIdsByVenueId(venueId);
-	}
-
-	/**
-	 * 공연장 좌석 번호별 구역 이름·열·번호. 예매가 좌석 정보를 복사(스냅샷)해 둘 때 쓴다.
-	 * 구역은 지연 로딩이라 트랜잭션이 끝난 뒤에는 꺼낼 수 없어서 여기서 이름까지 읽어 담는다.
-	 */
-	@Transactional(readOnly = true)
-	public Map<Long, SeatLocation> getSeatLocations(Collection<Long> venueSeatIds) {
-		return venueSeatRepository.findAllWithZone(venueSeatIds).stream()
-			.collect(Collectors.toMap(VenueSeat::getId,
-				seat -> new SeatLocation(seat.getZone().getName(), seat.getRowLabel(), seat.getSeatNumber())));
-	}
-
-	/**
-	 * 구역의 모든 좌석을 표시 순서(sort_order)로 준다. 예매자 구역 좌석 상세(PFM-04)에서 판매 좌석에 열·번호를 붙일 때 쓴다.
-	 * 열·번호는 문자열이라 정렬하면 "10"이 "2"보다 앞에 와서, 저장해 둔 표시 순서로 정렬한다.
-	 */
-	@Transactional(readOnly = true)
-	public List<VenueSeat> getZoneSeats(Long zoneId) {
-		return venueSeatRepository.findByZoneIdOrderBySortOrderAscIdAsc(zoneId);
-	}
-
-	/** 좌석이 있는 곳. 구역 이름, 열, 좌석 번호 */
-	public record SeatLocation(String zoneName, String rowLabel, String seatNumber) {
 	}
 }

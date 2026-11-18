@@ -33,7 +33,7 @@ public class Payment extends CreatedTimeEntity {
 	private Long id;
 
 	/** 예매 번호 (booking) */
-	@Column(nullable = false)
+	@Column(name = "booking_id", nullable = false)
 	private Long bookingId;
 
 	/** 토스에 보내는 orderId. 중복 불가이며 승인 요청이 두 번 처리되지 않게 하는 키로도 쓴다. */
