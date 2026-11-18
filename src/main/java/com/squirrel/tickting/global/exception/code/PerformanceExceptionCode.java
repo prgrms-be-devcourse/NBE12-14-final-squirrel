@@ -45,6 +45,13 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 판매자 쪽 회차 기능과 헷갈리지 않게 역할 이름(User)을 붙인다
 	 */
 	USER_SCHEDULE_NOT_FOUND("PERFORMANCE200", HttpStatus.NOT_FOUND, "존재하지 않는 회차입니다."),
+	/** 예매자가 고른 구역이 그 회차의 공연장 구역이 아님(없는 구역 포함). 다른 공연장의 구역 번호를 넣어 좌석을 보는 것을 막는다 */
+	USER_ZONE_NOT_FOUND("PERFORMANCE201", HttpStatus.NOT_FOUND, "존재하지 않는 구역입니다."),
+	/**
+	 * 판매 좌석을 아직 만들지 않은 회차(판매 오픈 24시간 전보다 이전)의 좌석을 보려 함. 고를 수 있는 좌석이 없어서 404로 답한다.
+	 * 구역 요약은 같은 회차에서 잔여석 0으로 보여 준다. 화면이 "아직 좌석을 고를 수 없음"을 따로 보여 줄 수 있게 회차 없음과 코드를 나눈다
+	 */
+	USER_SEATS_NOT_GENERATED("PERFORMANCE202", HttpStatus.NOT_FOUND, "아직 좌석을 선택할 수 없는 회차입니다."),
 
 	// 등급·구역 설정은 300번대를 쓴다.
 	/**

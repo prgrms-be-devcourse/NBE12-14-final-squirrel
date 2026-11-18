@@ -112,6 +112,15 @@ public class VenueService {
 				seat -> new SeatLocation(seat.getZone().getName(), seat.getRowLabel(), seat.getSeatNumber())));
 	}
 
+	/**
+	 * 구역의 모든 좌석을 표시 순서(sort_order)로 준다. 예매자 구역 좌석 상세(PFM-04)에서 판매 좌석에 열·번호를 붙일 때 쓴다.
+	 * 열·번호는 문자열이라 정렬하면 "10"이 "2"보다 앞에 와서, 저장해 둔 표시 순서로 정렬한다.
+	 */
+	@Transactional(readOnly = true)
+	public List<VenueSeat> getZoneSeats(Long zoneId) {
+		return venueSeatRepository.findByZoneIdOrderBySortOrderAscIdAsc(zoneId);
+	}
+
 	/** 좌석이 있는 곳. 구역 이름, 열, 좌석 번호 */
 	public record SeatLocation(String zoneName, String rowLabel, String seatNumber) {
 	}

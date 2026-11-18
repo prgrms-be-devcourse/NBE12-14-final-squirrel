@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 구역 요약(PFM-03). 공연장·구역·좌석·공연·등급·회차·판매 좌석을 SQL 로 직접 넣고 확인한다.
+ * 구역 요약(PFM-03)과 구역 좌석 상세(PFM-04). 공연장·구역·좌석·공연·등급·회차·판매 좌석을 SQL 로 직접 넣고 확인한다.
  * (공연장 생성·판매 좌석 생성 API 는 다른 파트 작업이라 기대지 않는다)
  * 테스트 트랜잭션 안에서 넣고 끝나면 되돌려서 시드 데이터는 그대로 남는다.
  */
@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 class UserZoneSummaryApiTest extends IntegrationTestSupport {
 
 	private static final String URL = "/api/v1/schedules/%d/zones";
+	private static final String SEATS_URL = "/api/v1/schedules/%d/zones/%d/seats";
 
 	private final LocalDateTime now = LocalDateTime.now().withNano(0);
 	private Long venueId;
@@ -59,6 +60,13 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 				""", Long.class, venueId, zoneId, String.valueOf(i), i));
 		}
 		return ids;
+	}
+
+	private Long saveVenueSeat(Long zoneId, String rowLabel, String seatNumber, int sortOrder) {
+		return jdbc.queryForObject("""
+			INSERT INTO venue_seat (venue_id, zone_id, row_label, seat_number, sort_order)
+			VALUES (?, ?, ?, ?, ?) RETURNING id
+			""", Long.class, venueId, zoneId, rowLabel, seatNumber, sortOrder);
 	}
 
 	private Long savePerformance(String status) {
@@ -107,11 +115,11 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 			""", Long.class, performanceId, now.plusDays(7), now, now);
 	}
 
-	private void saveScheduleSeat(Long scheduleId, Long venueSeatId, Long zoneId, String status) {
-		jdbc.update("""
+	private Long saveScheduleSeat(Long scheduleId, Long venueSeatId, Long zoneId, String status) {
+		return jdbc.queryForObject("""
 			INSERT INTO schedule_seat (schedule_id, venue_seat_id, zone_id, status, version, updated_at)
-			VALUES (?, ?, ?, ?, 0, ?)
-			""", scheduleId, venueSeatId, zoneId, status, now);
+			VALUES (?, ?, ?, ?, 0, ?) RETURNING id
+			""", Long.class, scheduleId, venueSeatId, zoneId, status, now);
 	}
 
 	// ---- 테스트 ----
@@ -231,6 +239,111 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 	@DisplayName("회차 번호가 숫자가 아니면 400 COMMON000 이다")
 	void invalidScheduleId() throws Exception {
 		mockMvc.perform(get("/api/v1/schedules/abc/zones"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("COMMON000"));
+	}
+
+	// ---- 구역 좌석 상세 (PFM-04) ----
+
+	@Test
+	@DisplayName("로그인 없이 구역 좌석을 보고, 좌석은 표시 순서대로 판매 좌석 번호·열·번호·상태가 온다")
+	void zoneSeatsWithoutLogin() throws Exception {
+		Long zone = saveZone("F2구역", "1층", 1);
+		// 표시 순서(sort_order)가 넣은 순서와 다르게: 문자열로 정렬하면 "10열"이 "9열"보다 앞에 오는 경우
+		Long tenth = saveVenueSeat(zone, "10열", "1", 3);
+		Long ninthSecond = saveVenueSeat(zone, "9열", "2", 2);
+		Long ninthFirst = saveVenueSeat(zone, "9열", "1", 1);
+		Long performanceId = savePerformance("PUBLISHED");
+		Long scheduleId = saveSchedule(performanceId, "ON_SALE");
+		Long availableSeat = saveScheduleSeat(scheduleId, ninthFirst, zone, "AVAILABLE");
+		Long heldSeat = saveScheduleSeat(scheduleId, ninthSecond, zone, "HELD");
+		Long soldSeat = saveScheduleSeat(scheduleId, tenth, zone, "SOLD");
+
+		mockMvc.perform(get(SEATS_URL.formatted(scheduleId, zone)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.zoneId").value(zone))
+			.andExpect(jsonPath("$.data.name").value("F2구역"))
+			.andExpect(jsonPath("$.data.seats.length()").value(3))
+			.andExpect(jsonPath("$.data.seats[0].seatId").value(availableSeat))
+			.andExpect(jsonPath("$.data.seats[0].row").value("9열"))
+			.andExpect(jsonPath("$.data.seats[0].number").value("1"))
+			.andExpect(jsonPath("$.data.seats[0].sortOrder").value(1))
+			.andExpect(jsonPath("$.data.seats[0].status").value("AVAILABLE"))
+			.andExpect(jsonPath("$.data.seats[1].seatId").value(heldSeat))
+			.andExpect(jsonPath("$.data.seats[1].status").value("HELD"))
+			.andExpect(jsonPath("$.data.seats[2].seatId").value(soldSeat))
+			.andExpect(jsonPath("$.data.seats[2].row").value("10열"))
+			.andExpect(jsonPath("$.data.seats[2].status").value("SOLD"));
+	}
+
+	@Test
+	@DisplayName("판매자 보류·판매 제외 좌석도 상태와 함께 보이고, 다른 구역의 좌석은 섞이지 않는다")
+	void zoneSeatsOnlyThatZone() throws Exception {
+		Long zone = saveZone("F2구역", "1층", 1);
+		Long otherZone = saveZone("F3구역", "1층", 2);
+		List<Long> seats = saveVenueSeats(zone, 2);
+		List<Long> otherSeats = saveVenueSeats(otherZone, 1);
+		Long performanceId = savePerformance("PUBLISHED");
+		Long scheduleId = saveSchedule(performanceId, "ON_SALE");
+		saveScheduleSeat(scheduleId, seats.get(0), zone, "RESERVED");
+		saveScheduleSeat(scheduleId, seats.get(1), zone, "BLOCKED");
+		saveScheduleSeat(scheduleId, otherSeats.get(0), otherZone, "AVAILABLE");
+
+		mockMvc.perform(get(SEATS_URL.formatted(scheduleId, zone)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.seats.length()").value(2))
+			.andExpect(jsonPath("$.data.seats[0].status").value("RESERVED"))
+			.andExpect(jsonPath("$.data.seats[1].status").value("BLOCKED"));
+	}
+
+	@Test
+	@DisplayName("그 회차 공연장의 구역이 아니거나 없는 구역이면 404 PERFORMANCE201 이다")
+	void zoneOfOtherVenue() throws Exception {
+		Long performanceId = savePerformance("PUBLISHED");
+		Long scheduleId = saveSchedule(performanceId, "ON_SALE");
+		venueId = saveVenue(null);
+		Long otherVenueZone = saveZone("다른 공연장 구역", null, 1);
+		saveVenueSeats(otherVenueZone, 1);
+		Long missing = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) + 1000 FROM venue_zone", Long.class);
+
+		for (Long zoneId : List.of(otherVenueZone, missing)) {
+			mockMvc.perform(get(SEATS_URL.formatted(scheduleId, zoneId)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("PERFORMANCE201"));
+		}
+	}
+
+	@Test
+	@DisplayName("판매 좌석을 아직 만들지 않은 회차의 구역 좌석은 404 PERFORMANCE202 이다")
+	void zoneSeatsNotGeneratedYet() throws Exception {
+		Long zone = saveZone("F2구역", "1층", 1);
+		saveVenueSeats(zone, 2);
+		Long scheduleId = saveScheduleWithoutSeats(savePerformance("PUBLISHED"));
+
+		mockMvc.perform(get(SEATS_URL.formatted(scheduleId, zone)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("PERFORMANCE202"));
+	}
+
+	@Test
+	@DisplayName("작성 중 공연의 회차와 취소된 회차의 구역 좌석은 404 PERFORMANCE200 이다")
+	void zoneSeatsOfInvisibleSchedule() throws Exception {
+		Long zone = saveZone("F2구역", "1층", 1);
+		Long draft = saveSchedule(savePerformance("DRAFT"), "ON_SALE");
+		Long canceled = saveSchedule(savePerformance("PUBLISHED"), "CANCELED");
+
+		for (Long scheduleId : List.of(draft, canceled)) {
+			mockMvc.perform(get(SEATS_URL.formatted(scheduleId, zone)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("PERFORMANCE200"));
+		}
+	}
+
+	@Test
+	@DisplayName("구역 번호가 숫자가 아니면 400 COMMON000 이다")
+	void invalidZoneId() throws Exception {
+		mockMvc.perform(get("/api/v1/schedules/1/zones/abc/seats"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("COMMON000"));
 	}
