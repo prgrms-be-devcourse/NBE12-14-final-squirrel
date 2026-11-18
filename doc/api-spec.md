@@ -79,7 +79,7 @@
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 구현됨 |
 | BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 구현됨 |
-| BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 미구현 |
+| BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 구현됨 |
 | BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 미구현 |
 | BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 미구현 |
 | BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 미구현 |
@@ -880,7 +880,25 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 }
 ```
 
-**에러**(코드 미정): 404 결제 없음 · 400 금액 불일치 · 409 점유 시간 만료 · 409 이미 처리된 결제 · 400 토스 승인 거절 · 502 토스 통신 오류(5분 스케줄러가 확정)
+**에러**
+
+| HTTP | 코드 | 의미 |
+|---|---|---|
+| 404 | `PAYMENT002` | 없는 주문 ID (남의 결제도 같은 404) |
+| 400 | `PAYMENT004` | 요청 금액이 서버가 계산한 금액과 다름. 토스를 부르지 않고 결제는 준비(`READY`)로 남음 |
+| 409 | `BOOKING007` | 결제 제한 시각이 지났거나 예매가 결제 대기가 아님. 토스를 부르지 않고 결제는 준비로 남음 |
+| 409 | `PAYMENT003` | 결제가 준비(`READY`) 상태가 아님. 이미 승인했거나 다른 승인 요청이 처리 중이거나 실패한 결제 |
+| 400 | `PAYMENT005` | 토스가 승인을 거절함. `message`에 토스가 준 사유(카드사 거절, 한도 초과 등)가 들어감. 결제는 `FAILED`, 예매·좌석은 점유 그대로 |
+| 502 | `PAYMENT006` | 승인 여부를 알 수 없음(통신 오류·시간 초과 등). 결제는 `PROCESSING`으로 남고 5분 보정 작업이 토스에 조회해 확정함. 같은 결제를 다시 승인하면 `PAYMENT003` |
+| 400 | `COMMON000` | `paymentKey`·`orderId` 비어 있음, `amount` 비어 있거나 0 이하 |
+| 409 | `COMMON004` | 같은 예매의 다른 결제 요청이 처리 중이라 락을 기다리는 시간(1초) 안에 못 잡음 |
+
+- **금액은 요청 값을 믿지 않습니다.** 저장한 금액과 비교만 하고 토스에도 저장한 금액을 보냅니다.
+- 승인을 시작할 때(처음 시도일 때만) 남은 점유 시간이 `app.payment.confirm-extension`(2분)보다 짧으면 예매 결제 제한 시각과 좌석 점유 시각을 지금 + 2분으로 함께 늘립니다. 토스를 부르는 동안 스케줄러가 좌석을 풀지 않게 하려는 것입니다. 이미 승인을 시도한 결제가 있는 예매는 늘리지 않습니다.
+- 토스 승인 요청에는 주문 ID를 멱등키(`Idempotency-Key`)로 보냅니다.
+- 토스를 부르는 구간은 DB 트랜잭션과 락 밖입니다. 성공하면 결제 `DONE`, 예매 `PAID`, 좌석 `SOLD`를 한 트랜잭션으로 바꿉니다.
+- **결제 대행사 구현**은 `app.payment.gateway`로 고릅니다. `toss`(운영 기본)는 `.env`의 `TOSS_SECRET_KEY`가 필요하고, `mock`은 키 없이 흐름만 확인합니다(`prod` 프로필에서는 등록되지 않음). **로컬에서는 `.env`에 `PAYMENT_GATEWAY`를 반드시 넣어야 앱이 뜹니다.** 키 없이 돌리려면 `PAYMENT_GATEWAY=mock`, 실제 토스 테스트 결제를 쓰려면 `PAYMENT_GATEWAY=toss`와 `TOSS_SECRET_KEY`를 넣습니다. 결제창을 여는 클라이언트 키는 프론트가 읽습니다.
+- Mock 은 결제 키 접두사로 결과를 고릅니다. `reject_` 거절, `unavailable_` 결과 모름, `slow_` 느린 성공, 그 밖의 값은 성공입니다.
 
 ### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자)
 

@@ -20,7 +20,7 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해서 직접 넣는다.
 	 * 만료된 HELD 는 일부러 건드리지 않는다. 낡은 booking_seat 가 남아 있어 새 점유가 UNIQUE 인덱스와 부딪히므로 스케줄러가 풀어 준 뒤에 잡는다.
 	 */
-	@Modifying(clearAutomatically = true)
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE ScheduleSeat s
 		   SET s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.HELD,
@@ -39,11 +39,39 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 		@Param("now") LocalDateTime now
 	);
 
+	/** 점유 중(HELD)인 좌석의 점유 만료 시각만 늘리고 바뀐 행 수를 돌려준다. */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE ScheduleSeat s
+		   SET s.heldUntil = :heldUntil,
+		       s.updatedAt = :now
+		 WHERE s.id IN :seatIds
+		   AND s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.HELD
+		""")
+	int extendHold(@Param("seatIds") Collection<Long> seatIds, @Param("heldUntil") LocalDateTime heldUntil,
+		@Param("now") LocalDateTime now);
+
+	/**
+	 * 점유 중(HELD)인 좌석만 판매 완료(SOLD)로 바꾸고 바뀐 행 수를 돌려준다. 점유 정보(held_by, held_until)는 지운다.
+	 * 상태 조건이 있어서 그 사이 풀려 다른 상태가 된 좌석은 건드리지 않는다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE ScheduleSeat s
+		   SET s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.SOLD,
+		       s.heldBy = NULL,
+		       s.heldUntil = NULL,
+		       s.updatedAt = :now
+		 WHERE s.id IN :seatIds
+		   AND s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.HELD
+		""")
+	int markSold(@Param("seatIds") Collection<Long> seatIds, @Param("now") LocalDateTime now);
+
 	/**
 	 * 점유 중(HELD)인 좌석만 AVAILABLE 로 되돌리고 되돌린 행 수를 돌려준다.
 	 * 상태 조건이 있어서 그 사이 결제가 끝나 SOLD 가 된 좌석은 건드리지 않는다.
 	 */
-	@Modifying(clearAutomatically = true)
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE ScheduleSeat s
 		   SET s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE,

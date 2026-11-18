@@ -19,6 +19,11 @@ spring:
     out-of-order: true
 
 app:
+  payment:
+    # mock 이면 토스 키 없이 결제 흐름이 돈다. 실제 토스 테스트 결제를 쓰려면 toss 로 두고 TOSS_SECRET_KEY 도 넣는다.
+    # (결제창을 여는 클라이언트 키 TOSS_CLIENT_KEY 는 서버가 아니라 프론트가 읽는다)
+    # 쓰는 키: PAYMENT_GATEWAY(필수, mock 또는 toss), TOSS_SECRET_KEY(toss 일 때만 필수)
+    gateway: ${PAYMENT_GATEWAY}
   cookie:
     # 로컬은 http 라서 Secure 쿠키가 저장되지 않는다.
     secure: false
