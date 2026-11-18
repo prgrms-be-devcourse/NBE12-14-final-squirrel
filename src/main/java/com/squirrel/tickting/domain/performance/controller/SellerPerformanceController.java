@@ -1,9 +1,11 @@
 package com.squirrel.tickting.domain.performance.controller;
 
+import com.squirrel.tickting.domain.performance.dto.SellerGradeRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerGradeResponse;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.facade.SellerPerformanceFacade;
+import com.squirrel.tickting.domain.performance.service.GradeService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
@@ -38,6 +40,7 @@ public class SellerPerformanceController {
 	private static final int MAX_PAGE_SIZE = 20;
 
 	private final SellerPerformanceFacade sellerPerformanceFacade;
+	private final GradeService gradeService;
 
 	/** 사업체 번호를 경로나 쿼리로 받지 않고 토큰에서 꺼낸다. 받으면 남의 사업체 번호를 넣어 볼 수 있기 때문이다. */
 	@Operation(summary = "내 공연 목록",
@@ -99,5 +102,20 @@ public class SellerPerformanceController {
 		SellerGradeResponse.Overview response = sellerPerformanceFacade.getGrades(account.getBusinessId(),
 			performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 등급만 다루고 다른 도메인을 엮지 않아 파사드 없이 등급 서비스를 바로 부른다. 대표·담당자 모두 추가할 수 있다. */
+	@Operation(summary = "등급 추가",
+		description = "공연에 좌석 등급을 추가한다. 가격은 0원 이상 10,000,000원 이하이고, 색은 #RRGGBB 형식이거나 비운다. "
+			+ "같은 공연에 대소문자·공백을 무시하면 같은 이름의 등급이 있거나, 판매 좌석이 생성되었거나(locked), "
+			+ "취소된 공연이면 409 다. 다른 사업체의 공연이거나 없는 공연은 모두 404 이다.")
+	@PostMapping("/{performanceId}/grades")
+	public ResponseEntity<ApiResponse<SellerGradeResponse.Grade>> addGrade(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId,
+		@Valid @RequestBody SellerGradeRequest.Save request
+	) {
+		SellerGradeResponse.Grade response = gradeService.add(account.getBusinessId(), performanceId, request);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 }

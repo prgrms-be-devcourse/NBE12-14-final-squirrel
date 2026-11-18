@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.squirrel.tickting.domain.performance.dto.SellerGradeRequest;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
@@ -72,5 +73,19 @@ class GradeServiceTest {
 
 		assertThat(overview.performance()).isSameAs(performance);
 		assertThat(overview.locked()).isEqualTo(seatsGenerated);
+	}
+
+	@Test
+	@DisplayName("등급 추가에서 다른 사업체의 공연이거나 없는 공연이면 PERFORMANCE000 이고 이름·좌석 생성 여부를 보지 않고 저장하지 않는다")
+	void addNotMine() {
+		when(performanceRepository.findByIdAndBusinessId(PERFORMANCE_ID, BUSINESS_ID)).thenReturn(Optional.empty());
+		var request = new SellerGradeRequest.Save("R석", 1000, null);
+
+		assertThatThrownBy(() -> gradeService.add(BUSINESS_ID, PERFORMANCE_ID, request))
+			.isInstanceOf(BusinessException.class)
+			.extracting("exceptionCode").isEqualTo(PerformanceExceptionCode.PERFORMANCE_NOT_FOUND);
+		verify(seatGradeRepository, never()).existsSameName(any(), any());
+		verify(performanceScheduleRepository, never()).existsSeatsGenerated(any(), any());
+		verify(seatGradeRepository, never()).save(any());
 	}
 }
