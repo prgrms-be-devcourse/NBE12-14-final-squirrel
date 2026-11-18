@@ -2,8 +2,11 @@ package com.squirrel.tickting.domain.booking.facade;
 
 import com.squirrel.tickting.domain.booking.dto.UserBookingResponse;
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
+import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
 import com.squirrel.tickting.domain.booking.service.UserBookingService;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
+import com.squirrel.tickting.domain.payment.infra.entity.Payment;
+import com.squirrel.tickting.domain.payment.service.PaymentService;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
@@ -24,6 +27,7 @@ public class UserBookingFacade {
 
 	private final UserBookingService userBookingService;
 	private final UserPerformanceService userPerformanceService;
+	private final PaymentService paymentService;
 
 	/**
 	 * 내 예매 목록. 좌석 수·공연·회차는 예매마다 조회하지 않고, 한 페이지에 나온 번호 목록으로 한 번씩만 읽는다.
@@ -42,5 +46,23 @@ public class UserBookingFacade {
 			seatCounts.getOrDefault(booking.getId(), 0),
 			performances.get(booking.getPerformanceId()),
 			schedules.get(booking.getScheduleId())));
+	}
+
+	/**
+	 * 내 예매 상세. 남의 예매·없는 예매는 예매 서비스에서 404 로 끝나서 공연·결제는 읽지 않는다.
+	 * 결제는 결제 도메인이라 결제 서비스에서 승인된 결제만 받는다.
+	 */
+	public UserBookingResponse.Detail getMyBooking(Long userId, Long bookingId) {
+		Booking booking = userBookingService.getMyBooking(userId, bookingId);
+		List<BookingSeat> seats = userBookingService.getSeats(bookingId);
+		List<UserBookingResponse.CancelRule> cancelPolicy = userBookingService.readCancelPolicy(booking);
+
+		Performance performance = userPerformanceService.getPerformances(List.of(booking.getPerformanceId()))
+			.get(booking.getPerformanceId());
+		PerformanceSchedule schedule = userPerformanceService.getSchedules(List.of(booking.getScheduleId()))
+			.get(booking.getScheduleId());
+		Payment payment = paymentService.findApproved(bookingId).orElse(null);
+
+		return UserBookingResponse.Detail.from(booking, seats, cancelPolicy, performance, schedule, payment);
 	}
 }

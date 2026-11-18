@@ -81,7 +81,7 @@
 | BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 구현됨 |
 | BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 구현됨 |
 | BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 구현됨 |
-| BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 미구현 |
+| BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 구현됨 |
 | BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 미구현 |
 | SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 구현됨 |
 | SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 구현됨 |
@@ -911,11 +911,11 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자, 구현됨)
 
-Query: `status`(`PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
+Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 
 - 로그인한 예매자 본인의 예매만 나옵니다. 회원 번호는 토큰에서 꺼냅니다. 판매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
-- 결제 완료·취소된 예매(`PAID`, `PARTIAL_CANCELED`, `CANCELED`)만 나옵니다. `status`를 비우면 이 셋이 모두 나옵니다.
-- 결제 대기(`PENDING`)와 시간 초과(`EXPIRED`)는 나오지 않고, `status`로 보내면 400입니다. 결제 대기는 결제 화면에서 이어 가는 진행 중 기록이고, 시간 초과는 돈이 나가지 않은 무효 예매라 내역에서 뺍니다. 화면에서 거르면 한 페이지 개수와 전체 개수가 어긋나서 서버가 조회할 때 거릅니다.
+- 시간 초과(`EXPIRED`)는 나오지 않고, `status`로 보내면 400입니다. 돈이 나가지 않은 무효 예매라 내역에서 뺍니다. 화면에서 거르면 한 페이지 개수와 전체 개수가 어긋나서 서버가 조회할 때 거릅니다.
+- 결제 대기(`PENDING`)는 나옵니다. 화면이 목록에서 결제 화면으로 이어 가서, 7분 안에는 결제를 마저 할 수 있어야 하기 때문입니다. `status`를 비우면 `PENDING`, `PAID`, `PARTIAL_CANCELED`, `CANCELED`가 모두 나옵니다.
 - 최신 예매순(`createdAt` 내림차순)이고, 같은 시각이면 번호가 큰 예매가 먼저라 페이지를 넘겨도 순서가 바뀌지 않습니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
 - `size` 기본 20, 최대 20. 크기가 20을 넘으면 에러가 아니라 20으로 줄어듭니다.
 - `seatCount`와 `totalAmount`는 **처음 예매 기준**입니다. 일부 취소해도 취소된 좌석까지 세고, 금액도 처음 결제 금액 그대로입니다. (둘의 기준을 맞추려는 것. 남은 좌석과 환불 금액은 상세 BKG-05에서 봅니다)
@@ -950,9 +950,19 @@ Query: `status`(`PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값 또는 `PENDING`·`EXPIRED`
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값 또는 `EXPIRED`
 
-### BKG-05 내 예매 상세 — `GET /api/v1/bookings/{bookingId}` (예매자)
+### BKG-05 내 예매 상세 — `GET /api/v1/bookings/{bookingId}` (예매자, 구현됨)
+
+- 로그인한 예매자 본인의 예매만 봅니다. 남의 예매·없는 예매는 404입니다. (번호가 있는지 알려주지 않으려고 같은 응답)
+- 목록과 달리 **상태와 상관없이** 줍니다. 결제 화면이 결제 대기(`PENDING`) 예매를 이 API로 읽고, 7분이 지나면 `EXPIRED`로 받아 만료됐다고 보여 줍니다.
+- `expiresAt`은 결제 대기(`PENDING`)일 때만 있고 나머지는 `null`입니다.
+- `payment`는 승인된 결제(`DONE`, 환불되면 `PARTIAL_CANCELED`·`CANCELED`) 중 가장 최근 것입니다. 결제 대기·만료된 예매는 `null`입니다. 실패한 결제 시도는 보여 주지 않습니다.
+- `seats`는 취소된 좌석까지 모두 나오고(`active=false`), 구역·열·번호·등급·가격은 예매할 때 복사한 값입니다.
+- `cancelPolicy`는 예매할 때 복사한 취소 규정입니다. 판매자가 나중에 규정을 바꿔도 예매 당시 규정이 나옵니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
+- `performance`·`schedule`은 지금 값입니다. 정보가 없으면 객체는 두고 번호 외의 값만 `null`입니다.
+- `delivery`는 배송(`DELIVERY`)이 아니면 `null`입니다.
+- **`refundedAmount`, `cancelable`, `currentFeeRate`는 지금 `null`입니다.** 예매 취소(BKG-06)와 같은 기준(환불 상태, 남은 일수 세는 법)으로 계산해야 해서 그 기능이 들어올 때 채웁니다. 화면은 `null`이면 취소 버튼을 숨기면 됩니다.
 
 **응답 200**
 
@@ -1005,7 +1015,7 @@ Query: `status`(`PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
     "ticketAmount": 308000,
     "bookingFeeAmount": 4000,
     "totalAmount": 312000,
-    "refundedAmount": 0,
+    "refundedAmount": null,
     "payment": {
       "paymentId": 801,
       "method": "카드",
@@ -1021,8 +1031,8 @@ Query: `status`(`PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
         "cancelable": true
       }
     ],
-    "cancelable": true,
-    "currentFeeRate": 0,
+    "cancelable": null,
+    "currentFeeRate": null,
     "expiresAt": null,
     "createdAt": "2026-11-25T20:03:41",
     "canceledAt": null
@@ -1030,7 +1040,7 @@ Query: `status`(`PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**: 404 예매 없음(남의 예매 포함)
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 404 `BOOKING006` 예매 없음(남의 예매 포함)
 
 ### BKG-06 예매 취소 — `POST /api/v1/bookings/{bookingId}/cancel` (예매자)
 
