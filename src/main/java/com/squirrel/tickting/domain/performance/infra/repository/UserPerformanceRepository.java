@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.type.Genre;
@@ -136,4 +137,16 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 		GROUP BY seat.zoneId
 		""")
 	List<Tuple> countAvailableSeatsByZone(@Param("scheduleId") Long scheduleId);
+
+	/**
+	 * 회차의 한 구역에 있는 판매 좌석. 상태와 상관없이 모두 읽는다. (화면이 판매 완료·점유 중 좌석도 색을 달리해 보여 준다)
+	 * idx_schedule_seat_zone_status (schedule_id, zone_id, status) 를 탄다.
+	 */
+	@Query("""
+		SELECT seat
+		FROM ScheduleSeat seat
+		WHERE seat.scheduleId = :scheduleId
+		  AND seat.zoneId = :zoneId
+		""")
+	List<ScheduleSeat> findScheduleSeats(@Param("scheduleId") Long scheduleId, @Param("zoneId") Long zoneId);
 }

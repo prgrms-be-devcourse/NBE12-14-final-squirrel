@@ -3,6 +3,7 @@ package com.squirrel.tickting.domain.performance.dto;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
+import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
@@ -11,9 +12,11 @@ import com.squirrel.tickting.domain.performance.type.GuideType;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import com.squirrel.tickting.domain.performance.type.SaleStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
+import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
 import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
@@ -21,6 +24,8 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.Builder;
 
 public class UserPerformanceResponse {
@@ -387,6 +392,65 @@ public class UserPerformanceResponse {
 				.price(grade == null ? null : grade.getPrice())
 				.remaining(remaining)
 				.total(Math.toIntExact(zone.seatCount()))
+				.build();
+		}
+	}
+
+	/**
+	 * 회차의 한 구역 좌석. (API 명세 PFM-04) 좌석은 구역 안의 표시 순서(sort_order)대로 나온다.
+	 * seatId 는 판매 좌석 번호라서 좌석 점유(BKG-01)에 그대로 보낸다.
+	 */
+	@Builder
+	@Schema(name = "UserScheduleZoneSeats", description = "회차의 한 구역 좌석")
+	public record ZoneSeats(
+		@Schema(description = "구역 번호")
+		Long zoneId,
+		@Schema(description = "구역 이름", example = "F2구역")
+		String name,
+		@Schema(description = "좌석. 구역 안의 표시 순서대로")
+		List<Seat> seats
+	) {
+
+		/**
+		 * 공연장 좌석 순서를 뼈대로 판매 좌석의 번호·상태를 붙인다. 판매 좌석은 공연장 좌석을 그대로 복사해 만들어서 짝이 맞는다.
+		 * 짝이 없는 공연장 좌석(판매 좌석을 만든 뒤에 생긴 좌석)은 고를 수 없어서 넣지 않는다.
+		 */
+		public static ZoneSeats from(VenueZoneInfo zone, List<VenueSeat> venueSeats, List<ScheduleSeat> scheduleSeats) {
+			Map<Long, ScheduleSeat> byVenueSeat = scheduleSeats.stream()
+				.collect(Collectors.toMap(ScheduleSeat::getVenueSeatId, Function.identity()));
+			return ZoneSeats.builder()
+				.zoneId(zone.zoneId())
+				.name(zone.name())
+				.seats(venueSeats.stream()
+					.filter(venueSeat -> byVenueSeat.containsKey(venueSeat.getId()))
+					.map(venueSeat -> Seat.of(venueSeat, byVenueSeat.get(venueSeat.getId())))
+					.toList())
+				.build();
+		}
+	}
+
+	@Builder
+	@Schema(name = "UserScheduleSeat", description = "좌석 하나")
+	public record Seat(
+		@Schema(description = "판매 좌석 번호. 좌석 점유에 보내는 번호", example = "9301")
+		Long seatId,
+		@Schema(description = "열", example = "9열")
+		String row,
+		@Schema(description = "좌석 번호", example = "6")
+		String number,
+		@Schema(description = "구역 안의 표시 순서", example = "186")
+		Integer sortOrder,
+		@Schema(description = "상태. AVAILABLE 만 고를 수 있다", example = "AVAILABLE")
+		SeatStatus status
+	) {
+
+		static Seat of(VenueSeat venueSeat, ScheduleSeat scheduleSeat) {
+			return Seat.builder()
+				.seatId(scheduleSeat.getId())
+				.row(venueSeat.getRowLabel())
+				.number(venueSeat.getSeatNumber())
+				.sortOrder(venueSeat.getSortOrder())
+				.status(scheduleSeat.getStatus())
 				.build();
 		}
 	}

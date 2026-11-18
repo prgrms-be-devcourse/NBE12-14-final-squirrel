@@ -76,7 +76,7 @@
 | AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 구현됨 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 구현됨 |
-| PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 미구현 |
+| PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 구현됨 |
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 구현됨 |
 | BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 구현됨 |
 | BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 구현됨 |
@@ -697,7 +697,13 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 **에러**: 404 `PERFORMANCE200` 볼 수 없는 회차(없음, 공개되지 않은 공연, 취소된 회차) · 400 `COMMON000` 회차 번호가 숫자가 아님
 
-### PFM-04 구역 좌석 상세 — `GET /api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` (공개)
+### PFM-04 구역 좌석 상세 — `GET /api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` (공개, 구현됨)
+
+- 볼 수 있는 회차는 PFM-03과 같습니다. (공개 공연의 취소되지 않은 회차, 일시 중지·연기 회차 포함)
+- 구역은 **그 회차 공연장의 구역**이어야 합니다. 다른 공연장의 구역이나 없는 구역은 404입니다.
+- **판매 좌석을 아직 만들지 않은 회차**는 고를 좌석이 없어서 404입니다. (PFM-03은 같은 회차에서 잔여석 0으로 보여 줍니다)
+- `seats`: 그 구역의 모든 좌석이 상태와 상관없이 구역 안의 표시 순서(`sortOrder`, 같으면 번호순)로 나옵니다. 열·번호는 문자열이라 이름으로 정렬하지 않습니다.
+- `seatId`는 **판매 좌석(`schedule_seat`) 번호**이고, 좌석 점유(BKG-01)의 `seatIds`에 그대로 보냅니다. `AVAILABLE`만 고를 수 있습니다.
 
 **응답 200**
 
@@ -729,7 +735,9 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 }
 ```
 
-`status`: `AVAILABLE` / `HELD` / `SOLD` / `BLOCKED` / `RESERVED`. **에러**: 404 회차·구역 없음, 좌석 미생성 회차
+`status`: `AVAILABLE` / `HELD` / `SOLD` / `BLOCKED` / `RESERVED`.
+
+**에러**: 404 `PERFORMANCE200` 볼 수 없는 회차 · 404 `PERFORMANCE201` 그 회차 공연장의 구역이 아님(없는 구역 포함) · 404 `PERFORMANCE202` 판매 좌석을 아직 만들지 않은 회차 · 400 `COMMON000` 번호가 숫자가 아님
 
 ---
 

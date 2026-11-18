@@ -8,8 +8,11 @@ import com.squirrel.tickting.domain.performance.type.UserPerformanceSortType;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.service.SellerBusinessService;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -75,5 +78,22 @@ public class UserPerformanceFacade {
 		Map<Long, VenueZoneInfo> zones = venueService.getZoneInfos(venueId);
 
 		return UserPerformanceResponse.ZoneSummary.from(summary, venue, zones.values());
+	}
+
+	/**
+	 * 회차의 한 구역 좌석. 상태는 공연 서비스(판매 좌석)가, 열·번호·표시 순서와 구역 이름은 공연장 서비스가 준다.
+	 * 구역이 그 회차의 공연장 것이 아니면(없는 구역 포함) 404 다. 다른 공연장의 구역 번호로 좌석이 섞여 보이지 않게 한다.
+	 */
+	public UserPerformanceResponse.ZoneSeats getZoneSeats(Long scheduleId, Long zoneId) {
+		UserPerformanceService.ZoneSeats zoneSeats = userPerformanceService.getZoneSeats(scheduleId, zoneId);
+		Long venueId = zoneSeats.schedule().getPerformance().getVenueId();
+
+		VenueZoneInfo zone = venueService.getZoneInfos(venueId).get(zoneId);
+		if (zone == null) {
+			throw new BusinessException(PerformanceExceptionCode.USER_ZONE_NOT_FOUND);
+		}
+		List<VenueSeat> venueSeats = venueService.getZoneSeats(zoneId);
+
+		return UserPerformanceResponse.ZoneSeats.from(zone, venueSeats, zoneSeats.seats());
 	}
 }

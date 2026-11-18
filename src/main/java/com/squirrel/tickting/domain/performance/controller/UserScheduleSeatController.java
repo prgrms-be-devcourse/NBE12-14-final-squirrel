@@ -37,4 +37,18 @@ public class UserScheduleSeatController {
 		UserPerformanceResponse.ZoneSummary response = userPerformanceFacade.getZoneSummary(scheduleId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
+
+	@Operation(summary = "구역 좌석 상세",
+		description = "회차의 한 구역에 있는 좌석을 표시 순서대로 상태와 함께 준다. seatId 를 좌석 점유에 보낸다. "
+			+ "볼 수 없는 회차, 그 회차 공연장의 구역이 아닌 구역, 판매 좌석을 아직 만들지 않은 회차는 404 다.")
+	@GetMapping("/{scheduleId}/zones/{zoneId}/seats")
+	public ResponseEntity<ApiResponse<UserPerformanceResponse.ZoneSeats>> seats(
+		@Parameter(description = "회차 번호")
+		@PathVariable Long scheduleId,
+		@Parameter(description = "구역 번호")
+		@PathVariable Long zoneId
+	) {
+		UserPerformanceResponse.ZoneSeats response = userPerformanceFacade.getZoneSeats(scheduleId, zoneId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
 }

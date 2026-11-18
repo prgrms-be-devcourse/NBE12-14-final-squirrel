@@ -5,6 +5,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.CommonGuide;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
@@ -152,6 +153,20 @@ public class UserPerformanceService {
 		return new ZoneSummary(schedule, gradesByZone, remainingByZone);
 	}
 
+	/**
+	 * 회차의 한 구역에 있는 판매 좌석. 볼 수 있는 회차 기준은 구역 요약과 같다. (공개 공연의 취소되지 않은 회차)
+	 * 판매 좌석을 아직 만들지 않은 회차는 고를 좌석이 없어서 404 다. 구역이 그 회차의 공연장 것인지는 공연장 도메인이라 파사드가 확인한다.
+	 */
+	@Transactional(readOnly = true)
+	public ZoneSeats getZoneSeats(Long scheduleId, Long zoneId) {
+		PerformanceSchedule schedule = userPerformanceRepository.findVisibleSchedule(scheduleId)
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.USER_SCHEDULE_NOT_FOUND));
+		if (schedule.getSeatsGeneratedAt() == null) {
+			throw new BusinessException(PerformanceExceptionCode.USER_SEATS_NOT_GENERATED);
+		}
+		return new ZoneSeats(schedule, userPerformanceRepository.findScheduleSeats(scheduleId, zoneId));
+	}
+
 	/** 공연 하나의 취소되지 않은 회차로 첫·마지막 회차 일시와 판매 상태를 계산한다. 회차가 없으면 일시는 null 이다. */
 	private Summary summarize(Performance performance, List<PerformanceSchedule> schedules,
 		Set<Long> scheduleIdsWithSeat, LocalDateTime now) {
@@ -205,5 +220,14 @@ public class UserPerformanceService {
 	 */
 	public record ZoneSummary(PerformanceSchedule schedule, Map<Long, ZoneGrade> gradesByZone,
 		Map<Long, Integer> remainingByZone) {
+	}
+
+	/**
+	 * 회차의 한 구역 좌석 중 공연 도메인의 값. 열·번호·표시 순서와 구역 이름은 공연장 도메인이라 파사드가 붙인다.
+	 *
+	 * @param schedule 회차. 공연을 함께 읽어 두어 트랜잭션 밖에서 공연장 번호를 꺼낼 수 있다
+	 * @param seats    그 구역의 판매 좌석 (상태 포함)
+	 */
+	public record ZoneSeats(PerformanceSchedule schedule, List<ScheduleSeat> seats) {
 	}
 }
