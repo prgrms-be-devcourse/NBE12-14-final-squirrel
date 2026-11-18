@@ -1,7 +1,7 @@
 package com.squirrel.tickting.domain.performance.controller;
 
 import com.squirrel.tickting.domain.performance.dto.UserPerformanceResponse;
-import com.squirrel.tickting.domain.performance.facade.UserPerformanceFacade;
+import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.UserPerformanceSortType;
 import com.squirrel.tickting.global.response.ApiResponse;
@@ -32,7 +32,7 @@ public class UserPerformanceController {
 	private static final int MAX_PAGE_SIZE = 20;
 
 	/** 공연장·판매자 사업체를 각 서비스에서 받아 붙여야 해서 파사드를 부른다. */
-	private final UserPerformanceFacade userPerformanceFacade;
+	private final UserPerformanceService userPerformanceService;
 
 	@Operation(summary = "공연 목록·검색",
 		description = "공개된 공연을 보여 준다. 장르를 주지 않으면 전체, 주면 그 장르만 나온다. "
@@ -54,7 +54,7 @@ public class UserPerformanceController {
 		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(),
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
-		Page<UserPerformanceResponse.Summary> page = userPerformanceFacade.getList(genre, region, keyword, sort, pageRequest);
+		Page<UserPerformanceResponse.Summary> page = userPerformanceService.getPublishedList(genre, region, keyword, sort, pageRequest);
 		PageResponse<UserPerformanceResponse.Summary> response = PageResponse.from(page);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
@@ -67,7 +67,7 @@ public class UserPerformanceController {
 		@Parameter(description = "공연 번호")
 		@PathVariable Long performanceId
 	) {
-		UserPerformanceResponse.Detail response = userPerformanceFacade.getDetail(performanceId);
+		UserPerformanceResponse.Detail response = userPerformanceService.getPublishedDetail(performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

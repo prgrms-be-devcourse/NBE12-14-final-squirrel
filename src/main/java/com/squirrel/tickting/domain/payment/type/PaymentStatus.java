@@ -17,5 +17,10 @@ public enum PaymentStatus {
 	/** 일부 환불 */
 	PARTIAL_CANCELED,
 	/** 전액 환불 */
-	CANCELED
+	CANCELED;
+
+	/** 승인을 거친 상태. 환불되면 상태가 일부·전액 환불로 바뀌어도 승인 기록은 그대로 보여야 해서 함께 본다. */
+	public boolean isApproved() {
+		return this == DONE || this == PARTIAL_CANCELED || this == CANCELED;
+	}
 }

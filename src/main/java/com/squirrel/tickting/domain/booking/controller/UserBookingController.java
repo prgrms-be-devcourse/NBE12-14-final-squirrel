@@ -1,7 +1,7 @@
 package com.squirrel.tickting.domain.booking.controller;
 
 import com.squirrel.tickting.domain.booking.dto.UserBookingResponse;
-import com.squirrel.tickting.domain.booking.facade.UserBookingFacade;
+import com.squirrel.tickting.domain.booking.service.UserBookingService;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
@@ -32,8 +32,7 @@ public class UserBookingController {
 	private static final int DEFAULT_PAGE_SIZE = 20;
 	private static final int MAX_PAGE_SIZE = 20;
 
-	/** 공연 제목·회차 일시를 공연 서비스에서 받아 붙여야 해서 파사드를 부른다. */
-	private final UserBookingFacade userBookingFacade;
+	private final UserBookingService userBookingService;
 
 	@Operation(summary = "내 예매 목록",
 		description = "로그인한 예매자의 예매를 최신 예매순으로 준다. 시간 초과(EXPIRED)는 나오지 않고, "
@@ -48,7 +47,7 @@ public class UserBookingController {
 		// 정렬은 서비스가 최신 예매순으로 고정한다. 번호와 크기만 넘긴다.
 		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(), Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
-		Page<UserBookingResponse.Summary> page = userBookingFacade.getMyBookings(account.getId(), status, pageRequest);
+		Page<UserBookingResponse.Summary> page = userBookingService.getMyBookings(account.getId(), status, pageRequest);
 		return ResponseEntity.ok(ApiResponse.success(PageResponse.from(page)));
 	}
 
@@ -61,7 +60,7 @@ public class UserBookingController {
 		@Parameter(description = "예매 번호")
 		@PathVariable Long bookingId
 	) {
-		UserBookingResponse.Detail response = userBookingFacade.getMyBooking(account.getId(), bookingId);
+		UserBookingResponse.Detail response = userBookingService.getMyBooking(account.getId(), bookingId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

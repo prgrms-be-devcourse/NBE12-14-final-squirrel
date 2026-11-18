@@ -2,16 +2,27 @@ package com.squirrel.tickting.domain.booking.infra.entity;
 
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.domain.payment.infra.entity.Payment;
+import com.squirrel.tickting.domain.performance.infra.entity.Performance;
+import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.global.entity.BaseTimeEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,7 +34,7 @@ import org.hibernate.type.SqlTypes;
 /**
  * 예매(주문서). 좌석 점유와 PENDING 예매 생성은 한 트랜잭션이다.
  * 환불의 성공·실패는 refund 가 가지므로 예매 상태에는 섞지 않는다.
- * 사용자·회차·공연은 다른 도메인이라 번호만 가진다.
+ * 사용자·회차·공연은 다른 도메인이라 저장할 때는 번호만 쓴다. 읽을 때는 아래의 읽기 전용 연관을 쓴다.
  */
 @Entity
 @Table(name = "booking")
@@ -46,12 +57,41 @@ public class Booking extends BaseTimeEntity {
 	private Long userId;
 
 	/** 회차 번호 (performance_schedule) */
-	@Column(nullable = false)
+	@Column(name = "schedule_id", nullable = false)
 	private Long scheduleId;
 
 	/** 공연 번호 (performance). 공연 단위 매수 검사에서 조인을 줄이려고 예매 때 복사해 둔다. */
-	@Column(nullable = false)
+	@Column(name = "performance_id", nullable = false)
 	private Long performanceId;
+
+	/**
+	 * 읽기 전용 연관. 응답을 만들 때 예매에서 바로 공연·회차·좌석·결제를 꺼내 쓰려는 것이다. (DB 에 FK 제약은 없다)
+	 * 저장하거나 바꿀 때는 위의 번호(scheduleId, performanceId)를 쓰고, 이 필드들은 INSERT·UPDATE 에 들어가지 않는다.
+	 * 지연 로딩이라 트랜잭션 안에서만 꺼낼 수 있고, 목록은 default_batch_fetch_size 로 묶어서 읽어서 예매마다 쿼리가 나가지 않는다.
+	 */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "performance_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private Performance performance;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "schedule_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private PerformanceSchedule schedule;
+
+	/** 예매 좌석(읽기 전용). 취소된 좌석도 들어 있다. 점유·취소 처리는 이 목록이 아니라 BookingSeat 를 직접 다룬다. */
+	@OneToMany
+	@OrderBy("id")
+	@JoinColumn(name = "booking_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private List<BookingSeat> bookingSeats;
+
+	/** 결제(읽기 전용). 준비·실패한 건도 들어 있어서 승인된 것만 고르려면 PaymentStatus.isApproved 로 거른다. */
+	@OneToMany
+	@OrderBy("id")
+	@JoinColumn(name = "booking_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private List<Payment> payments;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)

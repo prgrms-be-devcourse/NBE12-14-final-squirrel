@@ -3,9 +3,11 @@ package com.squirrel.tickting.domain.performance.dto;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
+import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneRemaining;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.GuideType;
@@ -18,15 +20,10 @@ import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
-import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import lombok.Builder;
 
 public class UserPerformanceResponse {
@@ -62,11 +59,8 @@ public class UserPerformanceResponse {
 		SaleStatus saleStatus
 	) {
 
-		/**
-		 * 공연장은 논리 FK 라 DB 가 존재를 보장하지 않는다. 공연장 행이 없어도 목록 전체가 실패하지 않도록
-		 * 이름·지역만 비우고(null) 나머지는 그대로 보여 준다.
-		 */
-		public static Summary from(UserPerformanceService.Summary summary, Venue venue) {
+		/** 공연장 이름·지역은 공연의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
+		public static Summary from(UserPerformanceService.Summary summary) {
 			Performance performance = summary.performance();
 			return Summary.builder()
 				.performanceId(performance.getId())
@@ -74,8 +68,8 @@ public class UserPerformanceResponse {
 				.genre(performance.getGenre())
 				.posterUrl(performance.getPosterUrl())
 				.ageLimit(performance.getAgeLimit())
-				.venueName(venue == null ? null : venue.getName())
-				.region(venue == null ? null : venue.getRegion())
+				.venueName(performance.getVenue().getName())
+				.region(performance.getVenue().getRegion())
 				.firstStartAt(summary.firstStartAt())
 				.lastStartAt(summary.lastStartAt())
 				.saleOpenAt(performance.getSaleOpenAt())
@@ -124,8 +118,8 @@ public class UserPerformanceResponse {
 		Seller seller
 	) {
 
-		/** 공연장·판매자는 논리 FK 라 행이 없을 수 있다. 없으면 그 부분만 null 로 두고 나머지는 그대로 보여 준다. */
-		public static Detail from(UserPerformanceService.Detail detail, Venue venue, SellerBusiness seller) {
+		/** 공연장·판매자는 공연의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
+		public static Detail from(UserPerformanceService.Detail detail) {
 			Performance performance = detail.performance();
 			return Detail.builder()
 				.performanceId(performance.getId())
@@ -138,13 +132,13 @@ public class UserPerformanceResponse {
 				.images(detail.images().stream().map(Image::from).toList())
 				.notice(performance.getNotice())
 				.guide(performance.getGuide())
-				.venue(venue == null ? null : VenueInfo.from(venue))
+				.venue(VenueInfo.from(performance.getVenue()))
 				.sale(Sale.from(performance))
 				.schedules(detail.schedules().stream().map(Schedule::from).toList())
 				.grades(detail.grades().stream().map(Grade::from).toList())
 				.cancelPolicy(detail.cancelRules().stream().map(CancelRule::from).toList())
 				.commonGuide(CommonGuide.from(detail.commonGuides()))
-				.seller(seller == null ? null : Seller.from(seller))
+				.seller(Seller.from(performance.getBusiness()))
 				.build();
 		}
 	}
@@ -291,11 +285,21 @@ public class UserPerformanceResponse {
 		String refundGuide
 	) {
 
-		public static CommonGuide from(Map<GuideType, String> guides) {
+		public static CommonGuide from(List<com.squirrel.tickting.domain.performance.infra.entity.CommonGuide> guides) {
 			return CommonGuide.builder()
-				.bookingGuide(guides.get(GuideType.BOOKING_GUIDE))
-				.refundGuide(guides.get(GuideType.REFUND_GUIDE))
+				.bookingGuide(contentOf(guides, GuideType.BOOKING_GUIDE))
+				.refundGuide(contentOf(guides, GuideType.REFUND_GUIDE))
 				.build();
+		}
+
+		/** 유형마다 한 행이다. 아직 넣지 않은 유형은 null 이다. */
+		private static String contentOf(List<com.squirrel.tickting.domain.performance.infra.entity.CommonGuide> guides,
+			GuideType type) {
+			return guides.stream()
+				.filter(guide -> guide.getType() == type)
+				.map(com.squirrel.tickting.domain.performance.infra.entity.CommonGuide::getContent)
+				.findFirst()
+				.orElse(null);
 		}
 	}
 
@@ -339,18 +343,16 @@ public class UserPerformanceResponse {
 	) {
 
 		/**
-		 * 공연장 정보가 없으면(논리 FK) 도면 키를 비운다.
-		 * 공연장 서비스는 구역을 번호로 찾게 Map 으로 주므로, 화면 순서(sort_order, 같으면 구역 번호순)로 여기서 정렬한다.
+		 * 구역은 공연장의 읽기 전용 연관에서 화면 순서(sort_order, 같으면 구역 번호순)대로 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다.
 		 */
-		public static ZoneSummary from(UserPerformanceService.ZoneSummary summary, Venue venue,
-			Collection<VenueZoneInfo> zones) {
+		public static ZoneSummary from(PerformanceSchedule schedule, List<ZoneGrade> zoneGrades,
+			List<ZoneRemaining> remainings) {
+			Venue venue = schedule.getPerformance().getVenue();
 			return ZoneSummary.builder()
-				.scheduleId(summary.schedule().getId())
-				.layoutKey(venue == null ? null : venue.getLayoutKey())
-				.zones(zones.stream()
-					.sorted(Comparator.comparingInt(VenueZoneInfo::sortOrder).thenComparing(VenueZoneInfo::zoneId))
-					.map(zone -> Zone.of(zone, summary.gradesByZone().get(zone.zoneId()),
-						summary.remainingByZone().getOrDefault(zone.zoneId(), 0)))
+				.scheduleId(schedule.getId())
+				.layoutKey(venue.getLayoutKey())
+				.zones(venue.getZones().stream()
+					.map(zone -> Zone.of(zone, zoneGrades, remainings))
 					.toList())
 				.build();
 		}
@@ -375,18 +377,29 @@ public class UserPerformanceResponse {
 		Integer total
 	) {
 
-		/** 등급이 지정(ASSIGNED)된 구역만 등급·가격을 채운다. 미판매 구역과 설정이 없는 구역은 비운다. */
-		static Zone of(VenueZoneInfo zone, ZoneGrade zoneGrade, int remaining) {
+		/**
+		 * 구역에 해당하는 등급 설정과 잔여석을 목록에서 찾아 채운다. (구역은 많아야 수십 개라 목록을 훑어도 부담이 없다)
+		 * 등급이 지정(ASSIGNED)된 구역만 등급·가격을 채우고, 미판매 구역과 설정이 없는 구역은 비운다.
+		 * 판매 가능 좌석이 없는 구역은 잔여석 목록에 없으므로 0 이다.
+		 */
+		static Zone of(VenueZone zone, List<ZoneGrade> zoneGrades, List<ZoneRemaining> remainings) {
+			ZoneGrade zoneGrade = zoneGrades.stream()
+				.filter(candidate -> candidate.getZoneId().equals(zone.getId()))
+				.findFirst().orElse(null);
+			int remaining = remainings.stream()
+				.filter(candidate -> candidate.getZoneId().equals(zone.getId()))
+				.mapToInt(candidate -> candidate.getRemaining().intValue())
+				.sum();
 			SeatGrade grade = zoneGrade != null && zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED
 				? zoneGrade.getGrade() : null;
 			return Zone.builder()
-				.zoneId(zone.zoneId())
-				.name(zone.name())
-				.floor(zone.floor())
+				.zoneId(zone.getId())
+				.name(zone.getName())
+				.floor(zone.getFloor())
 				.grade(grade == null ? null : grade.getName())
 				.price(grade == null ? null : grade.getPrice())
 				.remaining(remaining)
-				.total(Math.toIntExact(zone.seatCount()))
+				.total(Math.toIntExact(zone.getSeatCount()))
 				.build();
 		}
 	}
@@ -407,19 +420,14 @@ public class UserPerformanceResponse {
 	) {
 
 		/**
-		 * 공연장 좌석 순서를 뼈대로 판매 좌석의 번호·상태를 붙인다. 판매 좌석은 공연장 좌석을 그대로 복사해 만들어서 짝이 맞는다.
-		 * 짝이 없는 공연장 좌석(판매 좌석을 만든 뒤에 생긴 좌석)은 고를 수 없어서 넣지 않는다.
+		 * 구역의 판매 좌석을 구역 안의 표시 순서대로 담는다. 열·번호는 판매 좌석의 읽기 전용 연관(공연장 좌석)에서 꺼낸다.
+		 * 판매 좌석은 공연장 좌석을 그대로 복사해 만들어서 짝이 맞고, 판매 좌석이 없는 공연장 좌석(만든 뒤에 생긴 좌석)은 고를 수 없어서 나오지 않는다.
 		 */
-		public static ZoneSeats from(VenueZoneInfo zone, List<VenueSeat> venueSeats, List<ScheduleSeat> scheduleSeats) {
-			Map<Long, ScheduleSeat> byVenueSeat = scheduleSeats.stream()
-				.collect(Collectors.toMap(ScheduleSeat::getVenueSeatId, Function.identity()));
+		public static ZoneSeats from(VenueZone zone, List<ScheduleSeat> scheduleSeats) {
 			return ZoneSeats.builder()
-				.zoneId(zone.zoneId())
-				.name(zone.name())
-				.seats(venueSeats.stream()
-					.filter(venueSeat -> byVenueSeat.containsKey(venueSeat.getId()))
-					.map(venueSeat -> Seat.of(venueSeat, byVenueSeat.get(venueSeat.getId())))
-					.toList())
+				.zoneId(zone.getId())
+				.name(zone.getName())
+				.seats(scheduleSeats.stream().map(Seat::from).toList())
 				.build();
 		}
 	}
@@ -439,7 +447,8 @@ public class UserPerformanceResponse {
 		SeatStatus status
 	) {
 
-		static Seat of(VenueSeat venueSeat, ScheduleSeat scheduleSeat) {
+		static Seat from(ScheduleSeat scheduleSeat) {
+			VenueSeat venueSeat = scheduleSeat.getVenueSeat();
 			return Seat.builder()
 				.seatId(scheduleSeat.getId())
 				.row(venueSeat.getRowLabel())

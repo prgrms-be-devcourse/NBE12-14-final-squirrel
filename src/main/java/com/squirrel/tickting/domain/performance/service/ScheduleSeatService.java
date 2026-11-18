@@ -29,7 +29,7 @@ public class ScheduleSeatService {
 	@Transactional
 	public List<ScheduleSeat> holdSeats(Long scheduleId, Set<Long> seatIds, Long userId, LocalDateTime now,
 		LocalDateTime heldUntil) {
-		List<ScheduleSeat> seats = scheduleSeatRepository.findByScheduleIdAndIdIn(scheduleId, seatIds);
+		List<ScheduleSeat> seats = scheduleSeatRepository.findWithLocationByScheduleIdAndIdIn(scheduleId, seatIds);
 		if (seats.size() != seatIds.size()) {
 			throw new BusinessException(BookingExceptionCode.SEAT_NOT_FOUND);
 		}

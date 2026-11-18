@@ -3,20 +3,16 @@ package com.squirrel.tickting.domain.performance.service;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
-import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.SchedulePostponementRepository;
-import com.squirrel.tickting.domain.performance.infra.repository.SeatGradeRepository;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +23,6 @@ public class ScheduleService {
 
 	private final PerformanceScheduleRepository performanceScheduleRepository;
 	private final SchedulePostponementRepository schedulePostponementRepository;
-	private final SeatGradeRepository seatGradeRepository;
 	private final CancelPolicyRuleRepository cancelPolicyRuleRepository;
 	private final PerformanceRepository performanceRepository;
 
@@ -48,7 +43,7 @@ public class ScheduleService {
 	 * 없는 회차와 공개되지 않은(작성 중·취소된) 공연의 회차는 같은 404 다. (번호가 존재하는지 알려주지 않으려고)
 	 * 공개된 공연이라도 판매 기간 밖이거나 회차가 중지·연기·취소됐거나 이미 시작했으면 판매 중이 아니다.
 	 *
-	 * 등급 이름과 취소 규정은 지연 로딩이라 트랜잭션이 끝난 뒤에는 꺼낼 수 없어서 여기서 모두 읽어 담는다.
+	 * 취소 규정은 지연 로딩이라 트랜잭션이 끝난 뒤에는 꺼낼 수 없어서 여기서 읽어 담는다.
 	 */
 	@Transactional(readOnly = true)
 	public BookableSchedule getBookable(Long scheduleId, LocalDateTime now) {
@@ -65,22 +60,17 @@ public class ScheduleService {
 			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE);
 		}
 
-		// 예매 스냅샷(booking_seat.grade_name, 문자열)에는 등급 코드를 그대로 저장한다. 화면 이름은 프론트가 정한다.
-		Map<Long, String> gradeNames = seatGradeRepository.findByPerformanceId(performance.getId()).stream()
-			.collect(Collectors.toMap(SeatGrade::getId, grade -> grade.getName().name()));
 		List<CancelPolicyRule> cancelRules =
 			cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(performance.getCancelPolicy().getId());
-		return new BookableSchedule(schedule.getId(), performance, gradeNames, cancelRules);
+		return new BookableSchedule(schedule.getId(), performance, cancelRules);
 	}
 
 	/**
 	 * 예매 생성에 필요한 회차 정보. 공연은 이미 초기화되어 있어서 트랜잭션이 끝난 뒤에도 값을 읽을 수 있다.
 	 *
-	 * @param gradeNames  등급 번호 → 등급 코드
 	 * @param cancelRules 취소 규정 구간. daysFrom 이 큰 구간부터
 	 */
-	public record BookableSchedule(Long scheduleId, Performance performance, Map<Long, String> gradeNames,
-		List<CancelPolicyRule> cancelRules) {
+	public record BookableSchedule(Long scheduleId, Performance performance, List<CancelPolicyRule> cancelRules) {
 
 		public Long performanceId() {
 			return performance.getId();

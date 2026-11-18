@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.performance.service;
 
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
+import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImageRepository;
@@ -11,11 +12,8 @@ import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,32 +28,25 @@ public class SellerPerformanceService {
 	private final PerformanceImageRepository performanceImageRepository;
 	private final PerformanceScheduleRepository performanceScheduleRepository;
 
-	/** 내 사업체의 공연 목록. 상태를 주지 않으면 취소된 공연까지 모든 상태가 나온다. */
+	/**
+	 * 내 사업체의 공연 목록. 상태를 주지 않으면 취소된 공연까지 모든 상태가 나온다.
+	 * 공연장명과 회차 수는 공연의 읽기 전용 연관(공연장, 회차)에서 꺼낸다. 지연 로딩이라 응답을 이 트랜잭션 안에서 만든다.
+	 */
 	@Transactional(readOnly = true)
-	public Page<Performance> searchMine(Long businessId, PerformanceStatus status, Pageable pageable) {
+	public Page<SellerPerformanceResponse.Summary> searchMine(Long businessId, PerformanceStatus status, Pageable pageable) {
 		var statuses = status == null ? EnumSet.allOf(PerformanceStatus.class) : EnumSet.of(status);
-		return performanceRepository.search(businessId, statuses, pageable);
-	}
-
-	/** 공연별 회차 수. 회차가 없는 공연은 결과에 없으므로 호출하는 쪽이 0으로 본다. */
-	@Transactional(readOnly = true)
-	public Map<Long, Long> countSchedules(Collection<Long> performanceIds) {
-		if (performanceIds.isEmpty()) {
-			return Map.of();
-		}
-		return performanceScheduleRepository.countByPerformanceIds(performanceIds).stream()
-			.collect(Collectors.toMap(count -> count.getPerformanceId(), count -> count.getScheduleCount()));
+		return performanceRepository.search(businessId, statuses, pageable).map(SellerPerformanceResponse.Summary::from);
 	}
 
 	/** 내 사업체의 공연 상세. 남의 공연은 없는 공연과 같은 404로 답한다. */
 	@Transactional(readOnly = true)
-	public PerformanceDetail getMine(Long businessId, Long performanceId) {
+	public SellerPerformanceResponse.Detail getMine(Long businessId, Long performanceId) {
 		Performance performance = performanceRepository.findByIdAndBusinessId(performanceId, businessId)
 			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.PERFORMANCE_NOT_FOUND));
-		return new PerformanceDetail(
+		return SellerPerformanceResponse.Detail.from(new PerformanceDetail(
 			performance,
 			performanceImageRepository.findByPerformanceIdOrderBySortOrder(performanceId),
-			performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId));
+			performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId)));
 	}
 
 	/**

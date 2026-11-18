@@ -63,6 +63,7 @@ com.squirrel.tickting
 - 어노테이션: `@Entity @Getter @NoArgsConstructor(access = AccessLevel.PROTECTED) @Builder`. **setter는 만들지 않는다.** 값 변경은 `post.update(...)`처럼 의도가 드러나는 메서드로 한다.
 - enum 컬럼은 `@Enumerated(EnumType.STRING)`. 금액은 `Integer`(원).
 - **연관관계**: `@ManyToOne(fetch = LAZY)`로 연결하되 **DB에는 FK 제약을 걸지 않는다**(논리 FK). 단 행이 매우 많은 테이블(`schedule_seat`, `booking_seat`)은 연관관계 없이 `Long` ID만 가진다.
+- **다른 도메인의 값을 응답에 붙일 때**는 서비스끼리 부르거나 `Map<Long, X>`로 주고받지 않는다. 그 번호 필드에 **읽기 전용 연관**(`@ManyToOne(fetch = LAZY)` + `@JoinColumn(insertable = false, updatable = false)`, FK 제약 없음)을 하나 더 달고, `from(엔티티)`에서 `booking.getPerformance().getTitle()`처럼 꺼낸다. 저장·락·조건에는 지금처럼 `Long` 번호를 쓰고, 같은 컬럼을 쓰는 `Long` 필드에는 `@Column(name = "…")`을 명시해야 한다. (안 하면 시작할 때 `DuplicateMappingException`) 지연 로딩이라 응답은 서비스에서 트랜잭션 안에 만들고, 행이 없는 깨진 데이터는 `null`이 아니라 오류로 드러난다. 목록은 `default_batch_fetch_size`가 묶어서 읽어서 항목마다 쿼리가 나가지 않는다. 구역 좌석 수처럼 집계가 필요하면 `@Formula`를 쓴다.
 - **소프트 삭제**는 전역 필터(`@SQLRestriction`)를 쓰지 않는다. 조회 메서드 이름에 조건을 드러낸다. (`findByIdAndDeletedAtIsNull`)
 - 동시에 바뀌는 값(수량, 카운터)은 엔티티에서 더하지 않고 `UPDATE ... SET x = x + 1`로 DB에서 바꾼다.
 

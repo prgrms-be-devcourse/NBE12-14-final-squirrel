@@ -9,7 +9,10 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -46,6 +49,11 @@ public class Venue extends BaseTimeEntity {
 	/** 프론트가 도면을 고르는 이름표. 비어 있으면 기본 격자 도면 */
 	@Column(length = 50)
 	private String layoutKey;
+
+	/** 공연장의 구역(화면 순서). 읽기 전용이고, 구역을 만들거나 바꿀 때는 VenueZone 을 직접 다룬다. */
+	@OneToMany(mappedBy = "venue")
+	@OrderBy("sortOrder ASC, id ASC")
+	private List<VenueZone> zones;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)

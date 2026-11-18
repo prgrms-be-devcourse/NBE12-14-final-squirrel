@@ -2,10 +2,12 @@ package com.squirrel.tickting.domain.performance.dto;
 
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
+import com.squirrel.tickting.domain.performance.service.GradeOverview;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
-import com.squirrel.tickting.domain.venue.service.VenueZoneInfo;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Comparator;
 import java.util.List;
 import lombok.Builder;
 
@@ -25,6 +27,28 @@ public class SellerGradeResponse {
 		@Schema(description = "구역 설정. 공연장 구역 순서(sortOrder)순, 같으면 구역 번호순")
 		List<Zone> zones
 	) {
+
+		/**
+		 * 공연장 구역의 이름·층·좌석 수는 공연의 읽기 전용 연관(공연장의 구역)에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다.
+		 * 구역 설정은 공연장 구역 번호로만 연결되어 있어서(논리 FK) 맞는 구역이 없으면 데이터가 깨진 것이다.
+		 * 조용히 빼면 판매자가 구역이 빠진 줄 모르므로 서버 오류로 드러낸다.
+		 */
+		public static Overview from(GradeOverview overview) {
+			List<VenueZone> venueZones = overview.performance().getVenue().getZones();
+			List<Zone> zones = overview.zoneGrades().stream()
+				.map(zoneGrade -> Zone.from(zoneGrade, venueZones.stream()
+					.filter(venueZone -> venueZone.getId().equals(zoneGrade.getZoneId()))
+					.findFirst()
+					.orElseThrow(() -> new IllegalStateException(
+						"구역 설정이 가리키는 공연장 구역이 없습니다. zoneId=" + zoneGrade.getZoneId()))))
+				.sorted(Comparator.comparing(Zone::sortOrder).thenComparing(Zone::zoneId))
+				.toList();
+			return Overview.builder()
+				.locked(overview.locked())
+				.grades(overview.grades().stream().map(Grade::from).toList())
+				.zones(zones)
+				.build();
+		}
 	}
 
 	@Builder
@@ -66,13 +90,13 @@ public class SellerGradeResponse {
 		Long gradeId
 	) {
 
-		public static Zone from(ZoneGrade zoneGrade, VenueZoneInfo zoneInfo) {
+		public static Zone from(ZoneGrade zoneGrade, VenueZone venueZone) {
 			return Zone.builder()
 				.zoneId(zoneGrade.getZoneId())
-				.name(zoneInfo.name())
-				.floor(zoneInfo.floor())
-				.sortOrder(zoneInfo.sortOrder())
-				.seatCount(zoneInfo.seatCount())
+				.name(venueZone.getName())
+				.floor(venueZone.getFloor())
+				.sortOrder(venueZone.getSortOrder())
+				.seatCount(venueZone.getSeatCount())
 				.assignmentStatus(zoneGrade.getAssignmentStatus())
 				.gradeId(zoneGrade.getGrade() == null ? null : zoneGrade.getGrade().getId())
 				.build();

@@ -561,7 +561,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
   - 일시 중지(`PAUSED`)·연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다.
 - `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다. `name`은 등급 코드(SLR-08의 표)이고 화면 이름과 색은 프론트가 정합니다.
 - `cancelPolicy`: 공연이 고른 취소 규정의 구간입니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
-- `venue`·`seller`는 정보가 없으면 `null`, `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다.
+- `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다. `venue`·`seller`는 공연의 공연장·사업체를 읽기 전용 연관으로 꺼내므로 항상 있습니다. (행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
 - `seller`에는 사업체 상태·반려 사유·심사자와 판매자 계정 정보가 들어가지 않습니다. (3부 3-8)
 
 **응답 200**
@@ -919,7 +919,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 - 최신 예매순(`createdAt` 내림차순)이고, 같은 시각이면 번호가 큰 예매가 먼저라 페이지를 넘겨도 순서가 바뀌지 않습니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
 - `size` 기본 20, 최대 20. 크기가 20을 넘으면 에러가 아니라 20으로 줄어듭니다.
 - `seatCount`와 `totalAmount`는 **처음 예매 기준**입니다. 일부 취소해도 취소된 좌석까지 세고, 금액도 처음 결제 금액 그대로입니다. (둘의 기준을 맞추려는 것. 남은 좌석과 환불 금액은 상세 BKG-05에서 봅니다)
-- `performanceTitle`·`posterUrl`·`scheduleStartAt`은 예매 때 복사한 값이 아니라 지금 값입니다. 회차가 연기되면 바뀐 일시가 보이고, 예매한 뒤 공연이 취소돼도 내역에 남습니다. 공연·회차 정보가 없으면 그 값만 `null`입니다.
+- `performanceTitle`·`posterUrl`·`scheduleStartAt`은 예매 때 복사한 값이 아니라 지금 값입니다. 회차가 연기되면 바뀐 일시가 보이고, 예매한 뒤 공연이 취소돼도 내역에 남습니다. 공연·회차는 예매의 읽기 전용 연관에서 꺼내므로 항상 있습니다. (행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
 
 **응답 200**
 
@@ -960,7 +960,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 - `payment`는 승인된 결제(`DONE`, 환불되면 `PARTIAL_CANCELED`·`CANCELED`) 중 가장 최근 것입니다. 결제 대기·만료된 예매는 `null`입니다. 실패한 결제 시도는 보여 주지 않습니다.
 - `seats`는 취소된 좌석까지 모두 나오고(`active=false`), 구역·열·번호·등급·가격은 예매할 때 복사한 값입니다.
 - `cancelPolicy`는 예매할 때 복사한 취소 규정입니다. 판매자가 나중에 규정을 바꿔도 예매 당시 규정이 나옵니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
-- `performance`·`schedule`은 지금 값입니다. 정보가 없으면 객체는 두고 번호 외의 값만 `null`입니다.
+- `performance`·`schedule`은 지금 값이고 항상 있습니다. (예매의 읽기 전용 연관에서 꺼냅니다. 행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
 - `delivery`는 배송(`DELIVERY`)이 아니면 `null`입니다.
 - **`refundedAmount`, `cancelable`, `currentFeeRate`는 지금 `null`입니다.** 예매 취소(BKG-06)와 같은 기준(환불 상태, 남은 일수 세는 법)으로 계산해야 해서 그 기능이 들어올 때 채웁니다. 화면은 `null`이면 취소 버튼을 숨기면 됩니다.
 

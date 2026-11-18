@@ -19,9 +19,7 @@ import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -49,13 +47,13 @@ public class GradeService {
 	 * 일부 회차만 만든 상태에서 고치면 같은 공연의 회차끼리 가격이 어긋난다. 등급 추가·수정(SLR-09·10·11)도 같은 기준을 쓴다.
 	 */
 	@Transactional(readOnly = true)
-	public GradeOverview getOverview(Long businessId, Long performanceId) {
+	public SellerGradeResponse.Overview getOverview(Long businessId, Long performanceId) {
 		Performance performance = getMine(businessId, performanceId);
-		return new GradeOverview(
+		return SellerGradeResponse.Overview.from(new GradeOverview(
 			performance,
 			seatGradeRepository.findByPerformanceIdOrderByPriceDescIdAsc(performanceId),
 			zoneGradeRepository.findAllWithGradeByPerformanceId(performanceId),
-			isLocked(performanceId));
+			isLocked(performanceId)));
 	}
 
 	/**
@@ -129,7 +127,7 @@ public class GradeService {
 	 * 좌석 생성도 같은 이름의 락을 잡아야 효과가 있다. 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
 	 * 요청만 보고 판단하는 검사(같은 구역 중복, 상태·등급 조합)는 DB 조회 전에 하고, 남의 공연은 락을 잡기 전에 404 로 끝낸다.
 	 */
-	public GradeOverview updateZoneGrades(Long businessId, Long performanceId, SellerGradeRequest.ZoneAssign request) {
+	public SellerGradeResponse.Overview updateZoneGrades(Long businessId, Long performanceId, SellerGradeRequest.ZoneAssign request) {
 		validateAssignments(request.assignments());
 		getMine(businessId, performanceId);
 		return lockExecutor.execute(List.of(lockName(performanceId)), properties.lockWait(),
@@ -156,7 +154,7 @@ public class GradeService {
 	}
 
 	/** 락을 기다리는 사이에 공연이 취소되거나 좌석이 만들어졌을 수 있어서 락 밖의 판단은 믿지 않고 다시 읽는다. */
-	private GradeOverview updateZonesInTransaction(Long businessId, Long performanceId,
+	private SellerGradeResponse.Overview updateZonesInTransaction(Long businessId, Long performanceId,
 		SellerGradeRequest.ZoneAssign request) {
 		Performance performance = getMine(businessId, performanceId);
 		if (performance.getStatus() == PerformanceStatus.CANCELED) {
@@ -165,19 +163,15 @@ public class GradeService {
 		List<ZoneGrade> zoneGrades = zoneGradeRepository.findAllWithGradeByPerformanceId(performanceId);
 		List<SeatGrade> grades = seatGradeRepository.findByPerformanceIdOrderByPriceDescIdAsc(performanceId);
 		// 구역 설정 행은 공연을 등록할 때 공연장의 구역마다 만들어서, 행이 없으면 이 공연의 공연장 구역이 아니다.
-		Map<Long, ZoneGrade> zonesById = zoneGrades.stream()
-			.collect(Collectors.toMap(ZoneGrade::getZoneId, Function.identity()));
-		Map<Long, SeatGrade> gradesById = grades.stream()
-			.collect(Collectors.toMap(SeatGrade::getId, Function.identity()));
 
 		List<SellerGradeRequest.Item> assignments = request.assignments();
-		if (assignments.stream().anyMatch(item -> !zonesById.containsKey(item.zoneId()))) {
+		if (assignments.stream().anyMatch(item -> zoneGradeOf(zoneGrades, item.zoneId()) == null)) {
 			throw new BusinessException(PerformanceExceptionCode.ZONE_NOT_FOUND_IN_VENUE);
 		}
-		if (assignments.stream().anyMatch(item -> item.gradeId() != null && !gradesById.containsKey(item.gradeId()))) {
+		if (assignments.stream().anyMatch(item -> item.gradeId() != null && gradeOf(grades, item.gradeId()) == null)) {
 			throw new BusinessException(PerformanceExceptionCode.GRADE_NOT_IN_PERFORMANCE);
 		}
-		if (mixesAllAfterAssign(zoneGrades, assignments, gradesById)) {
+		if (mixesAllAfterAssign(zoneGrades, assignments, grades)) {
 			throw new BusinessException(PerformanceExceptionCode.GRADE_ALL_MIXED);
 		}
 		// 락을 얻은 뒤 여기서 처음 본다. 좌석 생성이 먼저 커밋됐으면 이 검사가 거른다.
@@ -187,11 +181,11 @@ public class GradeService {
 
 		// 관리 중인 엔티티라 커밋 때 저장된다. 값이 그대로인 항목도 에러 없이 지나간다.
 		for (SellerGradeRequest.Item item : assignments) {
-			zonesById.get(item.zoneId()).assign(item.assignmentStatus(),
-				item.gradeId() == null ? null : gradesById.get(item.gradeId()));
+			zoneGradeOf(zoneGrades, item.zoneId()).assign(item.assignmentStatus(),
+				item.gradeId() == null ? null : gradeOf(grades, item.gradeId()));
 		}
 		// 바로 위에서 locked 409 를 통과했으므로 false 다.
-		return new GradeOverview(performance, grades, zoneGrades, false);
+		return SellerGradeResponse.Overview.from(new GradeOverview(performance, grades, zoneGrades, false));
 	}
 
 	/**
@@ -199,21 +193,35 @@ public class GradeService {
 	 * 구역 하나씩 보면 R·S 구역을 한 요청에서 모두 전석으로 바꾸는 것도 중간에 막히기 때문이다.
 	 */
 	private boolean mixesAllAfterAssign(List<ZoneGrade> zoneGrades, List<SellerGradeRequest.Item> assignments,
-		Map<Long, SeatGrade> gradesById) {
-		Map<Long, SellerGradeRequest.Item> requested = assignments.stream()
-			.collect(Collectors.toMap(SellerGradeRequest.Item::zoneId, Function.identity()));
+		List<SeatGrade> grades) {
 		Set<SeatGradeName> names = new HashSet<>();
 		for (ZoneGrade zoneGrade : zoneGrades) {
-			SellerGradeRequest.Item item = requested.get(zoneGrade.getZoneId());
+			SellerGradeRequest.Item item = assignments.stream()
+				.filter(candidate -> candidate.zoneId().equals(zoneGrade.getZoneId()))
+				.findFirst().orElse(null);
 			if (item == null) {
 				if (zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED) {
 					names.add(zoneGrade.getGrade().getName());
 				}
 			} else if (item.assignmentStatus() == ZoneAssignmentStatus.ASSIGNED) {
-				names.add(gradesById.get(item.gradeId()).getName());
+				names.add(gradeOf(grades, item.gradeId()).getName());
 			}
 		}
 		return names.contains(SeatGradeName.ALL) && names.size() > 1;
+	}
+
+	/** 번호로 구역 설정을 찾는다. 구역은 많아야 수십 개라 목록을 훑어도 부담이 없다. 없으면 null 이다. */
+	private static ZoneGrade zoneGradeOf(List<ZoneGrade> zoneGrades, Long zoneId) {
+		return zoneGrades.stream()
+			.filter(zoneGrade -> zoneGrade.getZoneId().equals(zoneId))
+			.findFirst().orElse(null);
+	}
+
+	/** 번호로 등급을 찾는다. 없으면 null 이다. */
+	private static SeatGrade gradeOf(List<SeatGrade> grades, Long gradeId) {
+		return grades.stream()
+			.filter(grade -> grade.getId().equals(gradeId))
+			.findFirst().orElse(null);
 	}
 
 	/**

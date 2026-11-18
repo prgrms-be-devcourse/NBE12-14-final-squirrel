@@ -3,19 +3,25 @@ package com.squirrel.tickting.domain.performance.infra.entity;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
+import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
+import com.squirrel.tickting.domain.venue.infra.entity.Venue;
 import com.squirrel.tickting.global.entity.BaseTimeEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -39,12 +45,31 @@ public class Performance extends BaseTimeEntity {
 	private Long id;
 
 	/** 공연을 올린 사업체 번호 (seller_business) */
-	@Column(nullable = false)
+	@Column(name = "business_id", nullable = false)
 	private Long businessId;
 
 	/** 공연이 열리는 공연장 번호 (venue) */
-	@Column(nullable = false)
+	@Column(name = "venue_id", nullable = false)
 	private Long venueId;
+
+	/**
+	 * 읽기 전용 연관. 응답을 만들 때 공연에서 바로 공연장·사업체·회차를 꺼내 쓰려는 것이다. (DB 에 FK 제약은 없다)
+	 * 저장하거나 바꿀 때는 위의 번호(businessId, venueId)를 쓰고, 이 필드들은 INSERT·UPDATE 에 들어가지 않는다.
+	 * 지연 로딩이라 트랜잭션 안에서만 꺼낼 수 있고, 목록은 default_batch_fetch_size 로 묶어서 읽는다.
+	 */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "venue_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private Venue venue;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "business_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private SellerBusiness business;
+
+	/** 이 공연의 회차 전부(취소된 회차 포함). 읽기 전용이고 회차를 만들거나 바꿀 때는 PerformanceSchedule 을 직접 다룬다. */
+	@OneToMany(mappedBy = "performance")
+	private List<PerformanceSchedule> schedules;
 
 	/** 등록한 판매자 계정 번호 (seller_member) */
 	@Column(nullable = false)
