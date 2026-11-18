@@ -72,3 +72,41 @@ export const GENRE_COLOR: Record<Genre, string> = {
   CLASSIC: "#8a5a12",
   ETC: "#4b5060",
 };
+
+// 서버는 등급을 코드(VIP, R, S ...)로만 준다. 화면 이름과 색은 프론트가 정한다. (api-spec SLR-08)
+const GRADE_LABEL: Record<string, string> = {
+  VIP: "VIP석",
+  R: "R석",
+  S: "S석",
+  A: "A석",
+  B: "B석",
+  C: "C석",
+  OP: "OP석",
+  VIEW_LIMITED: "시야제한석",
+  ALL: "전석",
+  STANDING: "스탠딩석",
+  VIP_STANDING: "VIP 스탠딩석",
+  RESERVED: "지정석",
+};
+
+const GRADE_COLOR: Record<string, string> = {
+  VIP: "#8a5a12",
+  VIP_STANDING: "#8a5a12",
+  R: "#c2361c",
+  S: "#245c9c",
+  A: "#2b7556",
+  B: "#6a4a9c",
+  C: "#4b5060",
+};
+
+export function gradeLabel(code: string | null | undefined): string {
+  if (!code) return "";
+  return GRADE_LABEL[code] ?? code;
+}
+
+// 서버가 색을 주면 그것을, 아니면 등급 코드로 정한다.
+export function gradeColor(code: string | null | undefined, given?: string | null): string | null {
+  if (given) return given;
+  if (!code) return null;
+  return GRADE_COLOR[code] ?? "#4b5060";
+}
