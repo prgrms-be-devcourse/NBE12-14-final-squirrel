@@ -4,9 +4,10 @@ import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
-import { ApiError, api, useApi } from "@/lib/api";
+import { ApiError, apiWithMeta, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
-import { dateTimeText, won } from "@/lib/format";
+import { saveBooking } from "@/lib/booking-cache";
+import { dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { BookingCreated, PerformanceDetail, Seat, Zone, ZoneSeats, ZoneSummary } from "@/lib/types";
 import { ErrorBox, Loading } from "@/components/ui";
 
@@ -18,7 +19,7 @@ type Picked = {
   price: number;
 };
 
-// 구역 색(#rrggbb)에 투명도를 얹어 어두운 배경 위에서 면으로 쓴다.
+// 구역 색(#rrggbb)에 투명도를 얹어 옅은 면으로 쓴다.
 const tint = (color: string | null, alpha: string) => (color ? `${color}${alpha}` : undefined);
 
 export default function SeatSelectPage() {
@@ -75,10 +76,19 @@ export default function SeatSelectPage() {
     setSubmitting(true);
     setMessage(null);
     try {
-      const booking = await api<BookingCreated>(`/api/v1/schedules/${scheduleId}/bookings`, {
+      const { data: booking, mock } = await apiWithMeta<BookingCreated>(`/api/v1/schedules/${scheduleId}/bookings`, {
         method: "POST",
         body: { seatIds: picked.map((s) => s.seatId) },
         headers: hint,
+      });
+      // 결제 화면이 같은 정보를 바로 쓰도록 둔다. (예매 상세 API 가 없어도 결제까지 가야 한다)
+      saveBooking({
+        ...booking,
+        performanceId: Number(id),
+        scheduleId: Number(scheduleId),
+        performanceTitle: p?.title ?? "",
+        scheduleStartAt: schedule?.startAt ?? "",
+        mock,
       });
       router.push(`/bookings/${booking.bookingId}/pay`);
     } catch (error) {
@@ -149,14 +159,14 @@ export default function SeatSelectPage() {
                               onClick={() => setZoneId(zone.zoneId)}
                               aria-pressed={active}
                               style={{
-                                backgroundColor: tint(zone.color, active ? "40" : "1f"),
-                                borderColor: active ? (zone.color ?? undefined) : "transparent",
+                                backgroundColor: tint(gradeColor(zone.grade, zone.color), active ? "40" : "1f"),
+                                borderColor: active ? (gradeColor(zone.grade, zone.color) ?? undefined) : "transparent",
                               }}
                               className="h-full w-full rounded-lg border-2 px-3 py-4 text-left transition-colors duration-150 disabled:opacity-40"
                             >
                               <span className="block text-sm font-medium">{zone.name}</span>
                               <span className="mt-1 block text-xs text-secondary">
-                                {unsold ? "판매 제외" : `${zone.grade} · ${won(zone.price!)}`}
+                                {unsold ? "판매 제외" : `${gradeLabel(zone.grade)} · ${won(zone.price!)}`}
                               </span>
                               {!unsold && (
                                 <span className={`mt-2 block text-xs ${soldOut ? "text-muted" : "text-foreground"}`}>
@@ -199,8 +209,8 @@ export default function SeatSelectPage() {
                               ? undefined
                               : available
                                 ? {
-                                    backgroundColor: tint(activeZone?.color ?? null, "26"),
-                                    borderColor: tint(activeZone?.color ?? null, "80"),
+                                    backgroundColor: tint(gradeColor(activeZone?.grade, activeZone?.color), "26"),
+                                    borderColor: tint(gradeColor(activeZone?.grade, activeZone?.color), "80"),
                                   }
                                 : undefined
                           }
@@ -248,7 +258,7 @@ export default function SeatSelectPage() {
                 <li key={s.seatId} className="flex items-center justify-between gap-2 py-3">
                   <span>
                     {s.zoneName} {s.label}
-                    <span className="block text-xs text-muted">{s.gradeName}</span>
+                    <span className="block text-xs text-muted">{gradeLabel(s.gradeName)}</span>
                   </span>
                   <span className="flex items-center gap-3">
                     {won(s.price)}

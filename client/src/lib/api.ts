@@ -55,6 +55,11 @@ function toQueryString(query?: Query): string {
 }
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
+  return (await apiWithMeta<T>(path, options)).data;
+}
+
+// 응답이 목 데이터인지 함께 돌려준다. 결제처럼 "진짜 서버가 답했는가"가 중요한 곳에서 쓴다.
+export async function apiWithMeta<T>(path: string, options: Options = {}): Promise<{ data: T; mock: boolean }> {
   const { method = "GET", body, query, headers } = options;
   const response = await fetch(`${path}${toQueryString(query)}`, {
     method,
@@ -66,7 +71,8 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     cache: "no-store",
   });
 
-  if (response.headers.get("x-mock")) markMock();
+  const mock = Boolean(response.headers.get("x-mock"));
+  if (mock) markMock();
 
   let envelope: ApiEnvelope<T> | null = null;
   try {
@@ -83,7 +89,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
       envelope?.message || "요청을 처리하지 못했습니다.",
     );
   }
-  return envelope.data;
+  return { data: envelope.data, mock };
 }
 
 type Loaded<T> = { key: string; data?: T; error?: ApiError };

@@ -5,13 +5,55 @@ import { useParams, useRouter } from "next/navigation";
 import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, useApi, useMockSeen } from "@/lib/api";
-import { dateTimeText, won } from "@/lib/format";
-import type { BookingDetail, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
+import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
+import { dateTimeText, gradeLabel, won } from "@/lib/format";
+import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
 
 // 결제창을 여는 클라이언트 키다. 브라우저에 내려가도 되는 키라 NEXT_PUBLIC_ 을 쓴다. (시크릿 키는 Spring 만 읽는다)
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+
+// 결제 화면이 그리는 예매 정보. 예매를 만든 직후의 응답(BKG-01)이나 예매 상세(BKG-05)에서 만든다.
+type PayView = {
+  bookingId: number;
+  bookingNo: string;
+  status: BookingStatus;
+  performanceId: number;
+  title: string;
+  startAt: string;
+  seats: { id: number; zoneName: string; rowLabel: string; seatNumber: string; gradeName: string; price: number }[];
+  ticketAmount: number;
+  bookingFeeAmount: number;
+  totalAmount: number;
+  expiresAt: string | null;
+};
+
+function fromDetail(b: BookingDetail): PayView {
+  return {
+    bookingId: b.bookingId,
+    bookingNo: b.bookingNo,
+    status: b.status,
+    performanceId: b.performance.performanceId,
+    title: b.performance.title,
+    startAt: b.schedule.startAt,
+    seats: b.seats.map((s) => ({
+      id: s.bookingSeatId,
+      zoneName: s.zoneName,
+      rowLabel: s.rowLabel,
+      seatNumber: s.seatNumber,
+      gradeName: s.gradeName,
+      price: s.price,
+    })),
+    ticketAmount: b.ticketAmount,
+    bookingFeeAmount: b.bookingFeeAmount,
+    totalAmount: b.totalAmount,
+    expiresAt: b.expiresAt,
+  };
+}
+
+// 토스를 거치지 않는 임시 승인에서만 쓰는 가짜 결제 키다. 목 서버는 어떤 값이든 받는다.
+const testPaymentKey = () => `test_${Date.now()}`;
 
 function isTossError(error: unknown): error is { code: string; message: string } {
   return (
@@ -34,9 +76,35 @@ function useNow(intervalMs: number): number {
 export default function PayPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const booking = useApi<BookingDetail>(`/api/v1/bookings/${id}`);
-  const performanceId = booking.data?.performance.performanceId;
-  const performance = useApi<PerformanceDetail>(performanceId ? `/api/v1/performances/${performanceId}` : null);
+
+  // 예매 정보는 예매를 만들 때 받아 둔 값을 먼저 쓴다. 없을 때(다른 탭, 새 창)만 예매 상세를 부른다.
+  const cache = useCachedBooking(id);
+  const detail = useApi<BookingDetail>(cache.state === "none" ? `/api/v1/bookings/${id}` : null);
+  const view: PayView | null = cache.booking
+    ? {
+        bookingId: cache.booking.bookingId,
+        bookingNo: cache.booking.bookingNo,
+        status: cache.booking.status,
+        performanceId: cache.booking.performanceId,
+        title: cache.booking.performanceTitle,
+        startAt: cache.booking.scheduleStartAt,
+        seats: cache.booking.seats.map((s) => ({
+          id: s.bookingSeatId,
+          zoneName: s.zoneName,
+          rowLabel: s.rowLabel,
+          seatNumber: s.seatNumber,
+          gradeName: s.gradeName,
+          price: s.price,
+        })),
+        ticketAmount: cache.booking.ticketAmount,
+        bookingFeeAmount: cache.booking.bookingFeeAmount,
+        totalAmount: cache.booking.totalAmount,
+        expiresAt: cache.booking.expiresAt,
+      }
+    : detail.data
+      ? fromDetail(detail.data)
+      : null;
+  const performance = useApi<PerformanceDetail>(view ? `/api/v1/performances/${view.performanceId}` : null);
 
   const now = useNow(1000);
   const [receive, setReceive] = useState<"ONSITE" | "DELIVERY">("ONSITE");
@@ -44,14 +112,15 @@ export default function PayPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Spring 이 아니라 목 데이터가 답한 상태에서는 토스 승인이 의미가 없어서 결제창을 열지 않는다.
+  // 목 데이터로 만든 예매(또는 목이 답한 조회)는 토스 승인이 의미가 없어서 결제창을 열지 않는다.
   const mockSeen = useMockSeen();
-  const useToss = Boolean(TOSS_CLIENT_KEY) && !mockSeen;
+  const mocked = cache.booking ? cache.booking.mock : mockSeen;
+  const useToss = Boolean(TOSS_CLIENT_KEY) && !mocked;
   const widgetsRef = useRef<TossPaymentsWidgets | null>(null);
   const [widgetState, setWidgetState] = useState<"loading" | "ready" | "error">("loading");
 
-  const pending = booking.data?.status === "PENDING";
-  const totalAmount = booking.data?.totalAmount;
+  const pending = view?.status === "PENDING";
+  const totalAmount = view?.totalAmount;
 
   useEffect(() => {
     if (!useToss || !pending || totalAmount === undefined || !TOSS_CLIENT_KEY) return;
@@ -87,13 +156,12 @@ export default function PayPage() {
     };
   }, [useToss, pending, totalAmount]);
 
-  if (booking.loading) return <Loading />;
-  if (booking.error) {
-    if (booking.error.status === 401) router.push("/login");
-    return <ErrorBox error={booking.error} onRetry={booking.reload} />;
+  if (cache.state === "unknown" || (cache.state === "none" && detail.loading)) return <Loading />;
+  if (!view) {
+    if (detail.error?.status === 401) router.push("/login");
+    return detail.error ? <ErrorBox error={detail.error} onRetry={detail.reload} /> : null;
   }
-  const b = booking.data;
-  if (!b) return null;
+  const b = view;
 
   const allowed = performance.data?.sale.receiveType ?? "ONSITE";
   const receiveType = allowed === "BOTH" ? receive : allowed;
@@ -103,7 +171,6 @@ export default function PayPage() {
   const seconds = Math.max(0, Math.floor((remainingMs % 60000) / 1000));
 
   async function pay() {
-    if (!b) return;
     setBusy(true);
     setMessage(null);
     try {
@@ -136,9 +203,10 @@ export default function PayPage() {
       // 키가 없거나 목 데이터일 때만 쓰는 임시 승인이다. 토스를 거치지 않는다.
       await api<PaymentConfirmed>("/api/v1/payments/confirm", {
         method: "POST",
-        body: { paymentKey: `test_${Date.now()}`, orderId: ready.orderId, amount: ready.amount },
+        body: { paymentKey: testPaymentKey(), orderId: ready.orderId, amount: ready.amount },
       });
-      router.push(`/bookings/${b.bookingId}`);
+      clearBooking(b.bookingId);
+      router.push("/bookings");
     } catch (error) {
       if (error instanceof ApiError) setMessage(error.message);
       else if (isTossError(error)) {
@@ -154,8 +222,8 @@ export default function PayPage() {
     return (
       <div className="card mx-auto max-w-lg p-6 text-center">
         <p className="font-medium">이미 처리된 예매입니다</p>
-        <Link href={`/bookings/${b.bookingId}`} className="btn mt-4">
-          예매 상세 보기
+        <Link href="/bookings" className="btn mt-4">
+          내 예매 보기
         </Link>
       </div>
     );
@@ -169,8 +237,8 @@ export default function PayPage() {
         head={
           <>
             <p className="text-xs text-muted">예매번호 {b.bookingNo}</p>
-            <h2 className="mt-2 text-xl leading-snug font-semibold">{b.performance.title}</h2>
-            <p className="mt-1 text-sm text-secondary">{dateTimeText(b.schedule.startAt)}</p>
+            <h2 className="mt-2 text-xl leading-snug font-semibold">{b.title}</h2>
+            {b.startAt && <p className="mt-1 text-sm text-secondary">{dateTimeText(b.startAt)}</p>}
           </>
         }
         stub={
@@ -192,10 +260,10 @@ export default function PayPage() {
       >
         <ul className="divide-y divide-line text-sm">
           {b.seats.map((s) => (
-            <li key={s.bookingSeatId} className="flex justify-between py-2">
+            <li key={s.id} className="flex justify-between py-2">
               <span>
                 {s.zoneName} {s.rowLabel} {s.seatNumber}번
-                <span className="ml-2 text-muted">{s.gradeName}</span>
+                <span className="ml-2 text-muted">{gradeLabel(s.gradeName)}</span>
               </span>
               <span>{won(s.price)}</span>
             </li>
@@ -206,7 +274,7 @@ export default function PayPage() {
       {expired ? (
         <div className="rounded-xl border border-accent/30 bg-accent-soft p-5 text-sm text-accent-strong">
           <p>좌석 점유 시간이 지났습니다. 처음부터 다시 선택해 주세요.</p>
-          <Link href={`/performances/${b.performance.performanceId}`} className="btn mt-3">
+          <Link href={`/performances/${b.performanceId}`} className="btn mt-3">
             공연으로 돌아가기
           </Link>
         </div>
@@ -285,7 +353,11 @@ export default function PayPage() {
             </section>
           )}
 
-          {message && <p role="alert" className="text-sm text-accent-strong">{message}</p>}
+          {message && (
+            <p role="alert" className="text-sm text-accent-strong">
+              {message}
+            </p>
+          )}
           <button
             type="button"
             className="btn btn-primary btn-lg w-full"

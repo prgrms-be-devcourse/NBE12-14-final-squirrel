@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { clearBooking } from "@/lib/booking-cache";
+import { dateTimeText, won } from "@/lib/format";
 import type { PaymentConfirmed } from "@/lib/types";
 import { Loading } from "@/components/ui";
 
@@ -17,6 +19,7 @@ export default function PaySuccessPage() {
   const router = useRouter();
   const params = useSearchParams();
   const [failure, setFailure] = useState<Failure | null>(null);
+  const [done, setDone] = useState<PaymentConfirmed | null>(null);
   // 개발 모드(StrictMode)에서 효과가 두 번 돌아도 승인은 한 번만 보낸다. 새로고침으로 다시 오면 서버가 409 로 막는다.
   const started = useRef(false);
 
@@ -34,7 +37,11 @@ export default function PaySuccessPage() {
       method: "POST",
       body: { paymentKey, orderId, amount },
     })
-      .then((confirmed) => router.replace(`/bookings/${confirmed.bookingId}`))
+      .then((confirmed) => {
+        // 결제가 끝났으니 결제 화면에 쓰던 예매 정보는 지운다. 예매 상세 API 가 없어도 이 화면이 결과를 보여 준다.
+        clearBooking(id);
+        setDone(confirmed);
+      })
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) {
           router.replace("/login");
@@ -46,9 +53,35 @@ export default function PaySuccessPage() {
             : { code: "CLIENT", message: "결제를 확인하지 못했습니다" },
         );
       });
-  }, [invalid, paymentKey, orderId, amount, router]);
+  }, [id, invalid, paymentKey, orderId, amount, router]);
 
   const shown = failure ?? (invalid ? { code: "CLIENT", message: "결제 정보가 올바르지 않습니다" } : null);
+
+  if (done) {
+    return (
+      <div className="card mx-auto max-w-lg space-y-4 p-6 text-center">
+        <h1 className="text-xl font-semibold">결제가 완료되었습니다</h1>
+        <dl className="mx-auto grid max-w-xs grid-cols-[88px_1fr] gap-x-4 gap-y-2 text-left text-sm">
+          <dt className="text-muted">예매번호</dt>
+          <dd>{done.bookingNo}</dd>
+          <dt className="text-muted">결제 금액</dt>
+          <dd>{won(done.amount)}</dd>
+          <dt className="text-muted">결제 수단</dt>
+          <dd>{done.method}</dd>
+          <dt className="text-muted">승인 시각</dt>
+          <dd>{dateTimeText(done.approvedAt)}</dd>
+        </dl>
+        <div className="flex justify-center gap-2">
+          <Link href="/" className="btn">
+            홈으로
+          </Link>
+          <Link href="/bookings" className="btn btn-primary">
+            내 예매 보기
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (!shown) {
     return (
