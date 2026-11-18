@@ -30,8 +30,24 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		""", nativeQuery = true)
 	List<Long> lockOverdueIds(@Param("now") LocalDateTime now, @Param("limit") int limit);
 
+	/**
+	 * 결제 완료 처리. 결제 대기(PENDING)인 예매만 PAID 로 바꾸고 바뀐 행 수를 돌려준다.
+	 * 일괄 UPDATE 는 영속성 컨텍스트를 비우는데(clearAutomatically), 그 전에 flush 하지 않으면 같은 트랜잭션에서 엔티티로 바꿔 둔
+	 * 값(예: 결제 DONE)이 DB 에 반영되기 전에 사라진다. 그래서 이 저장소의 일괄 UPDATE 는 모두 flushAutomatically 도 켠다.
+	 * 상태 조건이 있어서 그 사이 만료 처리된 예매는 건드리지 않는다. (0 이면 호출한 쪽이 어긋난 상태로 보고 처리한다)
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		       b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PENDING
+		""")
+	int markPaid(@Param("id") Long id, @Param("now") LocalDateTime now);
+
 	/** 만료 처리. 잠근 예매의 상태를 PENDING 에서 EXPIRED 로 바꾸고 바뀐 행 수를 돌려준다. */
-	@Modifying(clearAutomatically = true)
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE Booking b
 		   SET b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.EXPIRED,

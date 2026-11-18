@@ -14,6 +14,13 @@ public final class TestSecrets {
 	private TestSecrets() {
 	}
 
+	/** 토스 시크릿 키처럼 생긴 무작위 문자열. 실제 키가 아니라서 가짜 토스 서버를 상대로만 쓴다. */
+	public static String randomTossSecretKey() {
+		byte[] bytes = new byte[24];
+		RANDOM.nextBytes(bytes);
+		return "test_sk_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+	}
+
 	/** JWT 서명 키로 쓸 수 있는 길이(48바이트)의 무작위 문자열 */
 	public static String randomJwtSecret() {
 		byte[] bytes = new byte[48];

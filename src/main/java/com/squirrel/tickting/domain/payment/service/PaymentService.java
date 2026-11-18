@@ -3,6 +3,9 @@ package com.squirrel.tickting.domain.payment.service;
 import com.squirrel.tickting.domain.payment.infra.entity.Payment;
 import com.squirrel.tickting.domain.payment.infra.repository.PaymentRepository;
 import com.squirrel.tickting.domain.payment.type.PaymentStatus;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +37,48 @@ public class PaymentService {
 				.amount(amount)
 				.status(PaymentStatus.READY)
 				.build()));
+	}
+
+	/** 토스에 보낸 주문 ID 로 결제를 찾는다. 없으면 404. 호출한 쪽의 트랜잭션에 참여한다. */
+	@Transactional
+	public Payment getByOrderId(String orderId) {
+		return paymentRepository.findByOrderId(orderId)
+			.orElseThrow(() -> new BusinessException(PaymentExceptionCode.PAYMENT_NOT_FOUND));
+	}
+
+	/**
+	 * 이 예매에서 승인을 이미 시도한 결제가 있는지. 결제 준비(READY)가 아닌 건이 하나라도 있으면 시도한 적이 있는 것이다.
+	 * 점유 시간을 늘리는 것은 예매당 한 번만이라서, 이 값이 true 면 늘리지 않는다.
+	 */
+	@Transactional(readOnly = true)
+	public boolean hasAttemptedApproval(Long bookingId) {
+		return paymentRepository.countByBookingIdAndStatusNot(bookingId, PaymentStatus.READY) > 0;
+	}
+
+	/**
+	 * 승인을 시작한다. 결제 준비(READY)가 아니면 이미 다른 요청이 처리 중이거나 끝난 것이라 409 다.
+	 * 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 불러야 같은 결제의 승인 요청이 두 번 시작되지 않는다.
+	 */
+	@Transactional
+	public void startProcessing(Payment payment) {
+		if (payment.getStatus() != PaymentStatus.READY) {
+			throw new BusinessException(PaymentExceptionCode.PAYMENT_ALREADY_PROCESSED);
+		}
+		payment.startProcessing();
+	}
+
+	/** 토스 승인 결과를 반영한다. 승인을 시작(PROCESSING)한 결제만 완료할 수 있다. */
+	@Transactional
+	public Payment complete(Long paymentId, String paymentKey, String method, LocalDateTime approvedAt) {
+		Payment payment = paymentRepository.findById(paymentId).orElseThrow();
+		payment.complete(paymentKey, method, approvedAt);
+		return payment;
+	}
+
+	/** 토스가 승인을 거절했을 때 실패로 기록한다. 좌석 점유와 예매는 건드리지 않고 만료 시각까지 그대로 둔다. */
+	@Transactional
+	public void fail(Long paymentId, String reason) {
+		paymentRepository.findById(paymentId).orElseThrow().fail(reason);
 	}
 
 	/** 예: BK20261125KCZB03R-01. 토스 주문 ID 규칙(6~64자, 영문·숫자·-·_)에 맞는다. */
