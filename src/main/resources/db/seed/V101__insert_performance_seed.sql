@@ -14,7 +14,7 @@ INSERT INTO performance (business_id, venue_id, created_by, cancel_policy_id, ti
                          max_per_person, receive_type, booking_fee, created_at, updated_at)
 SELECT 1, v.id, 1, (SELECT id FROM cancel_policy WHERE business_id IS NULL AND name = '기본 규정'),
        '가상 콘서트 (샘플)', 'CONCERT', 12, 150,
-       '가상 밴드', 'https://example.com/posters/sample-concert.jpg',
+       '가상 밴드', 'https://team08-tickting-yjh.s3.ap-northeast-2.amazonaws.com/public/124112.jpg',
        '공연 시작 30분 전부터 입장할 수 있습니다.', '촬영·녹음은 금지됩니다.',
        'PUBLISHED', NOW() - INTERVAL '1 day', DATE_TRUNC('day', NOW()) + INTERVAL '30 days 18 hours',
        4, 'BOTH', 2000, NOW(), NOW()
@@ -26,7 +26,7 @@ INSERT INTO performance (business_id, venue_id, created_by, cancel_policy_id, ti
                          max_per_person, receive_type, booking_fee, created_at, updated_at)
 SELECT 1, v.id, 1, (SELECT id FROM cancel_policy WHERE business_id IS NULL AND name = '기본 규정'),
        '작은 연극 (샘플)', 'PLAY', 0, 90,
-       '가상 극단', 'https://example.com/posters/sample-play.jpg',
+       '가상 극단', 'https://team08-tickting-yjh.s3.ap-northeast-2.amazonaws.com/public/639_1031_130.jpg',
        NULL, NULL,
        'PUBLISHED', NOW() - INTERVAL '1 day', DATE_TRUNC('day', NOW()) + INTERVAL '7 days 18 hours',
        2, 'ONSITE', 1000, NOW(), NOW()
@@ -38,7 +38,7 @@ INSERT INTO performance (business_id, venue_id, created_by, cancel_policy_id, ti
                          max_per_person, receive_type, booking_fee, created_at, updated_at)
 SELECT 1, v.id, 1, (SELECT id FROM cancel_policy WHERE business_id IS NULL AND name = '기본 규정'),
        '곧 오픈하는 뮤지컬 (샘플)', 'MUSICAL', 8, 120,
-       '가상 배우들', 'https://example.com/posters/sample-musical.jpg',
+       '가상 배우들', 'https://team08-tickting-yjh.s3.ap-northeast-2.amazonaws.com/public/images+(2).jpg',
        NULL, NULL,
        'PUBLISHED', NOW() + INTERVAL '12 hours', DATE_TRUNC('day', NOW()) + INTERVAL '10 days 18 hours',
        4, 'BOTH', 1500, NOW(), NOW()
@@ -50,7 +50,7 @@ INSERT INTO performance (business_id, venue_id, created_by, cancel_policy_id, ti
                          max_per_person, receive_type, booking_fee, created_at, updated_at)
 SELECT 1, v.id, 1, (SELECT id FROM cancel_policy WHERE business_id IS NULL AND name = '기본 규정'),
        '작성 중인 공연 (샘플)', 'CLASSIC', 7, 100,
-       NULL, 'https://example.com/posters/sample-draft.jpg',
+       NULL, 'https://team08-tickting-yjh.s3.ap-northeast-2.amazonaws.com/public/images1313.jpg',
        NULL, NULL,
        'DRAFT', NOW() + INTERVAL '30 days', NOW() + INTERVAL '60 days',
        4, 'ONSITE', 0, NOW(), NOW()
@@ -60,8 +60,8 @@ FROM venue v WHERE v.name = '소극장 (테스트용)';
 INSERT INTO performance_image (performance_id, url, sort_order)
 SELECT p.id, i.url, i.sort_order
 FROM performance p,
-     (VALUES ('https://example.com/details/sample-concert-1.jpg', 1),
-             ('https://example.com/details/sample-concert-2.jpg', 2)) AS i(url, sort_order)
+     (VALUES ('https://team08-tickting-yjh.s3.ap-northeast-2.amazonaws.com/public/images22.jpg', 1),
+             ('https://team08-tickting-yjh.s3.ap-northeast-2.amazonaws.com/public/images4242.jpg', 2)) AS i(url, sort_order)
 WHERE p.title = '가상 콘서트 (샘플)';
 
 -- 등급과 가격. 가상 콘서트는 4등급, 소극장 공연은 3등급이다.
