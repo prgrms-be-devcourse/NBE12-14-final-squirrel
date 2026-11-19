@@ -2,12 +2,14 @@ package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -67,4 +69,32 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 		@Param("cancelPolicyIds") Collection<Long> cancelPolicyIds,
 		@Param("statuses") Collection<PerformanceStatus> statuses
 	);
+
+	/**
+	 * 공연이 쓰는 취소 규정 중 락을 잡을 규정 번호. 서비스 기본 규정이면 비어서 돌아온다.
+	 * 기본 규정은 항상 수정할 수 없어 공개와 부딪히지 않고, 모든 사업체가 함께 쓰는 규정이라 락을 잡으면 공개가 한 줄로 서기 때문이다.
+	 * 지연 로딩 연관을 트랜잭션 밖에서 건드리지 않으려고 번호와 기본 규정 여부를 쿼리 한 번으로 읽는다.
+	 */
+	@Query("""
+		SELECT c.id
+		FROM Performance p
+		JOIN p.cancelPolicy c
+		WHERE p.id = :performanceId
+		  AND c.businessId IS NOT NULL
+		""")
+	Optional<Long> findLockableCancelPolicyId(@Param("performanceId") Long performanceId);
+
+	/**
+	 * 작성 중일 때만 공개로 바꾼다. 공개 두 번이나 공연 취소와 겹칠 때 락이 듣지 않아도 DB 가 막는 마지막 방어선이다.
+	 * 대량 UPDATE 는 updated_at 자동 갱신을 거치지 않아 직접 넣는다. 바뀐 행이 0이면 작성 중이 아니라는 뜻이다.
+	 */
+	@Modifying(clearAutomatically = true)
+	@Query("""
+		UPDATE Performance p
+		SET p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED,
+		    p.updatedAt = :now
+		WHERE p.id = :id
+		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.DRAFT
+		""")
+	int publishIfDraft(@Param("id") Long id, @Param("now") LocalDateTime now);
 }

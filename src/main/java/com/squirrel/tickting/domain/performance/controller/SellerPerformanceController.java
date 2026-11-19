@@ -93,6 +93,25 @@ public class SellerPerformanceController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 공개할 수 있다. */
+	@Operation(summary = "공연 공개",
+		description = "작성 중(DRAFT) 공연을 공개(PUBLISHED)한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없다. "
+			+ "판매 오픈·종료·1인 최대 매수·수령 방법·예매 수수료가 모두 설정되어 있고, 판매 종료가 지나지 않았고, "
+			+ "판매 오픈까지 3시간 이상(임시) 남아 있어야 한다. 취소되지 않은 회차가 하나 이상 있고 모든 회차가 판매 오픈보다 늦게 시작하며 "
+			+ "판매 종료가 마지막 회차 시작보다 늦지 않아야 한다. 설정하지 않은(UNSET) 구역이 없고 판매할(ASSIGNED) 구역이 하나 이상 있어야 하며 "
+			+ "전석과 다른 등급이 함께 지정되면 안 된다. 조건을 어기면 400(전석 섞임은 409)이고 문제 구역·회차는 메시지에 나온다. "
+			+ "작성 중이 아니면 409 다. 다른 사업체의 공연이거나 없는 공연은 404 다. "
+			+ "공연 수정과 겹치면 잠시 기다리고, 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/{performanceId}/publish")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.Published>> publish(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId
+	) {
+		SellerPerformanceResponse.Published response = sellerPerformanceService.publish(account.getBusinessId(),
+			performanceId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 등급은 공연의 하위 자원이라 공연 컨트롤러에 둔다. 대표·담당자 모두 조회할 수 있다. */
 	@Operation(summary = "등급·구역 조회",
 		description = "공연의 등급과 구역별 상태·등급이다. locked 가 true 면 취소되지 않은 회차 중 하나라도 판매 좌석이 만들어져 "

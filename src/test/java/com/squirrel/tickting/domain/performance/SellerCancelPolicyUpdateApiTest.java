@@ -12,9 +12,14 @@ import com.squirrel.tickting.support.IntegrationTestSupport;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -29,6 +34,9 @@ class SellerCancelPolicyUpdateApiTest extends IntegrationTestSupport {
 	private static final String URL = "/api/v1/seller/cancel-policies/{cancelPolicyId}";
 	private static final long MY_BUSINESS = 887L;
 	private static final long OTHER_BUSINESS = 888L;
+
+	@Autowired
+	private RedissonClient redissonClient;
 
 	@AfterEach
 	void deleteInsertedRows() {
@@ -169,5 +177,22 @@ class SellerCancelPolicyUpdateApiTest extends IntegrationTestSupport {
 		assertThat(rules).hasSize(2);
 		int boundary = (Integer) rules.get(0).get("days_to");
 		assertThat(rules.get(1)).containsEntry("days_from", boundary + 1).containsEntry("days_to", null);
+	}
+
+	@Test
+	@DisplayName("다른 작업(공연 공개 등)이 그 규정의 락(cancel-policy:{규정 번호})을 잡고 있으면 1초 기다린 뒤 409 COMMON004 이고 규정은 그대로다")
+	void lockHeldByOthers() throws Exception {
+		long policyId = insertPolicy(MY_BUSINESS, "락 대기 규정");
+		RLock lock = redissonClient.getLock("tickting:lock:cancel-policy:" + policyId);
+		// 락은 잡은 스레드의 것이라, 요청을 보내는 테스트 스레드가 아닌 다른 스레드에서 잡아야 기다리게 된다.
+		CompletableFuture.runAsync(() -> lock.lock(10, TimeUnit.SECONDS)).join();
+		try {
+			update(policyId, validBody("바뀐 이름"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("COMMON004"));
+		} finally {
+			lock.forceUnlock();
+		}
+		assertThat(savedRules(policyId)).hasSize(2);
 	}
 }

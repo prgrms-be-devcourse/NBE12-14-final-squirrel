@@ -192,4 +192,26 @@ public class SellerPerformanceResponse {
 				schedule.getSeatsGeneratedAt());
 		}
 	}
+
+	/** 공연 공개 결과. 공개되면 고칠 수 없는 구역 설정 중 판매하지 않기로 한 구역을 함께 알려 판매자가 마지막으로 확인하게 한다. */
+	@Builder
+	@Schema(name = "SellerPerformancePublished", description = "공연 공개 결과")
+	public record Published(
+		@Schema(description = "공연 번호")
+		Long performanceId,
+		@Schema(description = "공연 상태. 공개 직후에는 항상 PUBLISHED", example = "PUBLISHED")
+		PerformanceStatus status,
+		@Schema(description = "의도적으로 판매하지 않는(INTENTIONALLY_UNSOLD) 구역. 공연장 구역 순서(sortOrder)순")
+		List<UnsoldZone> intentionallyUnsoldZones
+	) {
+	}
+
+	@Schema(name = "SellerPerformanceUnsoldZone", description = "판매하지 않는 구역")
+	public record UnsoldZone(
+		@Schema(description = "구역 번호")
+		Long zoneId,
+		@Schema(description = "구역 이름")
+		String name
+	) {
+	}
 }

@@ -8,6 +8,7 @@ import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepo
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
+import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -40,6 +42,9 @@ public class CancelPolicyService {
 	private final CancelPolicyRepository cancelPolicyRepository;
 	private final CancelPolicyRuleRepository cancelPolicyRuleRepository;
 	private final PerformanceRepository performanceRepository;
+	private final DistributedLockExecutor lockExecutor;
+	private final TransactionTemplate transactionTemplate;
+	private final PerformanceProperties properties;
 
 	/**
 	 * 서비스 기본 규정과 내 사업체 규정, 그리고 각각 지금 고칠 수 있는지. 다른 사업체의 규정은 나오지 않는다.
@@ -95,13 +100,26 @@ public class CancelPolicyService {
 
 	/**
 	 * 내 사업체 규정의 이름과 구간을 전체 교체한다. DB 를 보지 않는 구간 검사를 먼저 하고,
-	 * 규정 행을 잠근 뒤에 "쓰는 공연" 과 이름을 확인해서 확인과 교체 사이에 다른 수정이 끼어들지 않게 한다.
+	 * 분산락 cancel-policy:{규정 번호} 를 잡은 뒤에 "쓰는 공연" 과 이름을 확인해서 확인과 교체 사이에 다른 수정이나 공개가 끼어들지 않게 한다.
+	 * 공연 공개(SLR-04)가 같은 이름의 락을 잡아서 "수정 가능 확인 직후 공개" 도 막힌다.
+	 * 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
+	 * 기본 규정(409)과 없는·남의 규정(404)은 락 없이 먼저 끝낸다. 기본 규정은 항상 수정할 수 없어 공개와 부딪히지 않고,
+	 * 모든 사업체가 함께 쓰는 규정이라 락을 잡으면 공개가 한 줄로 서기 때문이다.
 	 * 같은 값으로 보내도 그대로 교체하고 200 이다.
 	 */
-	@Transactional
 	public CancelPolicyDetail update(Long cancelPolicyId, Long businessId, CancelPolicySaveCommand command) {
 		List<CancelPolicySaveCommand.Rule> sorted = sortAndValidate(command.rules());
-		CancelPolicy policy = cancelPolicyRepository.findMineForUpdate(cancelPolicyId, businessId)
+		if (cancelPolicyRepository.findMine(cancelPolicyId, businessId).isEmpty()) {
+			throw notMine(cancelPolicyId, businessId);
+		}
+		return lockExecutor.execute(List.of(PerformanceLockNames.cancelPolicy(cancelPolicyId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> updateInTransaction(cancelPolicyId, businessId, command, sorted)));
+	}
+
+	/** 락을 기다리는 사이 공연이 공개되거나 규정이 바뀌었을 수 있어서 락 밖의 판단은 믿지 않고 다시 읽는다. */
+	private CancelPolicyDetail updateInTransaction(Long cancelPolicyId, Long businessId, CancelPolicySaveCommand command,
+		List<CancelPolicySaveCommand.Rule> sorted) {
+		CancelPolicy policy = cancelPolicyRepository.findMine(cancelPolicyId, businessId)
 			.orElseThrow(() -> notMine(cancelPolicyId, businessId));
 		if (isInUse(policy.getId())) {
 			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_IN_USE);
