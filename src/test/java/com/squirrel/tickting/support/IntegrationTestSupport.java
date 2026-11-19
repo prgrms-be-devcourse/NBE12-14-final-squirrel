@@ -39,7 +39,9 @@ import tools.jackson.databind.ObjectMapper;
  * 실제 PostgreSQL(Testcontainers) 위에서 Flyway 마이그레이션까지 적용한 상태로 API 를 호출하는 통합 테스트의 공통 틀.
  * 테스트마다 계정·약관 데이터를 비우고 약관을 새로 넣는다.
  */
-@SpringBootTest
+// 대기열은 기본으로 꺼 둔다. 구역·좌석 조회와 점유를 확인하는 다른 테스트가 입장 없이도 돌게 하려는 것이다.
+// 대기열 테스트는 @DynamicPropertySource 로 켠다. (그 값이 여기 값보다 우선한다)
+@SpringBootTest(properties = "app.queue.enabled=false")
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 public abstract class IntegrationTestSupport {
