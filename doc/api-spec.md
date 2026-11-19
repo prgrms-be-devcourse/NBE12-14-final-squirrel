@@ -98,7 +98,7 @@
 | SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 미구현 |
 | SLR-15 | 회차 취소 | POST `/api/v1/seller/schedules/{scheduleId}/cancel` | 미구현 |
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
-| SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 미구현 |
+| SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 구현됨 |
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
@@ -1777,7 +1777,14 @@ Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 생성
 
 **에러**(코드 미정): 409 이미 취소된 공연
 
-### SLR-17 판매 현황 — `GET /api/v1/seller/performances/{performanceId}/sales`
+### SLR-17 판매 현황 — `GET /api/v1/seller/performances/{performanceId}/sales` (구현됨)
+
+대표·담당자 모두 조회할 수 있고, 취소·작성 중 공연도 조회됩니다(취소 뒤 환불이 끝났는지 볼 수 있게). 다른 사업체의 공연과 없는 공연은 같은 404 `PERFORMANCE000`이고 새 에러 코드는 없습니다. 읽기만 하며 락을 잡지 않습니다.
+
+- `schedules`: 취소·연기·중지 회차를 포함한 **모든 회차**이고 공연 일시 빠른 순입니다. 내 공연 상세(SLR-06)의 회차 목록과 개수가 같습니다. 회차가 없으면 빈 배열입니다.
+- `seatsGenerated`: 판매 좌석을 만들었는지(`seats_generated_at` 유무)입니다. `false`이면 `soldSeats`~`blockedSeats` 5개는 모두 `null`입니다. 만든 회차는 없는 상태의 개수를 0으로 줍니다.
+- `totalSeats`: 판매 좌석 생성 여부와 상관없이 모든 회차에 공연장의 좌석 수(`venue.total_seats`)입니다.
+- 개수는 지금 좌석 상태 그대로입니다. 만료됐지만 아직 정리되지 않은 임시 점유(`HELD`)도 `heldSeats`로 셉니다(정리 주기 1분, 그 좌석은 예매자도 고를 수 없음). 취소된 회차도 지금 상태라, 예매 취소·환불 뒤에는 `soldSeats`가 줄어 이력처럼 보이지 않을 수 있습니다.
 
 **응답 200**
 

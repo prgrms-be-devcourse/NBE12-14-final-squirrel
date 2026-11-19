@@ -3,11 +3,13 @@ package com.squirrel.tickting.domain.performance.dto;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
 import com.squirrel.tickting.domain.performance.service.PerformanceDetail;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
+import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -234,5 +236,55 @@ public class SellerPerformanceResponse {
 		@Schema(description = "구역 이름")
 		String name
 	) {
+	}
+
+	@Schema(name = "SellerPerformanceSales", description = "공연 판매 현황")
+	public record Sales(
+		@Schema(description = "회차별 판매 현황. 취소·연기·중지 회차도 포함하고 공연 일시 빠른 순")
+		List<ScheduleSales> schedules
+	) {
+	}
+
+	@Schema(name = "SellerPerformanceScheduleSales", description = "회차별 판매 현황")
+	public record ScheduleSales(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "공연 일시")
+		LocalDateTime startAt,
+		@Schema(description = "회차 판매 상태", example = "ON_SALE")
+		ScheduleStatus status,
+		@Schema(description = "판매 좌석을 만들었는지. 만들지 않았으면 좌석 수는 모두 null")
+		boolean seatsGenerated,
+		@Schema(description = "총 좌석 수. 판매 좌석 생성 여부와 상관없이 공연장의 좌석 수")
+		Integer totalSeats,
+		@Schema(description = "판매 완료(SOLD)", nullable = true)
+		Long soldSeats,
+		@Schema(description = "임시 점유(HELD). 만료됐지만 아직 정리되지 않은 좌석도 센다", nullable = true)
+		Long heldSeats,
+		@Schema(description = "판매 가능(AVAILABLE)", nullable = true)
+		Long availableSeats,
+		@Schema(description = "판매자 보류(RESERVED)", nullable = true)
+		Long reservedSeats,
+		@Schema(description = "판매 제외(BLOCKED)", nullable = true)
+		Long blockedSeats
+	) {
+
+		/** 좌석을 만든 회차는 상태별 개수(없는 상태는 0)를, 만들지 않은 회차는 null 을 담는다. */
+		public static ScheduleSales of(PerformanceSchedule schedule, Integer totalSeats,
+			List<ScheduleSeatRepository.SeatStatusCount> counts) {
+			boolean generated = schedule.getSeatsGeneratedAt() != null;
+			return new ScheduleSales(schedule.getId(), schedule.getStartAt(), schedule.getStatus(), generated,
+				totalSeats,
+				generated ? count(counts, SeatStatus.SOLD) : null,
+				generated ? count(counts, SeatStatus.HELD) : null,
+				generated ? count(counts, SeatStatus.AVAILABLE) : null,
+				generated ? count(counts, SeatStatus.RESERVED) : null,
+				generated ? count(counts, SeatStatus.BLOCKED) : null);
+		}
+
+		private static long count(List<ScheduleSeatRepository.SeatStatusCount> counts, SeatStatus status) {
+			return counts.stream().filter(c -> c.getStatus() == status)
+				.mapToLong(ScheduleSeatRepository.SeatStatusCount::getCount).sum();
+		}
 	}
 }
