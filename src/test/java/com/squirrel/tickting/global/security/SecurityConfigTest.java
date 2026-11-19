@@ -5,15 +5,21 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.squirrel.tickting.domain.queue.service.QueueProperties;
+import com.squirrel.tickting.domain.queue.service.QueueService;
 import com.squirrel.tickting.global.exception.GlobalExceptionHandler;
 import com.squirrel.tickting.global.jwt.JwtProperties;
 import com.squirrel.tickting.global.jwt.JwtProvider;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import com.squirrel.tickting.support.TestSecrets;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -28,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
  * DB 없이 웹 계층만 띄우고, 테스트 전용 컨트롤러로 각 경로를 호출한다.
  */
 @WebMvcTest(SecurityConfigTest.TestController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, JwtProvider.class, SecurityConfigTest.TestController.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, JwtProvider.class, SecurityConfigTest.TestController.class, SecurityConfigTest.QueueStub.class})
 class SecurityConfigTest {
 
 	/** 서명 키는 코드에 적지 않고 실행할 때 만든다. */
@@ -45,6 +51,21 @@ class SecurityConfigTest {
 
 	@Autowired
 	JwtProperties jwtProperties;
+
+	/** @WebMvcTest 는 대기열 인터셉터도 만든다. 이 테스트는 경로 규칙만 보므로 꺼진(enabled=false) 대기열을 넣어 통과시킨다. */
+	@TestConfiguration
+	static class QueueStub {
+
+		@Bean
+		QueueProperties queueProperties() {
+			return new QueueProperties(false, 1, Duration.ofMinutes(1), Duration.ofSeconds(30));
+		}
+
+		@Bean
+		QueueService queueService(QueueProperties properties) {
+			return new QueueService(new StringRedisTemplate(), properties);
+		}
+	}
 
 	@RestController
 	static class TestController {
@@ -84,12 +105,12 @@ class SecurityConfigTest {
 		}
 
 		@PostMapping({"/api/v1/performances", "/api/v1/schedules/{id}/bookings", "/api/v1/payments/confirm",
-			"/api/v1/bookings/{id}/cancel", "/api/v1/bookings/{id}/payments"})
+			"/api/v1/bookings/{id}/cancel", "/api/v1/bookings/{id}/payments", "/api/v1/schedules/{id}/queue"})
 		String loggedInWrite() {
 			return "ok";
 		}
 
-		@GetMapping({"/api/v1/users/me", "/api/v1/bookings/{id}"})
+		@GetMapping({"/api/v1/users/me", "/api/v1/bookings/{id}", "/api/v1/schedules/{id}/queue"})
 		String userOnlyRead() {
 			return "ok";
 		}
@@ -259,6 +280,7 @@ class SecurityConfigTest {
 				get("/api/v1/bookings"),
 				get("/api/v1/bookings/1"),
 				post("/api/v1/schedules/31/bookings"),
+				post("/api/v1/schedules/31/queue"),
 				post("/api/v1/bookings/1/payments"),
 				post("/api/v1/bookings/1/cancel"),
 				post("/api/v1/payments/confirm"))) {
@@ -279,6 +301,7 @@ class SecurityConfigTest {
 			get("/api/v1/bookings"),
 			get("/api/v1/bookings/1"),
 			post("/api/v1/schedules/31/bookings"),
+			post("/api/v1/schedules/31/queue"),
 			post("/api/v1/bookings/1/payments"),
 			post("/api/v1/bookings/1/cancel"),
 			post("/api/v1/payments/confirm"))) {
