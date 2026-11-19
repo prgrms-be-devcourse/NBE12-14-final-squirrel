@@ -67,12 +67,19 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 		""")
 	Optional<Performance> findPublishedById(@Param("performanceId") Long performanceId);
 
-	/** 판매 가능(AVAILABLE) 좌석이 하나라도 있는 회차 번호. 회차마다 따로 조회하지 않으려고 번호 목록으로 한 번에 찾는다. */
+	/**
+	 * 판매 가능(AVAILABLE) 좌석이 하나라도 있는 회차 번호. 회차마다 따로 조회하지 않으려고 번호 목록으로 한 번에 찾는다.
+	 * 좌석을 DISTINCT 로 모으면 AVAILABLE 좌석 수만큼(수만 건) 훑어서 목록·상세 요청마다 느려진다.
+	 * EXISTS 는 회차마다 좌석 하나만 찾으면 끝나서 좌석 수와 상관없이 빠르다. (부하 테스트에서 DB 시간의 대부분이었다)
+	 */
 	@Query("""
-		SELECT DISTINCT seat.scheduleId
-		FROM ScheduleSeat seat
-		WHERE seat.scheduleId IN :scheduleIds
-		  AND seat.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE
+		SELECT s.id
+		FROM PerformanceSchedule s
+		WHERE s.id IN :scheduleIds
+		  AND EXISTS (
+		    SELECT 1 FROM ScheduleSeat seat
+		    WHERE seat.scheduleId = s.id
+		      AND seat.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE)
 		""")
 	List<Long> findScheduleIdsWithAvailableSeat(@Param("scheduleIds") Collection<Long> scheduleIds);
 
