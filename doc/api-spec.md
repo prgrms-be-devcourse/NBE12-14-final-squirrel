@@ -99,7 +99,7 @@
 | SLR-15 | 회차 취소 | POST `/api/v1/seller/schedules/{scheduleId}/cancel` | 미구현 |
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 구현됨 |
-| SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 미구현 |
+| SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 구현됨 |
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 구현됨 |
@@ -1824,9 +1824,18 @@ Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 생성
 }
 ```
 
-### SLR-18 회차별 예매 목록 — `GET /api/v1/seller/schedules/{scheduleId}/bookings`
+### SLR-18 회차별 예매 목록 — `GET /api/v1/seller/schedules/{scheduleId}/bookings` (구현됨)
 
-Query: `status`, `page`, `size`
+Query: `status`, `receiveType`, `bookingNo`, `page`, `size`
+
+내 사업체 공연의 회차에 들어온 예매를 최신 예매순으로 줍니다. 현장 확인·배송·문의 응대용 목록입니다.
+
+- 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자 토큰은 403, 토큰이 없으면 401입니다. 회차가 내 사업체 것이 아니면 없는 회차와 같은 404 `PERFORMANCE008`입니다. 취소된 회차·공연, 작성 중 공연의 회차도 조회할 수 있습니다.
+- `status`를 주지 않으면 남은 표가 있는 예매(`PAID`, `PARTIAL_CANCELED`)만 나옵니다. 전체 취소(`CANCELED`)·결제 대기(`PENDING`)·만료(`EXPIRED`)는 `status`로 따로 봅니다. `status`는 한 가지만 받고 모르는 값은 400 `COMMON000`입니다.
+- `receiveType`(`ONSITE`·`DELIVERY`)으로 수령 방법을 고를 수 있습니다. `bookingNo`는 예매 번호가 **정확히 일치**하는 예매만 찾고(일부만 넣으면 빈 목록), 다른 회차의 번호도 빈 목록입니다. 조건을 함께 주면 모두 맞아야 합니다.
+- 정렬은 예매 시각 최신순, 같으면 번호가 큰 순으로 고정이라 `sort`는 무시합니다. 기본·최대 크기는 20이고, 범위 밖 페이지는 빈 `content`로 200입니다.
+- 금액은 수수료 없는 표값입니다. `tickets`는 남은 표, `canceledTickets`는 취소한 표를 등급·가격별로 묶은 것이고(가격 높은 순) 예매 때 저장한 값이라 나중에 등급 가격이 바뀌어도 그대로입니다. `seatCount`는 남은 장수, `ticketAmount`는 남은 표값의 합입니다. 처음 결제 총액·수수료·환불액은 주지 않습니다.
+- 주문자 이름·전화번호와 배송 정보(`delivery`, 배송 예매만)는 대표·담당자 모두에게 그대로 줍니다. 주문자 이메일은 주지 않습니다.
 
 **응답 200**
 
@@ -1840,12 +1849,16 @@ Query: `status`, `page`, `size`
       {
         "bookingId": 1001,
         "bookingNo": "20261125KCZB03R",
-        "status": "PAID",
+        "status": "PARTIAL_CANCELED",
         "ordererName": "홍길동",
         "ordererPhone": "01012345678",
-        "seatCount": 2,
-        "totalAmount": 312000,
         "receiveType": "DELIVERY",
+        "delivery": { "recipientName": "김받는", "recipientPhone": "01099990000", "recipientAddress": "서울 가상구 1" },
+        "tickets": [{ "gradeName": "VIP", "price": 150000, "count": 2, "amount": 300000 }],
+        "canceledTickets": [{ "gradeName": "S", "price": 100000, "count": 1, "amount": 100000 }],
+        "seatCount": 2,
+        "canceledSeatCount": 1,
+        "ticketAmount": 300000,
         "createdAt": "2026-11-25T20:03:41"
       }
     ],
