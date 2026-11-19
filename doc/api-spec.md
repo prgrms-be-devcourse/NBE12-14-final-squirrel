@@ -64,7 +64,7 @@
 | AUTH-05 | 토큰 재발급 | POST `/api/v1/auth/refresh` | 구현됨 |
 | AUTH-06 | 내 정보 조회 | GET `/api/v1/users/me` | 구현됨 |
 | AUTH-07 | 내 정보 수정 | PATCH `/api/v1/users/me` | 구현됨 |
-| AUTH-08 | 회원 탈퇴 | DELETE `/api/v1/users/me` | 미구현 |
+| AUTH-08 | 회원 탈퇴 | DELETE `/api/v1/users/me` | 구현됨 |
 | AUTH-09 | 판매자 가입 신청 | POST `/api/v1/auth/sellers/signup` | 구현됨 |
 | AUTH-10 | 판매자 로그인 | POST `/api/v1/auth/sellers/login` | 구현됨 |
 | AUTH-11 | 관리자 로그인 | POST `/api/v1/auth/admins/login` | 구현됨 |
@@ -315,15 +315,24 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 
 **에러**: 400 `COMMON000` 입력값 오류 · 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 404 `USER002` 회원 없음(탈퇴 후 토큰이 만료되기 전)
 
-### AUTH-08 회원 탈퇴 — `DELETE /api/v1/users/me` (예매자, 미구현)
+### AUTH-08 회원 탈퇴 — `DELETE /api/v1/users/me` (예매자, 구현됨)
 
-`deleted_at` 기록, 개인정보 비식별 처리, `ci_hash` 비움, 토큰 폐기.
+`deleted_at` 기록, 개인정보 비식별 처리, `ci_hash` 비움, 지금 세션 삭제. 요청 본문은 없습니다.
+
+- **진행 중인 예매가 있으면 탈퇴할 수 없습니다(409 `USER003`).** 예매를 취소하거나 공연이 시작된 뒤에 탈퇴합니다. 결제했거나 결제 중인 예매가 주인 없이 남으면 환불·문의를 받을 수 없기 때문입니다.
+  - 진행 중인 예매: 결제 제한 시각이 남은 결제 대기(`PENDING`), 공연이 시작하지 않은 결제 완료·일부 취소(`PAID`, `PARTIAL_CANCELED`)
+  - 기준은 회차 시작 시각(연기되면 바뀐 시각)입니다. 공연 당일은 취소 불가 구간이라 시작한 뒤에는 취소·환불로 돈이 오갈 일이 없어서, 공연 중이어도 탈퇴할 수 있습니다.
+  - 만료(`EXPIRED`), 전체 취소(`CANCELED`), 제한 시각이 지난 결제 대기는 막지 않습니다.
+- 개인정보는 설계 1부 "탈퇴 시 처리" 표대로 지웁니다. (email `deleted-{id}@withdrawn.invalid`, 이름·닉네임 `탈퇴회원`, phone `-`, 사진·생일·`ci_hash` NULL, 비밀번호는 로그인할 수 없는 값) 같은 이메일·본인인증으로 다시 가입할 수 있습니다.
+- 탈퇴한 기기의 세션(SESSION 쿠키)은 지워져 이후 요청은 401입니다. **다른 기기의 세션과 v1 액세스 토큰은 지우지 못합니다.** (회원 번호로 세션을 찾는 설정이 없음) 남은 세션은 마지막 요청 후 30분, 액세스 토큰은 15분 뒤 사라지고, 그 사이 내 정보 조회·수정은 404 `USER002`, 재로그인·토큰 재발급은 막힙니다.
 
 **응답 200**
 
 ```json
 {  "success": true,  "code": "0000",  "message": "",  "data": null}
 ```
+
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 404 `USER002` 이미 탈퇴함 · 409 `USER003` 진행 중인 예매가 있음
 
 ### AUTH-09 판매자 가입 신청 — `POST /api/v1/auth/sellers/signup` (공개, 구현됨)
 

@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.booking.infra.repository;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -37,6 +38,23 @@ public interface UserBookingRepository extends Repository<Booking, Long> {
 		@Param("statuses") Collection<BookingStatus> statuses,
 		Pageable pageable
 	);
+
+	/**
+	 * 탈퇴를 막아야 하는 진행 중인 예매가 있는지. 결제 제한 시각이 남은 결제 대기 예매, 또는 공연이 시작하지 않은 결제 완료·일부 취소 예매다.
+	 * 공연 당일은 취소 불가 구간이라 시작한 뒤에는 취소·환불로 돈이 오갈 일이 없어서 시작 시각까지만 막는다.
+	 * 회차가 연기되면 시작 시각이 바뀌므로 연기된 회차의 예매는 다시 진행 중이 된다.
+	 * 결제 대기는 7분이 지나면 주기 작업이 만료로 바꾸는데, 그 전이라도 제한 시각이 지났으면 이미 결제할 수 없어서 막지 않는다.
+	 */
+	@Query("""
+		SELECT COUNT(b) > 0
+		FROM Booking b
+		WHERE b.userId = :userId
+		  AND ((b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PENDING AND b.expiresAt > :now)
+		    OR (b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                     com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		        AND b.schedule.startAt > :now))
+		""")
+	boolean existsOngoing(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
 	/** 한 예매자의 예매 하나. 회원 번호를 조건에 넣어서 남의 예매는 없는 것처럼 비어서 돌아온다. */
 	Optional<Booking> findByIdAndUserId(Long id, Long userId);

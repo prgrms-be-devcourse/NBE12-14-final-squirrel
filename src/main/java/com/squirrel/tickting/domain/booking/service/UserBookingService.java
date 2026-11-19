@@ -7,6 +7,7 @@ import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
@@ -68,6 +69,12 @@ public class UserBookingService {
 		Booking booking = userBookingRepository.findByIdAndUserId(bookingId, userId)
 			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
 		return UserBookingResponse.Detail.from(booking, readCancelPolicy(booking));
+	}
+
+	/** 탈퇴를 막아야 하는 진행 중인 예매(결제 대기, 공연이 시작하지 않은 결제 완료)가 있는지. */
+	@Transactional(readOnly = true)
+	public boolean hasOngoingBooking(Long userId, LocalDateTime now) {
+		return userBookingRepository.existsOngoing(userId, now);
 	}
 
 	/**
