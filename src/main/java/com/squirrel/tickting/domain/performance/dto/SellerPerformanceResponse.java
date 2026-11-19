@@ -43,6 +43,27 @@ public class SellerPerformanceResponse {
 		}
 	}
 
+	/** 공연 수정 결과. 보낸 값을 다시 돌려주지 않고 번호와 상태만 주며, 전체는 상세(SLR-06)에서 본다. */
+	@Builder
+	@Schema(name = "SellerPerformanceUpdated", description = "공연 수정 결과")
+	public record Updated(
+		@Schema(description = "공연 번호")
+		Long performanceId,
+		@Schema(description = "공연 상태. 수정해도 바뀌지 않는다", example = "DRAFT")
+		PerformanceStatus status,
+		@Schema(description = "수정 일시. 바뀐 값이 없어 저장하지 않았으면 이전 값이다")
+		LocalDateTime updatedAt
+	) {
+
+		public static Updated from(Performance performance) {
+			return Updated.builder()
+				.performanceId(performance.getId())
+				.status(performance.getStatus())
+				.updatedAt(performance.getUpdatedAt())
+				.build();
+		}
+	}
+
 	/** 내 공연 목록의 한 줄. 상세에서 보는 값은 넣지 않고 목록에서 고를 때 필요한 것만 둔다. */
 	@Builder
 	@Schema(name = "SellerPerformanceSummary", description = "내 공연 목록 항목")

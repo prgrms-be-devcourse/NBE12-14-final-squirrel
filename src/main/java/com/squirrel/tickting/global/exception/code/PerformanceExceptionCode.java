@@ -19,6 +19,25 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다
 	 */
 	PERFORMANCE_CANCELED("PERFORMANCE002", HttpStatus.CONFLICT, "취소된 공연은 수정할 수 없습니다."),
+	/**
+	 * 공개(PUBLISHED)된 공연의 공연장을 다른 공연장으로 바꾸려 함. 같은 공연장 번호를 그대로 보내는 것은 막지 않는다.
+	 * 수정이 전체 교체라 공연장 번호도 매번 함께 오기 때문이다. 공개 후에는 구역 설정과 판매 좌석이 이미 정해져 있다
+	 */
+	VENUE_CHANGE_NOT_ALLOWED("PERFORMANCE003", HttpStatus.CONFLICT, "공개된 공연은 공연장을 바꿀 수 없습니다."),
+	/** 공개(PUBLISHED)된 공연의 취소 규정을 다른 규정으로 바꾸려 함. 같은 규정 번호를 그대로 보내는 것은 막지 않는다. 프론트가 되돌릴 칸을 알도록 공연장과 코드를 나눈다 */
+	CANCEL_POLICY_CHANGE_NOT_ALLOWED("PERFORMANCE004", HttpStatus.CONFLICT, "공개된 공연은 취소 규정을 바꿀 수 없습니다."),
+	/** 판매 오픈 일시가 지난(판매가 열린) 공연의 오픈 일시를 바꾸려 함. 열린 판매가 닫히거나 예매 기준이 흔들린다 */
+	SALE_OPEN_CHANGE_NOT_ALLOWED("PERFORMANCE005", HttpStatus.CONFLICT, "판매가 열린 공연은 판매 오픈 일시를 바꿀 수 없습니다."),
+	/**
+	 * 좌석을 차지한 예매(결제 대기·결제 완료·일부 취소)가 있는 공연의 1인 최대 매수를 줄이려 함.
+	 * 줄이면 이미 새 한도를 넘긴 사람이 생긴다. 전체 취소·만료된 예매는 좌석을 차지하지 않아 세지 않는다
+	 */
+	MAX_PER_PERSON_REDUCE_NOT_ALLOWED("PERFORMANCE006", HttpStatus.CONFLICT, "예매가 있는 공연은 1인 최대 매수를 줄일 수 없습니다."),
+	/**
+	 * 공연장 변경이나 러닝타임 늘리기로 같은 공연장의 다른 회차와 시간이 겹침. 회차가 차지하는 시간은 시작부터 러닝타임 + 1시간이다.
+	 * 겹치는 이 공연의 회차 일시는 메시지로 알려 준다. 다른 공연의 회차 일시는 다른 판매자의 정보라 알려 주지 않는다
+	 */
+	SCHEDULE_TIME_OVERLAP("PERFORMANCE007", HttpStatus.CONFLICT, "같은 공연장의 다른 회차와 시간이 겹칩니다."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */

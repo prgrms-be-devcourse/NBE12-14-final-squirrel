@@ -52,6 +52,17 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 		@Param("now") LocalDateTime now
 	);
 
+	/**
+	 * 공연의 모든 회차의 판매 좌석을 지운다. 작성 중(DRAFT) 공연의 공연장을 바꿀 때만 쓴다.
+	 * 영속성 컨텍스트는 비우지 않는다. 호출한 쪽이 같은 트랜잭션에서 이미 읽어 바꾼 공연 엔티티가 저장되지 않고 사라지기 때문이다.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		DELETE FROM ScheduleSeat s
+		 WHERE s.scheduleId IN (SELECT ps.id FROM PerformanceSchedule ps WHERE ps.performance.id = :performanceId)
+		""")
+	int deleteByPerformanceId(@Param("performanceId") Long performanceId);
+
 	/** 점유 중(HELD)인 좌석의 점유 만료 시각만 늘리고 바뀐 행 수를 돌려준다. */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""

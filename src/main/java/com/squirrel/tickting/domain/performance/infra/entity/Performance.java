@@ -130,4 +130,36 @@ public class Performance extends BaseTimeEntity {
 	/** 티켓 1장당 원. 판매자가 공연마다 정한다. */
 	@Column
 	private Integer bookingFee;
+
+	/**
+	 * 공연 수정(전체 교체)으로 일반 필드와 판매 필드를 바꾼다. 상태·공연장·취소 규정은 바꾸지 않는다.
+	 * 공연장·취소 규정은 작성 중에만 바뀌고 구역 설정·판매 좌석 정리가 따라와야 해서 아래의 따로 둔 메서드가 맡는다.
+	 */
+	public void update(String title, Genre genre, Integer ageLimit, Integer runningTime, String castInfo,
+		String posterUrl, String notice, String guide, LocalDateTime saleOpenAt, LocalDateTime saleCloseAt,
+		Integer maxPerPerson, ReceiveType receiveType, Integer bookingFee) {
+		this.title = title;
+		this.genre = genre;
+		this.ageLimit = ageLimit;
+		this.runningTime = runningTime;
+		this.castInfo = castInfo;
+		this.posterUrl = posterUrl;
+		this.notice = notice;
+		this.guide = guide;
+		this.saleOpenAt = saleOpenAt;
+		this.saleCloseAt = saleCloseAt;
+		this.maxPerPerson = maxPerPerson;
+		this.receiveType = receiveType;
+		this.bookingFee = bookingFee;
+	}
+
+	/** 작성 중 공연의 공연장을 바꾼다. 읽기 전용 연관(venue)은 이 트랜잭션 안에서는 옛 값을 가리키므로 바꾼 뒤에 읽지 않는다. */
+	public void changeVenue(Long venueId) {
+		this.venueId = venueId;
+	}
+
+	/** 작성 중 공연의 취소 규정을 바꾼다. */
+	public void changeCancelPolicy(CancelPolicy cancelPolicy) {
+		this.cancelPolicy = cancelPolicy;
+	}
 }

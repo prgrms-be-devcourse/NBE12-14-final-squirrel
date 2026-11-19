@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.booking.infra.repository;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
+import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -14,6 +15,9 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
 	/** 내 예매만 찾는다. 남의 예매 번호로 조회하면 비어 있다. (번호가 존재하는지 알려주지 않으려고 호출한 쪽이 404 로 답한다) */
 	Optional<Booking> findByIdAndUserId(Long id, Long userId);
+
+	/** 그 공연에 주어진 상태의 예매가 하나라도 있는가. performance_id 는 예매 때 복사해 둔 값이라 조인 없이 본다. */
+	boolean existsByPerformanceIdAndStatusIn(Long performanceId, Collection<BookingStatus> statuses);
 
 	/**
 	 * 결제 제한 시각이 지난 결제 대기(PENDING) 예매를 잠그고 번호를 돌려준다. 가장 오래된 것부터 limit 건까지다.
