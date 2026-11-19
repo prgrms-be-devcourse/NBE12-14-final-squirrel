@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
+import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -106,4 +107,27 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 		   AND s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.HELD
 		""")
 	int releaseHeld(@Param("seatIds") Collection<Long> seatIds, @Param("now") LocalDateTime now);
+
+	/**
+	 * 회차별로 판매 좌석을 상태별로 센다. 판매자 판매 현황(SLR-17)이 쓴다.
+	 * 만료됐지만 아직 정리되지 않은 HELD 도 그대로 센다. 예매자도 그 좌석을 고를 수 없어서, 판매 가능 수가 예매자가 고를 수 있는 좌석과 같아진다.
+	 * 좌석이 없는 회차나 개수가 0인 상태는 행이 나오지 않는다.
+	 */
+	@Query("""
+		SELECT s.scheduleId AS scheduleId, s.status AS status, COUNT(s) AS count
+		FROM ScheduleSeat s
+		WHERE s.scheduleId IN :scheduleIds
+		GROUP BY s.scheduleId, s.status
+		""")
+	List<SeatStatusCount> countByStatus(@Param("scheduleIds") Collection<Long> scheduleIds);
+
+	/** {@link #countByStatus} 의 한 행. 별칭과 같은 이름의 getter 로 받는다. */
+	interface SeatStatusCount {
+
+		Long getScheduleId();
+
+		SeatStatus getStatus();
+
+		Long getCount();
+	}
 }
