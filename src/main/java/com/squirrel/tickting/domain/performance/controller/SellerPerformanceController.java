@@ -93,6 +93,29 @@ public class SellerPerformanceController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	/** 공연장·취소 규정·예매·판매 좌석을 함께 다뤄 파사드를 부른다. 사업체 번호는 토큰에서 꺼낸다. 대표·담당자 모두 수정할 수 있다. */
+	@Operation(summary = "공연 수정",
+		description = "공연 등록과 같은 본문으로 공연과 상세 이미지를 전체 교체한다. 취소된 공연은 409 다. "
+			+ "공개(PUBLISHED)된 공연은 공연장·취소 규정을 다른 값으로 바꿀 수 없고(같은 값을 보내는 것은 된다, 409), "
+			+ "판매 오픈·종료·1인 최대 매수·수령 방법·예매 수수료를 비울 수 없다. 판매 오픈 전에는 오픈을 옮길 수 있고 "
+			+ "새 오픈이 3시간(임시) 넘게 남아야 하며, 오픈 후에는 오픈 일시를 바꿀 수 없다(409). 판매 종료는 늘리든 줄이든 지금보다 늦으면 된다. "
+			+ "공개 후에도 모든 회차는 판매 오픈보다 늦게 시작하고 판매 종료는 마지막 회차 시작보다 늦지 않아야 한다. "
+			+ "좌석을 차지한 예매(결제 대기·결제 완료·일부 취소)가 있으면 1인 최대 매수를 줄일 수 없다(409). "
+			+ "작성 중에는 공연장을 바꿀 수 있고, 바꾸면 구역 설정이 새 공연장 기준 미설정(UNSET)으로 초기화되고(등급은 유지) "
+			+ "판매 좌석(판매자 보류석 포함)이 지워져 스케줄러가 새 공연장으로 다시 만든다. "
+			+ "공연장을 바꾸거나 러닝타임을 늘릴 때는 같은 공연장의 다른 회차와 시간(시작부터 러닝타임 + 1시간, 임시)이 겹치면 409 다. "
+			+ "다른 사업체의 공연이거나 없는 공연은 404 다. 같은 공연의 등급·구역 수정, 공개, 판매 좌석 생성과 겹쳐 공연 락을 1초 안에 잡지 못하면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PutMapping("/{performanceId}")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.Updated>> update(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId,
+		@Valid @RequestBody SellerPerformanceRequest.Save request
+	) {
+		SellerPerformanceResponse.Updated response = sellerPerformanceFacade.update(account.getBusinessId(),
+			performanceId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 공개할 수 있다. */
 	@Operation(summary = "공연 공개",
 		description = "작성 중(DRAFT) 공연을 공개(PUBLISHED)한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없다. "

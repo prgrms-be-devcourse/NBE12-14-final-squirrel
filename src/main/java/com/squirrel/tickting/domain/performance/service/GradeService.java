@@ -239,6 +239,17 @@ public class GradeService {
 		zoneGradeRepository.saveAll(zoneGrades);
 	}
 
+	/**
+	 * 작성 중 공연의 구역 설정을 새 공연장의 모든 구역 기준으로 UNSET 으로 다시 만든다. 등급(seat_grade)은 그대로 둔다.
+	 * 공연장이 바뀌면 옛 구역 번호의 설정은 의미가 없고, 새 구역을 빠뜨리면 공개 검사가 "UNSET 없음"으로 잘못 읽는다.
+	 * 호출한 쪽의 트랜잭션에 참여한다.
+	 */
+	@Transactional
+	public void resetZones(Performance performance, List<Long> zoneIds) {
+		zoneGradeRepository.deleteByPerformanceId(performance.getId());
+		initializeZones(performance, zoneIds);
+	}
+
 	/** 내 공연. 남의 공연은 번호가 있는지 알려주지 않으려고 없는 공연과 같은 404 로 답한다. */
 	private Performance getMine(Long businessId, Long performanceId) {
 		return performanceRepository.findByIdAndBusinessId(performanceId, businessId)

@@ -4,6 +4,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,6 +16,14 @@ public interface ZoneGradeRepository extends JpaRepository<ZoneGrade, Long> {
 	 */
 	@Query("SELECT z FROM ZoneGrade z LEFT JOIN FETCH z.grade WHERE z.performance.id = :performanceId")
 	List<ZoneGrade> findAllWithGradeByPerformanceId(@Param("performanceId") Long performanceId);
+
+	/**
+	 * 공연의 구역 설정을 모두 지운다. 작성 중 공연의 공연장을 바꿀 때 새 공연장 구역 기준으로 다시 만들려고 쓴다. (등급은 지우지 않는다)
+	 * 영속성 컨텍스트는 비우지 않는다. 같은 트랜잭션에서 읽어 바꾼 공연 엔티티가 저장되지 않고 사라지기 때문이다.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("DELETE FROM ZoneGrade z WHERE z.performance.id = :performanceId")
+	void deleteByPerformanceId(@Param("performanceId") Long performanceId);
 
 	/** 구역에 지정(ASSIGNED)된 등급. 전석과 다른 등급이 함께 지정되는지 보는 데 쓴다. (여러 구역에 붙은 등급도 한 번) */
 	@Query("""

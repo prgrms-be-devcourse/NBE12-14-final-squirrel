@@ -21,6 +21,10 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class BookingService {
 
+	/** 좌석을 차지한 예매 상태. 전체 취소(CANCELED)와 만료(EXPIRED)는 좌석을 돌려줬으므로 뺀다. */
+	private static final List<BookingStatus> OCCUPYING_STATUSES =
+		List.of(BookingStatus.PENDING, BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED);
+
 	private final BookingRepository bookingRepository;
 	private final BookingSeatRepository bookingSeatRepository;
 	private final ObjectMapper objectMapper;
@@ -32,6 +36,16 @@ public class BookingService {
 	@Transactional(readOnly = true)
 	public long countActiveSeats(Long userId, Long performanceId) {
 		return bookingSeatRepository.countActiveByUserAndPerformance(userId, performanceId);
+	}
+
+	/**
+	 * 그 공연에 좌석을 차지한 예매(결제 대기·결제 완료·일부 취소)가 있는가. 전체 취소·만료된 예매는 좌석을 차지하지 않아 세지 않는다.
+	 * 판매자가 1인 최대 매수를 줄일 수 있는지 판단하는 데 쓴다. 1인 매수 계산(취소·만료 제외)과 같은 기준이다.
+	 * 결제 제한 시각이 지났어도 스케줄러가 만료 처리하기 전의 결제 대기 예매는 센다. (줄이지 못하는 쪽이 안전하다)
+	 */
+	@Transactional(readOnly = true)
+	public boolean existsOccupying(Long performanceId) {
+		return bookingRepository.existsByPerformanceIdAndStatusIn(performanceId, OCCUPYING_STATUSES);
 	}
 
 	/**

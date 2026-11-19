@@ -1,7 +1,9 @@
 package com.squirrel.tickting.domain.performance.service;
 
 import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
+import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
+import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
@@ -18,6 +20,19 @@ import org.springframework.transaction.annotation.Transactional;
 public class ScheduleSeatService {
 
 	private final ScheduleSeatRepository scheduleSeatRepository;
+	private final PerformanceScheduleRepository performanceScheduleRepository;
+
+	/**
+	 * 작성 중(DRAFT) 공연의 판매 좌석을 모두 지우고, 취소되지 않은 회차의 좌석 생성 시각을 비워 스케줄러가 다시 만들게 한다.
+	 * 공연장을 바꾸면 옛 공연장 좌석의 복사본이 의미가 없어서 쓴다. 작성 중 공연은 예매·점유가 불가능해 HELD·SOLD 가 있을 수 없고,
+	 * 판매자 보류석(RESERVED)은 옛 자리의 복사본이라 새 공연장으로 옮길 수 없어 함께 지운다.
+	 * 공연 락 안에서 불러야 좌석 생성과 겹치지 않는다. 호출한 쪽의 트랜잭션에 참여한다.
+	 */
+	@Transactional
+	public void deleteAllOfPerformance(Long performanceId, LocalDateTime now) {
+		scheduleSeatRepository.deleteByPerformanceId(performanceId);
+		performanceScheduleRepository.clearSeatsGenerated(performanceId, ScheduleStatus.CANCELED, now);
+	}
 
 	/**
 	 * 요청한 좌석을 모두 임시 점유(HELD)한다. 하나라도 점유할 수 없으면 예외를 던지고, 호출한 쪽의 트랜잭션이 되돌려서 아무것도 점유하지 않는다.

@@ -45,6 +45,11 @@ public class SellerPerformanceService {
 	 * 첫 생성이 실패해도 다시 만들 수 있게 한 값이다. 스케줄러 주기가 바뀌면 이 값도 다시 정한다.
 	 */
 	private static final Duration PUBLISH_LEAD_TIME = Duration.ofHours(3);
+	/**
+	 * 회차가 끝난 뒤 같은 공연장의 다음 회차까지 비워 두는 시간. 관객 입·퇴장과 무대 정리용이다. (임시, 팀과 상의해 정함)
+	 * 하루 두 번 하는 공연이 막히지 않게 2시간 대신 1시간으로 했다. 실제 공연장의 기준은 확인하지 않았다.
+	 */
+	private static final Duration SCHEDULE_BUFFER = Duration.ofHours(1);
 	private static final DateTimeFormatter SCHEDULE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
 	private final PerformanceRepository performanceRepository;
@@ -115,7 +120,10 @@ public class SellerPerformanceService {
 
 		List<PerformanceSchedule> schedules = performanceScheduleRepository
 			.findByPerformanceIdAndStatusNotOrderByStartAt(performanceId, ScheduleStatus.CANCELED);
-		validateSchedules(performance, schedules);
+		if (schedules.isEmpty()) {
+			throw new BusinessException(PerformanceExceptionCode.NO_ACTIVE_SCHEDULE);
+		}
+		validateSaleWindow(performance.getSaleOpenAt(), performance.getSaleCloseAt(), schedules);
 
 		List<ZoneGrade> zoneGrades = zoneGradeRepository.findAllWithGradeByPerformanceId(performanceId);
 		List<VenueZone> venueZones = performance.getVenue().getZones();
@@ -155,23 +163,26 @@ public class SellerPerformanceService {
 	}
 
 	/**
-	 * 취소되지 않은 회차(공연 일시가 빠른 순)와 판매 기간의 관계. 회차가 있어야 하고, 모든 회차가 판매 오픈보다 늦게 시작해야 하며,
+	 * 취소되지 않은 회차(공연 일시가 빠른 순)와 판매 기간의 관계. 모든 회차가 판매 오픈보다 늦게 시작해야 하며,
 	 * 판매 종료가 마지막 회차 시작보다 늦으면 안 된다. 판매 종료 뒤에 공연하는 회차는 미리 파는 것이라 막지 않는다.
+	 * 공개(저장된 값)와 공개 후 수정(저장 전의 요청 값)이 같은 규칙을 쓰도록 오픈·종료를 값으로 받는다.
+	 * 회차가 없으면 비교할 것이 없어 통과시킨다. (공개는 회차가 있는지 먼저 확인한다)
 	 */
-	private void validateSchedules(Performance performance, List<PerformanceSchedule> schedules) {
+	private void validateSaleWindow(LocalDateTime saleOpenAt, LocalDateTime saleCloseAt,
+		List<PerformanceSchedule> schedules) {
 		if (schedules.isEmpty()) {
-			throw new BusinessException(PerformanceExceptionCode.NO_ACTIVE_SCHEDULE);
+			return;
 		}
 		List<String> tooEarly = schedules.stream()
 			.map(PerformanceSchedule::getStartAt)
-			.filter(startAt -> !startAt.isAfter(performance.getSaleOpenAt()))
+			.filter(startAt -> !startAt.isAfter(saleOpenAt))
 			.map(SCHEDULE_TIME_FORMAT::format)
 			.toList();
 		if (!tooEarly.isEmpty()) {
 			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_BEFORE_SALE_OPEN,
 				PerformanceExceptionCode.SCHEDULE_BEFORE_SALE_OPEN.getMessage() + ": " + String.join(", ", tooEarly));
 		}
-		if (performance.getSaleCloseAt().isAfter(schedules.getLast().getStartAt())) {
+		if (saleCloseAt.isAfter(schedules.getLast().getStartAt())) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSE_AFTER_LAST_SCHEDULE);
 		}
 	}
@@ -228,14 +239,132 @@ public class SellerPerformanceService {
 	}
 
 	/**
+	 * 등록·수정 요청 값만 보고 하는 검사. DB 를 쓰지 않아서 조회보다 먼저 한다. (판매 기간 순서, 이미지 순서값 중복)
+	 * 남의 공연에 보내도 요청만 보는 검사라 남의 공연 정보가 드러나지 않는다.
+	 */
+	public void validate(PerformanceSaveCommand command) {
+		validateSalePeriod(command.saleOpenAt(), command.saleCloseAt());
+		validateImageOrders(command.images());
+	}
+
+	/**
+	 * 수정할 내 공연을 읽는다. 남의 공연은 없는 공연과 같은 404 다. 호출한 쪽의 트랜잭션에 참여하고,
+	 * 락 밖에서 부르면 번호만 쓰는 필드(공연장 번호, 러닝타임)만 믿고 지연 로딩 연관은 꺼내지 않는다.
+	 */
+	@Transactional(readOnly = true)
+	public Performance getMinePerformance(Long businessId, Long performanceId) {
+		return getMineEntity(businessId, performanceId);
+	}
+
+	/**
+	 * 공연 한 행만 보고 판단하는 수정 조건. 취소된 공연은 막고, 공개(PUBLISHED)된 공연은 공연장·취소 규정이 바뀌는지,
+	 * 판매 일시가 규칙에 맞는지 본다. 작성 중(DRAFT)은 요청 형식 검사(등록과 같은 규칙) 외에 제한이 없다.
+	 * 공연장·취소 규정은 전체 교체 PUT 이라 매번 함께 오므로, 같은 값이면 통과시키고 값이 실제로 바뀔 때만 막는다.
+	 * 순서: 취소 → 공연장 → 취소 규정 → 판매 필드 → 판매 오픈 → 판매 종료 → 오픈 3시간 전.
+	 */
+	public void validateUpdatable(Performance performance, PerformanceSaveCommand command, Long venueId,
+		Long cancelPolicyId, LocalDateTime now) {
+		if (performance.getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED);
+		}
+		if (performance.getStatus() != PerformanceStatus.PUBLISHED) {
+			return;
+		}
+		if (!performance.getVenueId().equals(venueId)) {
+			throw new BusinessException(PerformanceExceptionCode.VENUE_CHANGE_NOT_ALLOWED);
+		}
+		if (!performance.getCancelPolicy().getId().equals(cancelPolicyId)) {
+			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_CHANGE_NOT_ALLOWED);
+		}
+		// 공개된 공연은 판매 필드가 모두 있어야 예매가 판매 기간을 읽을 수 있다. 비워 보내면 공개 때와 같은 이유로 막는다.
+		if (command.saleOpenAt() == null || command.saleCloseAt() == null || command.maxPerPerson() == null
+			|| command.receiveType() == null || command.bookingFee() == null) {
+			throw new BusinessException(PerformanceExceptionCode.SALE_FIELDS_MISSING,
+				"공개된 공연은 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료를 비울 수 없습니다.");
+		}
+
+		boolean saleOpened = !performance.getSaleOpenAt().isAfter(now);
+		boolean openChanged = !command.saleOpenAt().equals(performance.getSaleOpenAt());
+		if (saleOpened && openChanged) {
+			throw new BusinessException(PerformanceExceptionCode.SALE_OPEN_CHANGE_NOT_ALLOWED);
+		}
+		// 종료는 늘리든 줄이든 새 종료가 지금보다 늦으면 된다. 판매자가 일찍 마감할 수 있게 기존 종료와 비교하지 않는다.
+		if (!command.saleCloseAt().isAfter(now)) {
+			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSED);
+		}
+		// 판매 오픈 전에 오픈을 옮기는 경우만 공개 때와 같은 기준(3시간)을 본다. 오픈을 그대로 두면 이미 통과한 값이다.
+		if (openChanged && !command.saleOpenAt().isAfter(now.plus(PUBLISH_LEAD_TIME))) {
+			throw new BusinessException(PerformanceExceptionCode.SALE_OPEN_TOO_SOON);
+		}
+	}
+
+	/**
+	 * 공개된 공연의 새 판매 일시가 취소되지 않은 회차와 맞는지 본다. 공개 때와 같은 규칙이다.
+	 * 작성 중 공연은 회차가 판매 기간과 맞는지 공개 때 보므로 여기서 보지 않는다.
+	 */
+	public void validateScheduleRules(Performance performance, PerformanceSaveCommand command) {
+		if (performance.getStatus() != PerformanceStatus.PUBLISHED) {
+			return;
+		}
+		List<PerformanceSchedule> schedules = performanceScheduleRepository
+			.findByPerformanceIdAndStatusNotOrderByStartAt(performance.getId(), ScheduleStatus.CANCELED);
+		validateSaleWindow(command.saleOpenAt(), command.saleCloseAt(), schedules);
+	}
+
+	/**
+	 * 이 공연의 취소되지 않은 회차가 venueId 공연장의 다른 회차와 시간이 겹치지 않는지 본다. 공연장을 바꿀 때(새 공연장)와
+	 * 러닝타임을 늘릴 때(지금 공연장) 부른다.
+	 * 락 없이 검사만 한다. 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡아 둘 다 통과할 수 있지만, 공연장은 판매자가
+	 * 미리 정해 오는 것이라 매우 드물다고 보고 알고 감수한다. (DB 제약은 doc/seller-progress.md 의 TODO)
+	 * 겹치는 이 공연의 회차 일시는 메시지로 알려 주고, 다른 공연의 회차 일시는 다른 판매자의 정보라 알려 주지 않는다.
+	 */
+	public void validateNoOverlap(Long performanceId, Long venueId, int runningTime) {
+		List<LocalDateTime> overlapped = performanceScheduleRepository.findOverlappingStartAts(performanceId, venueId,
+			runningTime, (int) SCHEDULE_BUFFER.toMinutes());
+		if (!overlapped.isEmpty()) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_TIME_OVERLAP,
+				PerformanceExceptionCode.SCHEDULE_TIME_OVERLAP.getMessage() + ": "
+					+ String.join(", ", overlapped.stream().map(SCHEDULE_TIME_FORMAT::format).toList()));
+		}
+	}
+
+	/**
+	 * 공연의 일반·판매 필드와 상세 이미지를 전체 교체한다. 상태는 바꾸지 않는다.
+	 * 공연장·취소 규정은 작성 중에 실제로 바뀔 때만 값을 넘기고 아니면 null 이다. (구역 설정·판매 좌석 정리는 호출한 쪽이 한다)
+	 * 호출한 쪽이 읽어 온 공연 엔티티를 받아 같은 트랜잭션에서 바꾸므로 커밋 때 저장된다.
+	 */
+	@Transactional
+	public Performance update(Performance performance, PerformanceSaveCommand command, Long newVenueId,
+		CancelPolicy newCancelPolicy) {
+		performance.update(command.title(), command.genre(), command.ageLimit(), command.runningTime(),
+			command.castInfo(), command.posterUrl(), command.notice(), command.guide(), command.saleOpenAt(),
+			command.saleCloseAt(), command.maxPerPerson(), command.receiveType(), command.bookingFee());
+		if (newVenueId != null) {
+			performance.changeVenue(newVenueId);
+		}
+		if (newCancelPolicy != null) {
+			performance.changeCancelPolicy(newCancelPolicy);
+		}
+
+		performanceImageRepository.deleteByPerformanceId(performance.getId());
+		performanceImageRepository.saveAll(command.images().stream()
+			.map(image -> PerformanceImage.builder()
+				.performance(performance)
+				.url(image.url())
+				.sortOrder(image.sortOrder())
+				.build())
+			.toList());
+		return performance;
+	}
+
+	/**
 	 * 공연을 작성 중(DRAFT)으로 등록하고 상세 이미지를 저장한다.
 	 * 공연장·취소 규정은 호출하는 쪽(파사드)이 각 서비스로 확인한 값을 받는다. 판매 필드는 DRAFT 에서 비워 둘 수 있다.
 	 */
 	@Transactional
 	public Performance create(Long businessId, Long createdBy, Long venueId, CancelPolicy cancelPolicy,
 		PerformanceSaveCommand command) {
-		validateSalePeriod(command.saleOpenAt(), command.saleCloseAt());
-		validateImageOrders(command.images());
+		validate(command);
 
 		Performance performance = performanceRepository.save(Performance.builder()
 			.businessId(businessId)
