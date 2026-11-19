@@ -100,6 +100,12 @@ public class UserMemberService {
 		return user;
 	}
 
+	/** 탈퇴. 개인정보를 지우고 탈퇴 시각을 남긴다. 이미 탈퇴했으면 USER_NOT_FOUND. 진행 중인 예매 확인은 파사드가 먼저 한다. */
+	@Transactional
+	public void withdraw(Long userId) {
+		getMe(userId).withdraw();
+	}
+
 	public CustomUserDetails toAccount(UserMember user) {
 		return new CustomUserDetails(user.getId(), AccountType.USER, null, null);
 	}
