@@ -1,12 +1,10 @@
 package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
-import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -70,16 +68,14 @@ public interface CancelPolicyRepository extends JpaRepository<CancelPolicy, Long
 		@Param("excludeId") Long excludeId);
 
 	/**
-	 * 수정할 내 사업체 규정을 행 잠금(SELECT ... FOR UPDATE)으로 읽는다. 같은 규정의 동시 수정이 순서대로 처리되어
-	 * 구간이 두 요청의 결과로 섞이지 않는다. 공연 공개(SLR-04)도 이 행을 잠가 "잠금 검사 통과 직후 공개"를 막는다.
-	 * 기본 규정은 모든 공개가 함께 잠그는 행이라 고칠 수 없는 요청으로 막지 않도록 사업체 번호 조건으로 뺀다.
+	 * 수정할 내 사업체 규정. 기본 규정은 사업체 번호 조건으로 빠져서 비어 돌아온다.
+	 * 같은 규정의 동시 수정과 공연 공개(SLR-04)는 DB 행 잠금이 아니라 분산락 cancel-policy:{규정 번호} 로 막는다.
 	 */
-	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		SELECT c
 		FROM CancelPolicy c
 		WHERE c.id = :id
 		  AND c.businessId = :businessId
 		""")
-	Optional<CancelPolicy> findMineForUpdate(@Param("id") Long id, @Param("businessId") Long businessId);
+	Optional<CancelPolicy> findMine(@Param("id") Long id, @Param("businessId") Long businessId);
 }

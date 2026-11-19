@@ -76,7 +76,30 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 */
 	GRADE_NOT_IN_PERFORMANCE("PERFORMANCE305", HttpStatus.BAD_REQUEST, "이 공연의 등급이 아닙니다."),
 	/** 구역 상태와 등급 지정이 맞지 않음. ASSIGNED 인데 등급이 없거나, UNSET·INTENTIONALLY_UNSOLD 인데 등급이 있음 */
-	ZONE_ASSIGNMENT_INVALID("PERFORMANCE306", HttpStatus.BAD_REQUEST, "구역 상태와 등급 지정이 맞지 않습니다.");
+	ZONE_ASSIGNMENT_INVALID("PERFORMANCE306", HttpStatus.BAD_REQUEST, "구역 상태와 등급 지정이 맞지 않습니다."),
+
+	// 공연 공개는 400번대를 쓴다.
+	/** 작성 중(DRAFT)이 아닌 공연을 공개하려 함. 이미 공개·취소된 공연이거나, 공개 두 번·공연 취소와 겹쳐 조건부 UPDATE 가 0행일 때도 쓴다 */
+	PERFORMANCE_NOT_DRAFT("PERFORMANCE400", HttpStatus.CONFLICT, "작성 중인 공연만 공개할 수 있습니다."),
+	/** 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료 중 비어 있는 것이 있음. 작성 중에는 비워 둘 수 있지만 공개 때는 모두 있어야 한다 */
+	SALE_FIELDS_MISSING("PERFORMANCE401", HttpStatus.BAD_REQUEST, "판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료를 모두 설정해야 공개할 수 있습니다."),
+	/** 취소되지 않은 회차가 하나도 없음. 회차가 없으면 예매자가 고를 수 있는 것이 없다 */
+	NO_ACTIVE_SCHEDULE("PERFORMANCE402", HttpStatus.BAD_REQUEST, "취소되지 않은 회차가 하나 이상 있어야 공개할 수 있습니다."),
+	/** 아직 설정하지 않은(UNSET) 구역이 남음. 구역 이름은 메시지로 알려 준다. 공개 후에는 고칠 수 없어서 판매 여부를 모두 정하게 한다 */
+	ZONE_UNSET_REMAINS("PERFORMANCE403", HttpStatus.BAD_REQUEST, "설정하지 않은 구역이 있습니다."),
+	/** 판매할(ASSIGNED) 구역이 하나도 없음. 모든 구역이 의도적 미판매면 살 수 있는 좌석이 0개인 공연이 공개된다 */
+	NO_ASSIGNED_ZONE("PERFORMANCE404", HttpStatus.BAD_REQUEST, "판매할 구역이 하나 이상 있어야 공개할 수 있습니다."),
+	/** 판매 종료 일시가 지났거나 지금과 같음. 팔 수 없는 공연이 공개되면 되돌릴 API가 없고 판매자가 원인을 모른다 */
+	SALE_CLOSED("PERFORMANCE405", HttpStatus.BAD_REQUEST, "판매 종료 일시가 지나 공개할 수 없습니다."),
+	/**
+	 * 판매 오픈까지 3시간이 남지 않음(이미 지난 경우 포함). 판매 좌석은 오픈 24시간 전부터 스케줄러가 주기적으로 만들어서,
+	 * 오픈 직전에 공개하면 판매가 열렸는데 좌석이 없는 틈이 생긴다. 3시간은 임시값이고 스케줄러 주기가 바뀌면 다시 정한다
+	 */
+	SALE_OPEN_TOO_SOON("PERFORMANCE406", HttpStatus.BAD_REQUEST, "판매 오픈 3시간 전까지만 공개할 수 있습니다."),
+	/** 판매 오픈보다 먼저(같은 시각 포함) 시작하는 회차가 있음. 그 회차는 한 장도 팔 수 없고 보통 날짜 입력 실수다. 회차 일시는 메시지로 알려 준다 */
+	SCHEDULE_BEFORE_SALE_OPEN("PERFORMANCE407", HttpStatus.BAD_REQUEST, "판매 오픈보다 먼저 시작하는 회차가 있습니다."),
+	/** 판매 종료가 마지막 회차 시작보다 늦음. 기능상 문제는 없지만 예매자 공연 상세에 공연이 끝난 뒤까지 판매 기간으로 보인다 */
+	SALE_CLOSE_AFTER_LAST_SCHEDULE("PERFORMANCE408", HttpStatus.BAD_REQUEST, "판매 종료 일시는 마지막 회차 시작보다 늦을 수 없습니다.");
 
 	private final String code;
 	private final HttpStatus status;

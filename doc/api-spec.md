@@ -86,7 +86,7 @@
 | SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 구현됨 |
 | SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 구현됨 |
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 미구현 |
-| SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 미구현 |
+| SLR-04 | 공연 공개 | POST `/api/v1/seller/performances/{performanceId}/publish` | 구현됨 |
 | SLR-05 | 내 공연 목록 | GET `/api/v1/seller/performances` | 구현됨 |
 | SLR-06 | 내 공연 상세 | GET `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-08 | 등급·구역 조회 | GET `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
@@ -1234,9 +1234,26 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 
 **에러**(코드 미정): 409 취소된 공연 · 400 판매 종료가 오픈보다 빠름 · 409 예매가 생긴 뒤 1인 최대 매수 줄이기 · 409 공개 후 공연장/취소 규정 변경 · 409 새 공연장의 회차 시간 충돌 · 409 예매/사용 중 좌석이 있는 공연장 변경
 
-### SLR-04 공연 공개 — `POST /api/v1/seller/performances/{performanceId}/publish`
+### SLR-04 공연 공개 — `POST /api/v1/seller/performances/{performanceId}/publish` (구현됨)
 
-Body 없음. `DRAFT` → `PUBLISHED`.
+Body 없음. `DRAFT` → `PUBLISHED`. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 사업체 번호는 토큰에서 꺼내고, 다른 사업체의 공연은 없는 공연과 같은 404입니다.
+
+공개하면 구역·등급·취소 규정을 되돌릴 수 없어서 아래 조건을 **모두** 만족해야 합니다. 에러는 한 번에 하나씩, 아래 순서로 먼저 걸린 것이 나옵니다.
+
+1. 작성 중(`DRAFT`)이어야 합니다. (`PERFORMANCE400`)
+2. 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료가 모두 설정되어 있어야 합니다. (`PERFORMANCE401`)
+3. 판매 종료 일시가 지금보다 늦어야 합니다. (`PERFORMANCE405`)
+4. 판매 오픈까지 **3시간보다 더 남아** 있어야 합니다. 이미 오픈이 지났어도 같은 에러입니다. (`PERFORMANCE406`, 임시) 판매 좌석은 오픈 24시간 전부터 스케줄러가 주기적으로 만드는데, 오픈 직전에 공개하면 판매가 열렸는데 좌석이 없는 틈이 생기기 때문입니다. 스케줄러 주기가 바뀌면 이 값도 다시 정합니다.
+5. 취소되지 않은 회차가 1개 이상이어야 합니다. (`PERFORMANCE402`)
+6. 취소되지 않은 모든 회차가 판매 오픈보다 늦게 시작해야 합니다. 같은 시각도 안 됩니다. 메시지에 해당 회차 일시가 나옵니다. (`PERFORMANCE407`)
+7. 판매 종료가 마지막 회차 시작보다 늦으면 안 됩니다. 판매 종료 뒤에 공연하는 회차는 괜찮습니다. (`PERFORMANCE408`)
+8. 설정하지 않은(`UNSET`) 구역이 없어야 합니다. 메시지에 구역 이름이 나옵니다. (`PERFORMANCE403`)
+9. 판매할(`ASSIGNED`) 구역이 1개 이상이어야 합니다. (`PERFORMANCE404`)
+10. 전석(`ALL`)과 다른 등급이 함께 구역에 지정되어 있으면 안 됩니다. (`PERFORMANCE303`)
+
+- 공연 수정, 같은 공연의 구역·등급 수정(SLR-10·11), 그 공연이 쓰는 취소 규정 수정(SLR-22)과 겹치면 하나씩 처리됩니다. 락을 1초 안에 잡지 못하면 409 `COMMON004`(잠시 후 다시 시도)입니다. 서비스 기본 규정을 쓰는 공연은 규정 락을 잡지 않습니다. (기본 규정은 항상 수정할 수 없어서 부딪히지 않습니다)
+- 공개 두 번이나 공연 취소와 겹쳐도 상태 조건부 UPDATE(`DRAFT`일 때만 바뀜)가 마지막으로 막아 409 `PERFORMANCE400`입니다.
+- 문제 구역·회차는 에러 응답의 `data`가 아니라 **메시지**에 나옵니다. (에러 응답에 `data`를 담는 방식은 아직 정하지 않았습니다)
 
 **응답 200**
 
@@ -1258,7 +1275,22 @@ Body 없음. `DRAFT` → `PUBLISHED`.
 }
 ```
 
-**에러**(코드 미정): 409 이미 공개·취소된 공연 · 400 판매 필드 미설정 · 400 회차 없음 · 400 `UNSET` 구역 있음(구역 ID·이름 반환) · 400 `ASSIGNED` 구역 없음(모든 구역이 의도적 미판매) · 409 `PERFORMANCE303` 전석(`ALL`)과 다른 등급이 함께 구역에 지정됨
+**에러**
+
+| 상태 | 코드 | 경우 |
+| --- | --- | --- |
+| 400 | `PERFORMANCE401` | 판매 필드 미설정 |
+| 400 | `PERFORMANCE402` | 취소되지 않은 회차 없음 |
+| 400 | `PERFORMANCE403` | 설정하지 않은(`UNSET`) 구역 있음 (메시지에 구역 이름) |
+| 400 | `PERFORMANCE404` | 판매할(`ASSIGNED`) 구역 없음 (모든 구역이 의도적 미판매) |
+| 400 | `PERFORMANCE405` | 판매 종료 일시가 지남 |
+| 400 | `PERFORMANCE406` | 판매 오픈까지 3시간 이하 (이미 지난 경우 포함, 임시) |
+| 400 | `PERFORMANCE407` | 판매 오픈보다 먼저(같은 시각 포함) 시작하는 회차 (메시지에 회차 일시) |
+| 400 | `PERFORMANCE408` | 판매 종료가 마지막 회차 시작보다 늦음 |
+| 404 | `PERFORMANCE000` | 공연 없음 또는 다른 사업체의 공연 (둘 다 같은 404) |
+| 409 | `PERFORMANCE400` | 작성 중이 아님 (이미 공개·취소, 동시에 공개·취소된 경우 포함) |
+| 409 | `PERFORMANCE303` | 전석(`ALL`)과 다른 등급이 함께 구역에 지정됨 |
+| 409 | `COMMON004` | 락을 1초 안에 잡지 못함 (잠시 후 다시 시도) |
 
 ### SLR-05 내 공연 목록 — `GET /api/v1/seller/performances` (구현됨)
 
@@ -1908,6 +1940,7 @@ Query: `page`, `size`
 | 409 | `PERFORMANCE102` | 서비스 기본 규정 |
 | 409 | `PERFORMANCE103` | 공개되었거나 취소된 공연이 쓰는 규정 |
 | 409 | `PERFORMANCE104` | 같은 사업체의 다른 규정이나 기본 규정과 같은 이름 |
+| 409 | `COMMON004` | 같은 규정을 동시에 수정하거나 그 규정을 쓰는 공연을 공개하는 중이라 락(`cancel-policy:{규정 번호}`)을 1초 안에 잡지 못함 (잠시 후 다시 시도) |
 
 ## 5. 관리자 (`/api/v1/admin/**`)
 

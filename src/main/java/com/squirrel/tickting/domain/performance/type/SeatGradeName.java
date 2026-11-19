@@ -1,5 +1,9 @@
 package com.squirrel.tickting.domain.performance.type;
 
+import java.util.Collection;
+import java.util.EnumSet;
+import java.util.Set;
+
 /**
  * 좌석 등급 코드. 판매자가 이름을 자유롭게 지으면 눈으로 같은 등급(R석·R 석·r석)이 여럿 생기고 공연마다 표기가 달라져서
  * 실제 예매처에서 쓰는 등급명으로 목록을 정했다. 화면에 보이는 이름("VIP석")과 색은 프론트가 코드마다 정한다.
@@ -23,5 +27,15 @@ public enum SeatGradeName {
 	/** VIP 스탠딩석 */
 	VIP_STANDING,
 	/** 지정석 */
-	RESERVED
+	RESERVED;
+
+	/**
+	 * 구역에 지정된 등급 이름들이 전석과 다른 등급을 함께 담고 있는가.
+	 * 등급 수정(SLR-10)·구역 설정(SLR-11)·공개(SLR-04)가 같은 기준으로 판단하게 한 곳에 둔다.
+	 */
+	public static boolean mixesAll(Collection<SeatGradeName> assignedNames) {
+		Set<SeatGradeName> names = EnumSet.noneOf(SeatGradeName.class);
+		names.addAll(assignedNames);
+		return names.contains(ALL) && names.size() > 1;
+	}
 }

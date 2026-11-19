@@ -20,7 +20,6 @@ import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
@@ -92,7 +91,7 @@ public class GradeService {
 	public SellerGradeResponse.Grade update(Long businessId, Long performanceId, Long gradeId,
 		SellerGradeRequest.Save request) {
 		getMine(businessId, performanceId);
-		return lockExecutor.execute(List.of(lockName(performanceId)), properties.lockWait(),
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
 			() -> transactionTemplate.execute(status -> updateInTransaction(businessId, performanceId, gradeId, request)));
 	}
 
@@ -130,7 +129,7 @@ public class GradeService {
 	public SellerGradeResponse.Overview updateZoneGrades(Long businessId, Long performanceId, SellerGradeRequest.ZoneAssign request) {
 		validateAssignments(request.assignments());
 		getMine(businessId, performanceId);
-		return lockExecutor.execute(List.of(lockName(performanceId)), properties.lockWait(),
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
 			() -> transactionTemplate.execute(status -> updateZonesInTransaction(businessId, performanceId, request)));
 	}
 
@@ -207,7 +206,7 @@ public class GradeService {
 				names.add(gradeOf(grades, item.gradeId()).getName());
 			}
 		}
-		return names.contains(SeatGradeName.ALL) && names.size() > 1;
+		return SeatGradeName.mixesAll(names);
 	}
 
 	/** 번호로 구역 설정을 찾는다. 구역은 많아야 수십 개라 목록을 훑어도 부담이 없다. 없으면 null 이다. */
@@ -258,22 +257,13 @@ public class GradeService {
 		if (assigned.stream().noneMatch(assignedGrade -> assignedGrade.getId().equals(grade.getId()))) {
 			return false;
 		}
-		Set<SeatGradeName> names = assigned.stream()
+		return SeatGradeName.mixesAll(assigned.stream()
 			.map(assignedGrade -> assignedGrade.getId().equals(grade.getId()) ? newName : assignedGrade.getName())
-			.collect(Collectors.toSet());
-		return names.contains(SeatGradeName.ALL) && names.size() > 1;
+			.toList());
 	}
 
 	/** 취소되지 않은 회차 중 하나라도 판매 좌석을 만들었는가. 조회의 locked 와 추가·수정의 409 가 같은 기준을 쓰게 한 곳에 둔다. */
 	private boolean isLocked(Long performanceId) {
 		return performanceScheduleRepository.existsSeatsGenerated(performanceId, ScheduleStatus.CANCELED);
-	}
-
-	/**
-	 * 공연 단위 락 이름. 판매 좌석 생성(SLR-14, 스케줄러)도 같은 이름을 잡아야 등급 가격 수정과 좌석의 가격 복사가 겹치지 않는다.
-	 * (좌석 생성 쪽과 이름을 맞추는 중이다)
-	 */
-	private static String lockName(Long performanceId) {
-		return "performance:" + performanceId;
 	}
 }
