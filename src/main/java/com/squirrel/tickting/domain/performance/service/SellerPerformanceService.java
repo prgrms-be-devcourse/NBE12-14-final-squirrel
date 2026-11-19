@@ -63,6 +63,17 @@ public class SellerPerformanceService {
 	private final PerformanceProperties properties;
 
 	/**
+	 * 내 사업체 공연의 회차인지 확인한다. 아니면 없는 회차와 같은 404 로 답한다.
+	 * 취소·연기된 회차, 취소·작성 중 공연의 회차도 막지 않는다. (읽기 전용 화면이 이력을 봐야 해서)
+	 */
+	@Transactional(readOnly = true)
+	public void validateMySchedule(Long businessId, Long scheduleId) {
+		if (!performanceScheduleRepository.existsByIdAndPerformanceBusinessId(scheduleId, businessId)) {
+			throw new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND);
+		}
+	}
+
+	/**
 	 * 내 사업체의 공연 목록. 상태를 주지 않으면 취소된 공연까지 모든 상태가 나온다.
 	 * 공연장명과 회차 수는 공연의 읽기 전용 연관(공연장, 회차)에서 꺼낸다. 지연 로딩이라 응답을 이 트랜잭션 안에서 만든다.
 	 */

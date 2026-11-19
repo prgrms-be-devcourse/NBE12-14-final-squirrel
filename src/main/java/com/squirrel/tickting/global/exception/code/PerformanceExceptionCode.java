@@ -38,6 +38,11 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 겹치는 이 공연의 회차 일시는 메시지로 알려 준다. 다른 공연의 회차 일시는 다른 판매자의 정보라 알려 주지 않는다
 	 */
 	SCHEDULE_TIME_OVERLAP("PERFORMANCE007", HttpStatus.CONFLICT, "같은 공연장의 다른 회차와 시간이 겹칩니다."),
+	/**
+	 * 판매자 화면에서 없는 회차이거나 다른 사업체의 회차. 번호가 존재하는지 알려주지 않으려고 둘 다 같은 404로 답한다.
+	 * 예매자용 PERFORMANCE200 과 섞이지 않게 따로 두었고, 판매자 회차 API(회차 추가·수정 등)도 쓸 수 있다
+	 */
+	SELLER_SCHEDULE_NOT_FOUND("PERFORMANCE008", HttpStatus.NOT_FOUND, "존재하지 않는 회차입니다."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */

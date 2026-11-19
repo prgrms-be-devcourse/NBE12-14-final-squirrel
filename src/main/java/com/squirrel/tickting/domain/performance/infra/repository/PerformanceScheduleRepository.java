@@ -11,6 +11,9 @@ import org.springframework.data.repository.query.Param;
 
 public interface PerformanceScheduleRepository extends JpaRepository<PerformanceSchedule, Long> {
 
+	/** 이 사업체의 공연에 속한 회차인가. 남의 회차와 없는 회차를 구분하지 않으려고 존재 여부만 묻는다. */
+	boolean existsByIdAndPerformanceBusinessId(Long id, Long businessId);
+
 	/** 공연의 모든 회차. 취소·연기된 회차도 포함하고 공연 일시가 빠른 순이다. */
 	List<PerformanceSchedule> findByPerformanceIdOrderByStartAt(Long performanceId);
 

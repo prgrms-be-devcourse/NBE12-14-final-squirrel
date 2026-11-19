@@ -2,10 +2,13 @@ package com.squirrel.tickting.domain.booking.infra.repository;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
+import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -18,6 +21,33 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
 	/** 그 공연에 주어진 상태의 예매가 하나라도 있는가. performance_id 는 예매 때 복사해 둔 값이라 조인 없이 본다. */
 	boolean existsByPerformanceIdAndStatusIn(Long performanceId, Collection<BookingStatus> statuses);
+
+	/**
+	 * 판매자의 회차별 예매 목록. 예매 시각 최신순, 같으면 번호가 큰 순으로 고정한다(페이지를 넘겨도 순서가 바뀌지 않게).
+	 * PostgreSQL 에서 null 파라미터가 타입 오류를 내서 선택 조건은 null 대신 "전부 넘기기"로 쓴다:
+	 * 상태·수령 방법은 허용할 값 목록을 항상 받고, 예매 번호는 빈 문자열이면 거르지 않는다. 예매 번호는 정확 일치다.
+	 */
+	@Query(value = """
+		SELECT b
+		  FROM Booking b
+		 WHERE b.scheduleId = :scheduleId
+		   AND b.status IN :statuses
+		   AND b.receiveType IN :receiveTypes
+		   AND (:bookingNo = '' OR b.bookingNo = :bookingNo)
+		 ORDER BY b.createdAt DESC, b.id DESC
+		""",
+		countQuery = """
+			SELECT COUNT(b)
+			  FROM Booking b
+			 WHERE b.scheduleId = :scheduleId
+			   AND b.status IN :statuses
+			   AND b.receiveType IN :receiveTypes
+			   AND (:bookingNo = '' OR b.bookingNo = :bookingNo)
+			""")
+	Page<Booking> findBySchedule(@Param("scheduleId") Long scheduleId,
+		@Param("statuses") Collection<BookingStatus> statuses,
+		@Param("receiveTypes") Collection<ReceiveMethod> receiveTypes,
+		@Param("bookingNo") String bookingNo, Pageable pageable);
 
 	/**
 	 * 결제 제한 시각이 지난 결제 대기(PENDING) 예매를 잠그고 번호를 돌려준다. 가장 오래된 것부터 limit 건까지다.
