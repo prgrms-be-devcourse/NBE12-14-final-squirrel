@@ -15,11 +15,9 @@ import com.squirrel.tickting.domain.performance.service.SellerPerformanceService
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import com.squirrel.tickting.global.exception.BusinessException;
-import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -65,9 +63,11 @@ public class SellerPerformanceFacade {
 
 	/**
 	 * 공연을 전체 교체로 수정한다. 락은 커밋 뒤에 풀려야 해서 락을 먼저 잡고 그 안에서 트랜잭션을 연다.
-	 * 락은 공연 단위(performance:{번호})이고, 공연장을 바꾸거나 러닝타임을 늘릴 때는 그 공연장의 시간을 차지하므로
-	 * 공연장 락(venue:{번호})도 함께 잡는다. (공연장 변경은 새 공연장, 러닝타임은 지금 공연장. 실행기가 이름순으로 잡아 데드락이 없다)
-	 * 공연 락은 공연마다 달라서, 서로 다른 공연이 같은 공연장에 동시에 들어와 시간이 겹치는 것은 공연장 락만 막을 수 있다.
+	 * 락은 공연 단위(performance:{번호})다. 같은 공연의 등급·구역 수정(SLR-10·11), 공개(SLR-04), 판매 좌석 생성과 겹치지 않게 한다.
+	 * 특히 공연장 변경이 좌석 생성과 겹치면 옛 공연장 좌석이 새로 만들어질 수 있다.
+	 * 같은 공연장의 시간 겹침은 락 없이 검사만 한다. 공연장은 판매자가 미리 정해 오는 것이라 서로 다른 공연이 같은 순간에
+	 * 같은 공연장의 같은 시간을 잡을 일이 매우 드물고, 겹침 검사가 그다음 요청을 막는다. 동시에 들어오는 경우의 마지막 방어선은
+	 * DB 제약 TODO(doc/seller-progress.md)로 남겼다.
 	 * 작성 중 취소 규정 변경은 규정 락을 잡지 않는다. 작성 중 공연이 쓰는 규정은 잠기지 않아 규정 수정과 겹쳐도 규칙 위반이 아니고,
 	 * 공개와는 공연 락으로 막힌다.
 	 * 검사 순서: 요청 형식(DB 전) → 공연 조회 404(락 밖) → 락 → 재조회 → 공연 한 행 → 규정·공연장 한 건 조회 → 회차 → 예매 → 회차 겹침.
@@ -78,36 +78,22 @@ public class SellerPerformanceFacade {
 		PerformanceSaveCommand command = request.toCommand();
 		sellerPerformanceService.validate(command);
 
-		// 락 이름을 정하려고 락 밖에서 한 번 읽는다. 남의 공연은 여기서 404 로 끝나 락을 잡지 않는다.
-		Performance current = sellerPerformanceService.getMinePerformance(businessId, performanceId);
-		Long lockedVenueId = current.getVenueId();
-		Integer lockedRunningTime = current.getRunningTime();
+		// 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
+		sellerPerformanceService.getMinePerformance(businessId, performanceId);
 
-		List<String> lockNames = new ArrayList<>();
-		lockNames.add(PerformanceLockNames.performance(performanceId));
-		if (!lockedVenueId.equals(request.venueId())) {
-			lockNames.add(PerformanceLockNames.venue(request.venueId()));
-		} else if (command.runningTime() > lockedRunningTime) {
-			lockNames.add(PerformanceLockNames.venue(lockedVenueId));
-		}
-
-		Performance updated = lockExecutor.execute(lockNames, properties.lockWait(), () -> transactionTemplate.execute(
-			status -> updateInTransaction(businessId, performanceId, request, command, lockedVenueId, lockedRunningTime)));
+		Performance updated = lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)),
+			properties.lockWait(), () -> transactionTemplate.execute(
+				status -> updateInTransaction(businessId, performanceId, request, command)));
 		return SellerPerformanceResponse.Updated.from(updated);
 	}
 
 	/** 락을 기다리는 사이 상태가 바뀌었을 수 있어 락 밖의 판단은 믿지 않고 다시 읽는다. */
 	private Performance updateInTransaction(Long businessId, Long performanceId,
-		SellerPerformanceRequest.Save request, PerformanceSaveCommand command, Long lockedVenueId,
-		Integer lockedRunningTime) {
+		SellerPerformanceRequest.Save request, PerformanceSaveCommand command) {
 		// 현재 시각은 한 번만 읽어 모든 비교에 같은 값을 쓴다.
 		LocalDateTime now = LocalDateTime.now();
 		Performance performance = sellerPerformanceService.getMinePerformance(businessId, performanceId);
 
-		// 락 밖에서 본 공연장·러닝타임과 다르면 우리가 잡은 공연장 락이 지금 필요한 락이 아니다. 처음부터 다시 시도하게 한다.
-		if (!performance.getVenueId().equals(lockedVenueId) || !performance.getRunningTime().equals(lockedRunningTime)) {
-			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
-		}
 		sellerPerformanceService.validateUpdatable(performance, command, request.venueId(), request.cancelPolicyId(), now);
 
 		boolean venueChanged = !performance.getVenueId().equals(request.venueId());

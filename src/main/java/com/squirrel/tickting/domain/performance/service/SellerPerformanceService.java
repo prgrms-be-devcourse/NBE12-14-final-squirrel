@@ -313,7 +313,9 @@ public class SellerPerformanceService {
 
 	/**
 	 * 이 공연의 취소되지 않은 회차가 venueId 공연장의 다른 회차와 시간이 겹치지 않는지 본다. 공연장을 바꿀 때(새 공연장)와
-	 * 러닝타임을 늘릴 때(지금 공연장) 부른다. 이 공연장에 회차를 넣는 작업끼리는 공연장 락(venue:{번호}) 안에서 불러야 겹치지 않는다.
+	 * 러닝타임을 늘릴 때(지금 공연장) 부른다.
+	 * 락 없이 검사만 한다. 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡아 둘 다 통과할 수 있지만, 공연장은 판매자가
+	 * 미리 정해 오는 것이라 매우 드물다고 보고 알고 감수한다. (DB 제약은 doc/seller-progress.md 의 TODO)
 	 * 겹치는 이 공연의 회차 일시는 메시지로 알려 주고, 다른 공연의 회차 일시는 다른 판매자의 정보라 알려 주지 않는다.
 	 */
 	public void validateNoOverlap(Long performanceId, Long venueId, int runningTime) {

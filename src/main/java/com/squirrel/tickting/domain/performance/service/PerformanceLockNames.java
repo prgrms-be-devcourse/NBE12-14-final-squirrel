@@ -15,14 +15,6 @@ public final class PerformanceLockNames {
 		return "performance:" + performanceId;
 	}
 
-	/**
-	 * 공연장 단위 락. 서로 다른 공연이 같은 공연장에 동시에 회차를 넣거나 공연장을 바꾸면 각자 "비어 있음"을 보고 통과해 시간이 겹친다.
-	 * 공연 락은 공연마다 달라 이걸 못 막으므로, 같은 공연장의 시간을 차지하는 작업(공연장 변경·러닝타임 늘리기, 회차 추가·수정)이 함께 잡는다.
-	 */
-	public static String venue(Long venueId) {
-		return "venue:" + venueId;
-	}
-
 	/** 취소 규정 단위 락. 공개한 공연이 쓰는 규정이 바뀌지 않게, 공개와 규정 수정이 같은 이름을 잡는다. */
 	public static String cancelPolicy(Long cancelPolicyId) {
 		return "cancel-policy:" + cancelPolicyId;

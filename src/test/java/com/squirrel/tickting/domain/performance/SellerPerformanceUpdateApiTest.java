@@ -28,7 +28,6 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
@@ -544,44 +543,6 @@ class SellerPerformanceUpdateApiTest extends IntegrationTestSupport {
 		holdingLock("performance:" + id, () -> assertRejected(update(id, body), 409, "COMMON004"));
 
 		assertThat(titleOf(id)).isEqualTo("수정 테스트 공연");
-	}
-
-	@Test
-	@DisplayName("공연장을 바꿀 때만 새 공연장 락이 필요하다. 그 락을 다른 작업이 잡고 있으면 409 COMMON004 이고, 공연장을 안 바꾸는 수정은 막히지 않는다")
-	void venueLockOnlyForVenueChange() throws Exception {
-		Long venue = insertVenue("ACTIVE", 1);
-		Long id = insertPerformance(MY_BUSINESS, "DRAFT", defaultPolicyId(), arenaId(), 120);
-		Map<String, Object> move = sameBody(id);
-		move.put("venueId", venue);
-		Map<String, Object> plain = sameBody(id);
-		plain.put("title", "공연장 락과 무관");
-
-		holdingLock("venue:" + venue, () -> {
-			assertRejected(update(id, move), 409, "COMMON004");
-			update(id, plain).andExpect(status().isOk());
-		});
-
-		assertThat(venueOf(id)).isEqualTo(arenaId());
-	}
-
-	@Test
-	@DisplayName("서로 다른 공연이 같은 시간으로 같은 공연장에 동시에 옮겨 가면 하나만 성공한다")
-	void concurrentVenueChangeKeepsOnlyOne() throws Exception {
-		Long venue = insertVenue("ACTIVE", 1);
-		LocalDateTime time = LocalDate.now().plusDays(30).atTime(19, 0);
-		List<Long> ids = List.of(insertDraftWithSchedule(time), insertDraftWithSchedule(time));
-
-		List<MvcResult> results = runConcurrently(2, i -> () -> {
-			Map<String, Object> body = sameBody(ids.get(i));
-			body.put("venueId", venue);
-			return update(ids.get(i), body).andReturn();
-		});
-
-		assertThat(results).filteredOn(result -> result.getResponse().getStatus() == 200).hasSize(1);
-		// 나머지는 겹침(PERFORMANCE007)이거나 락을 1초 안에 못 잡은 것(COMMON004)이고 둘 다 409 다.
-		assertThat(results).filteredOn(result -> result.getResponse().getStatus() != 200)
-			.allSatisfy(result -> assertThat(result.getResponse().getStatus()).isEqualTo(409));
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance WHERE venue_id = ?", Integer.class, venue)).isEqualTo(1);
 	}
 
 	@FunctionalInterface

@@ -104,7 +104,7 @@ public class SellerPerformanceController {
 			+ "작성 중에는 공연장을 바꿀 수 있고, 바꾸면 구역 설정이 새 공연장 기준 미설정(UNSET)으로 초기화되고(등급은 유지) "
 			+ "판매 좌석(판매자 보류석 포함)이 지워져 스케줄러가 새 공연장으로 다시 만든다. "
 			+ "공연장을 바꾸거나 러닝타임을 늘릴 때는 같은 공연장의 다른 회차와 시간(시작부터 러닝타임 + 1시간, 임시)이 겹치면 409 다. "
-			+ "다른 사업체의 공연이거나 없는 공연은 404 다. 공연 락이나 공연장 락을 1초 안에 잡지 못하면 409 COMMON004(잠시 후 다시 시도)다.")
+			+ "다른 사업체의 공연이거나 없는 공연은 404 다. 같은 공연의 등급·구역 수정, 공개, 판매 좌석 생성과 겹쳐 공연 락을 1초 안에 잡지 못하면 409 COMMON004(잠시 후 다시 시도)다.")
 	@PutMapping("/{performanceId}")
 	public ResponseEntity<ApiResponse<SellerPerformanceResponse.Updated>> update(
 		@AuthenticationPrincipal CustomUserDetails account,
