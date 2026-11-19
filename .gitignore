@@ -76,3 +76,6 @@ desktop.ini
 /pgdata/
 *.tmp
 *.swp
+
+# 부하 테스트 환경(내 PC 전용, 비밀번호·세션·결과 파일이 생긴다)
+/loadtest/
