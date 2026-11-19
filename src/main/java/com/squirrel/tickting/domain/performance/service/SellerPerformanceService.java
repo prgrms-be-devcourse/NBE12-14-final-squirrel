@@ -9,6 +9,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImageRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.ZoneGradeRepository;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
@@ -56,6 +57,7 @@ public class SellerPerformanceService {
 	private final PerformanceImageRepository performanceImageRepository;
 	private final PerformanceScheduleRepository performanceScheduleRepository;
 	private final ZoneGradeRepository zoneGradeRepository;
+	private final ScheduleSeatRepository scheduleSeatRepository;
 	private final DistributedLockExecutor lockExecutor;
 	private final TransactionTemplate transactionTemplate;
 	private final PerformanceProperties properties;
@@ -78,6 +80,28 @@ public class SellerPerformanceService {
 			performance,
 			performanceImageRepository.findByPerformanceIdOrderBySortOrder(performanceId),
 			performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId)));
+	}
+
+	/**
+	 * 내 공연의 회차별 판매 현황. 취소·연기·중지 회차도 공연 일시순으로 모두 준다. 읽기만 해서 락을 잡지 않는다.
+	 * 총 좌석은 좌석 생성 여부와 상관없이 공연장 좌석 수(공연의 읽기 전용 연관)다. 응답을 이 트랜잭션 안에서 만든다.
+	 * 취소·작성 중 공연도 막지 않는다. 취소 뒤 환불이 끝났는지 볼 수 있어야 해서다.
+	 */
+	@Transactional(readOnly = true)
+	public SellerPerformanceResponse.Sales getSales(Long businessId, Long performanceId) {
+		Performance performance = getMineEntity(businessId, performanceId);
+		List<PerformanceSchedule> schedules = performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId);
+		List<Long> scheduleIds = schedules.stream().map(PerformanceSchedule::getId).toList();
+		// 회차가 없으면 IN () 쿼리를 보내지 않는다.
+		List<ScheduleSeatRepository.SeatStatusCount> counts = scheduleIds.isEmpty()
+			? List.of() : scheduleSeatRepository.countByStatus(scheduleIds);
+		Integer totalSeats = performance.getVenue().getTotalSeats();
+
+		List<SellerPerformanceResponse.ScheduleSales> response = schedules.stream()
+			.map(schedule -> SellerPerformanceResponse.ScheduleSales.of(schedule, totalSeats,
+				counts.stream().filter(c -> c.getScheduleId().equals(schedule.getId())).toList()))
+			.toList();
+		return new SellerPerformanceResponse.Sales(response);
 	}
 
 	/**

@@ -93,6 +93,21 @@ public class SellerPerformanceController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	@Operation(summary = "공연 판매 현황",
+		description = "회차별 판매 좌석 상태 개수를 준다. 취소·연기·중지 회차도 공연 일시 빠른 순으로 모두 나온다. "
+			+ "판매 좌석을 아직 만들지 않은 회차는 seatsGenerated=false 이고 좌석 수는 null 이다. "
+			+ "총 좌석은 공연장 좌석 수다. 임시 점유(heldSeats)는 지금 상태 그대로라 만료됐지만 정리 전인 좌석(길어야 1분 정도)도 센다. "
+			+ "취소·작성 중 공연도 조회할 수 있고 남의 공연은 404 다. 대표·담당자 모두 쓸 수 있다.")
+	@GetMapping("/{performanceId}/sales")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.Sales>> sales(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId
+	) {
+		SellerPerformanceResponse.Sales response = sellerPerformanceService.getSales(account.getBusinessId(),
+			performanceId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 공연장·취소 규정·예매·판매 좌석을 함께 다뤄 파사드를 부른다. 사업체 번호는 토큰에서 꺼낸다. 대표·담당자 모두 수정할 수 있다. */
 	@Operation(summary = "공연 수정",
 		description = "공연 등록과 같은 본문으로 공연과 상세 이미지를 전체 교체한다. 취소된 공연은 409 다. "
