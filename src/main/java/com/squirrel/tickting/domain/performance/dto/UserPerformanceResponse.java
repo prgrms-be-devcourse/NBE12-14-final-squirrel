@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.PublishedRow;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneName;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneRemaining;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneSeat;
@@ -59,21 +60,20 @@ public class UserPerformanceResponse {
 		SaleStatus saleStatus
 	) {
 
-		/** 공연장 이름·지역은 공연의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
-		public static Summary from(UserPerformanceService.Summary summary) {
-			Performance performance = summary.performance();
+		/** 판매 상태는 쿼리가 아니라 서비스가 현재 시각으로 계산해서 넘긴다. */
+		public static Summary from(PublishedRow row, SaleStatus saleStatus) {
 			return Summary.builder()
-				.performanceId(performance.getId())
-				.title(performance.getTitle())
-				.genre(performance.getGenre())
-				.posterUrl(performance.getPosterUrl())
-				.ageLimit(performance.getAgeLimit())
-				.venueName(performance.getVenue().getName())
-				.region(performance.getVenue().getRegion())
-				.firstStartAt(summary.firstStartAt())
-				.lastStartAt(summary.lastStartAt())
-				.saleOpenAt(performance.getSaleOpenAt())
-				.saleStatus(summary.saleStatus())
+				.performanceId(row.id())
+				.title(row.title())
+				.genre(row.genre())
+				.posterUrl(row.posterUrl())
+				.ageLimit(row.ageLimit())
+				.venueName(row.venueName())
+				.region(row.region())
+				.firstStartAt(row.firstStartAt())
+				.lastStartAt(row.lastStartAt())
+				.saleOpenAt(row.saleOpenAt())
+				.saleStatus(saleStatus)
 				.build();
 		}
 	}

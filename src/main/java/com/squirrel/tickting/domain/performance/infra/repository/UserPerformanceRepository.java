@@ -1,12 +1,13 @@
 package com.squirrel.tickting.domain.performance.infra.repository;
 
+import com.squirrel.tickting.domain.performance.infra.entity.CommonGuide;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
-import java.util.Collection;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -22,22 +23,43 @@ import org.springframework.data.repository.query.Param;
 public interface UserPerformanceRepository extends Repository<Performance, Long> {
 
 	/**
-	 * 공개(PUBLISHED)된 공연 목록·검색. 공연 테이블만 읽고, 회차 일시·남은 좌석은 서비스가 이 페이지의 공연만 따로 읽어 계산한다.
-	 * 정렬이 공연 테이블의 값(등록 시각)이라 회차를 묶지 않아도 DB 에서 정렬과 페이지 자르기가 끝나기 때문이다.
+	 * 공개(PUBLISHED)된 공연 목록·검색. 응답에 쓰는 값만 한 번에 읽는다. 결과는 맨 아래 PublishedRow record 로 받는다.
+	 * 공연 엔티티를 읽으면 쓰지 않는 컬럼(긴 text 3개 등)과 회차·공연장 지연 로딩 쿼리가 따라와서 앱 CPU 가 컸다. (부하 테스트 JFR)
+	 * 첫·마지막 회차 일시와 "아직 시작 전인 회차에 판매 가능 좌석이 있는지"는 공연마다 서브쿼리로 계산한다. (취소된 회차는 뺀다)
+	 * 정렬이 공연 테이블의 값(등록 시각)이라 DB 에서 정렬과 페이지 자르기가 끝난다.
 	 *
-	 *   - genres: 장르를 고르지 않으면 호출하는 쪽이 모든 장르를 넘긴다. (PostgreSQL 에서 null 파라미터가 타입 오류를 내는 것을 피하려고)
+	 *   - allGenres, genre: 장르를 고르지 않으면 allGenres 가 true 이고 genre 는 보지 않는다. (아무 값이나 넘긴다. null 파라미터는 PostgreSQL 에서 타입 오류를 낸다)
+	 *     IN 에 장르 목록을 넘기면 목록 길이마다 쿼리 번역이 새로 일어나서(계획 캐시가 안 걸린다) 앱 CPU 를 썼다. 그래서 값 하나와 플래그로 받는다.
 	 *   - allRegions, region: 지역은 공연장에 있어서 공연장을 LEFT JOIN 해서 지역이 같은 공연만 찾는다. (공연장 행이 없는 공연도 지역을 안 고르면 나온다)
 	 *     지역을 고르지 않았으면 allRegions 가 true 이고 region 은 보지 않는다. (빈 문자열을 넘긴다. null 파라미터는 PostgreSQL 에서 타입 오류를 낸다)
+	 *   - now: 이 시각 이후에 시작하는 회차만 "판매 가능 좌석이 있는지"를 본다. 서비스가 판매 상태 계산에 쓰는 시각과 같은 값을 넘긴다.
 	 *   - pattern: LikeUtil.containsPattern 으로 만든 값. 제목이나 출연진에 들어 있으면 일치하고, 검색어가 없으면 "%" 라 전부 일치한다.
 	 *     출연진은 비어 있을(null) 수 있어서 OR 로 묶는다. LikeUtil 이 % 와 _ 를 '!' 로 이스케이프하므로 ESCAPE '!' 가 꼭 필요하다.
 	 *   - 정렬은 pageable 의 Sort 로 붙인다. 정렬 조건은 UserPerformanceSortType 에만 있다.
 	 */
 	@Query(value = """
-		SELECT p
+		SELECT new com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository$PublishedRow(
+		       p.id, p.title, p.genre, p.posterUrl, p.ageLimit, v.name, v.region, p.saleOpenAt, p.saleCloseAt,
+		       (SELECT MIN(s.startAt) FROM PerformanceSchedule s
+		         WHERE s.performance.id = p.id
+		           AND s.status <> com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED),
+		       (SELECT MAX(s.startAt) FROM PerformanceSchedule s
+		         WHERE s.performance.id = p.id
+		           AND s.status <> com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED),
+		       CASE WHEN EXISTS (
+		         SELECT 1 FROM PerformanceSchedule s
+		          WHERE s.performance.id = p.id
+		            AND s.status <> com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED
+		            AND s.startAt > :now
+		            AND EXISTS (
+		              SELECT 1 FROM ScheduleSeat seat
+		               WHERE seat.scheduleId = s.id
+		                 AND seat.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE))
+		       THEN true ELSE false END)
 		FROM Performance p
 		LEFT JOIN p.venue v
 		WHERE p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
-		  AND p.genre IN :genres
+		  AND (:allGenres = true OR p.genre = :genre)
 		  AND (:allRegions = true OR v.region = :region)
 		  AND (LOWER(p.title) LIKE :pattern ESCAPE '!' OR LOWER(p.castInfo) LIKE :pattern ESCAPE '!')
 		""",
@@ -46,42 +68,57 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 			FROM Performance p
 			LEFT JOIN p.venue v
 			WHERE p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
-			  AND p.genre IN :genres
+			  AND (:allGenres = true OR p.genre = :genre)
 			  AND (:allRegions = true OR v.region = :region)
 			  AND (LOWER(p.title) LIKE :pattern ESCAPE '!' OR LOWER(p.castInfo) LIKE :pattern ESCAPE '!')
 			""")
-	Page<Performance> findPublished(
-		@Param("genres") Collection<Genre> genres,
+	Page<PublishedRow> findPublished(
+		@Param("allGenres") boolean allGenres,
+		@Param("genre") Genre genre,
 		@Param("allRegions") boolean allRegions,
 		@Param("region") String region,
 		@Param("pattern") String pattern,
+		@Param("now") LocalDateTime now,
 		Pageable pageable
 	);
 
-	/** 공개(PUBLISHED)된 공연 하나. 작성 중·취소된 공연은 없는 공연과 같게 비어서 돌아온다. */
+	/**
+	 * 공개(PUBLISHED)된 공연 하나. 작성 중·취소된 공연은 없는 공연과 같게 비어서 돌아온다.
+	 * 상세 응답이 공연장·판매자를 쓰므로 함께 읽는다. 따로 두면 지연 로딩으로 쿼리가 두 번 더 나간다.
+	 */
 	@Query("""
 		SELECT p
 		FROM Performance p
+		LEFT JOIN FETCH p.venue
+		LEFT JOIN FETCH p.business
 		WHERE p.id = :performanceId
 		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
 		""")
 	Optional<Performance> findPublishedById(@Param("performanceId") Long performanceId);
 
 	/**
-	 * 판매 가능(AVAILABLE) 좌석이 하나라도 있는 회차 번호. 회차마다 따로 조회하지 않으려고 번호 목록으로 한 번에 찾는다.
-	 * 좌석을 DISTINCT 로 모으면 AVAILABLE 좌석 수만큼(수만 건) 훑어서 목록·상세 요청마다 느려진다.
+	 * 모든 공연에 공통인 안내(유형마다 한 행). findAll() 은 매번 쿼리를 새로 번역해서(계획 캐시가 안 걸린다) 상세 요청마다 앱 CPU 를 썼다.
+	 * 고정된 @Query 는 번역 결과가 캐시되므로 이 쿼리로 읽는다.
+	 */
+	@Query("SELECT g FROM CommonGuide g")
+	List<CommonGuide> findCommonGuides();
+
+	/**
+	 * 공연에서 판매 가능(AVAILABLE) 좌석이 하나라도 있는 회차 번호. 회차마다 따로 조회하지 않으려고 공연 하나로 한 번에 찾는다.
+	 * 좌석을 DISTINCT 로 모으면 AVAILABLE 좌석 수만큼(수만 건) 훑어서 상세 요청마다 느려진다.
 	 * EXISTS 는 회차마다 좌석 하나만 찾으면 끝나서 좌석 수와 상관없이 빠르다. (부하 테스트에서 DB 시간의 대부분이었다)
+	 * 회차 번호 목록을 IN 으로 넘기면 목록 길이마다 쿼리 번역이 새로 일어나서, 공연 번호 하나로 찾는다. 취소된 회차도 나올 수 있어서 쓰는 쪽이 거른다.
 	 */
 	@Query("""
 		SELECT s.id
 		FROM PerformanceSchedule s
-		WHERE s.id IN :scheduleIds
+		WHERE s.performance.id = :performanceId
 		  AND EXISTS (
 		    SELECT 1 FROM ScheduleSeat seat
 		    WHERE seat.scheduleId = s.id
 		      AND seat.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE)
 		""")
-	List<Long> findScheduleIdsWithAvailableSeat(@Param("scheduleIds") Collection<Long> scheduleIds);
+	List<Long> findScheduleIdsWithAvailableSeat(@Param("performanceId") Long performanceId);
 
 	/**
 	 * 구역에 지정(ASSIGNED)된 등급. 어느 구역에도 붙지 않은 등급은 실제로 팔리지 않는 가격이라 보여 주지 않는다.
@@ -190,5 +227,19 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 
 	/** 구역 좌석 쿼리의 결과 한 줄. 필드 순서는 findScheduleSeats 의 SELECT new 인자 순서와 같다. */
 	record ZoneSeat(Long seatId, SeatStatus status, String rowLabel, String seatNumber, Integer sortOrder) {
+	}
+
+	/**
+	 * 공연 목록 쿼리의 결과 한 줄. 필드 순서는 findPublished 의 SELECT new 인자 순서와 같다.
+	 *
+	 * @param venueName         공연장 행이 없는 공연은 null
+	 * @param region            공연장 행이 없는 공연은 null
+	 * @param firstStartAt      취소되지 않은 회차 중 가장 이른 공연 일시. 회차가 없으면 null
+	 * @param lastStartAt       취소되지 않은 회차 중 가장 늦은 공연 일시. 회차가 없으면 null
+	 * @param hasAvailableSeat  아직 시작하지 않은 회차에 판매 가능(AVAILABLE) 좌석이 하나라도 있는지
+	 */
+	record PublishedRow(Long id, String title, Genre genre, String posterUrl, Integer ageLimit, String venueName,
+		String region, LocalDateTime saleOpenAt, LocalDateTime saleCloseAt, LocalDateTime firstStartAt,
+		LocalDateTime lastStartAt, Boolean hasAvailableSeat) {
 	}
 }
