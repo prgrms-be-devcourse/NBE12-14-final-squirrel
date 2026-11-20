@@ -12,12 +12,12 @@ import com.squirrel.tickting.domain.performance.infra.repository.CommonGuideRepo
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImageRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneName;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneRemaining;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.SaleStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.UserPerformanceSortType;
-import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.util.LikeUtil;
@@ -149,9 +149,8 @@ public class UserPerformanceService {
 		if (schedule.getSeatsGeneratedAt() == null) {
 			throw new BusinessException(PerformanceExceptionCode.USER_SEATS_NOT_GENERATED);
 		}
-		VenueZone zone = schedule.getPerformance().getVenue().getZones().stream()
-			.filter(candidate -> candidate.getId().equals(zoneId))
-			.findFirst()
+		// 공연장의 구역 전체를 읽어서 찾지 않고 그 공연장의 구역 한 건만 읽는다. (구역마다 좌석 수를 세는 서브쿼리가 같이 나가서 비쌌다)
+		ZoneName zone = userPerformanceRepository.findZoneName(zoneId, schedule.getPerformance().getVenueId())
 			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.USER_ZONE_NOT_FOUND));
 		return UserPerformanceResponse.ZoneSeats.from(zone, userPerformanceRepository.findScheduleSeats(scheduleId, zoneId));
 	}

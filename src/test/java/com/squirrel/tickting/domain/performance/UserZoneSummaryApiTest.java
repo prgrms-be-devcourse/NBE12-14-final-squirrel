@@ -88,6 +88,47 @@ class UserZoneSummaryApiTest extends IntegrationTestSupport {
 	// ---- 구역 좌석 상세 (PFM-04) ----
 
 	@Test
+	@DisplayName("구역 좌석은 표시 순서대로 열·번호·상태가 나오고, 다른 공연장의 구역 번호로는 404 PERFORMANCE201 이다")
+	void zoneSeatsAreOrderedAndOtherVenueZoneIsHidden() throws Exception {
+		Long zone = saveZone("F2구역", "1층", 1);
+		Long otherVenue = saveVenue("other-arena");
+		Long otherZone = jdbc.queryForObject("""
+			INSERT INTO venue_zone (venue_id, name, floor, sort_order) VALUES (?, '다른 공연장 구역', NULL, 1) RETURNING id
+			""", Long.class, otherVenue);
+		Long scheduleId = saveSchedule(savePerformance("PUBLISHED"), "ON_SALE");
+		// 표시 순서(sort_order)와 넣은 순서가 다르게 넣어서 정렬을 확인한다
+		saveScheduleSeat(scheduleId, zone, "1열", "2", 2, "HELD");
+		saveScheduleSeat(scheduleId, zone, "1열", "1", 1, "AVAILABLE");
+
+		mockMvc.perform(get(SEATS_URL.formatted(scheduleId, zone)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.zoneId").value(zone.intValue()))
+			.andExpect(jsonPath("$.data.name").value("F2구역"))
+			.andExpect(jsonPath("$.data.seats.length()").value(2))
+			.andExpect(jsonPath("$.data.seats[0].row").value("1열"))
+			.andExpect(jsonPath("$.data.seats[0].number").value("1"))
+			.andExpect(jsonPath("$.data.seats[0].sortOrder").value(1))
+			.andExpect(jsonPath("$.data.seats[0].status").value("AVAILABLE"))
+			.andExpect(jsonPath("$.data.seats[1].number").value("2"))
+			.andExpect(jsonPath("$.data.seats[1].status").value("HELD"));
+
+		mockMvc.perform(get(SEATS_URL.formatted(scheduleId, otherZone)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("PERFORMANCE201"));
+	}
+
+	/** 공연장 좌석 하나와 그 판매 좌석을 넣는다. (등급·가격은 이 조회와 상관없어서 비운다) */
+	private void saveScheduleSeat(Long scheduleId, Long zoneId, String row, String number, int sortOrder, String status) {
+		Long venueSeatId = jdbc.queryForObject("""
+			INSERT INTO venue_seat (venue_id, zone_id, row_label, seat_number, sort_order) VALUES (?, ?, ?, ?, ?) RETURNING id
+			""", Long.class, venueId, zoneId, row, number, sortOrder);
+		jdbc.update("""
+			INSERT INTO schedule_seat (schedule_id, venue_seat_id, zone_id, status, version, updated_at)
+			VALUES (?, ?, ?, ?, 0, ?)
+			""", scheduleId, venueSeatId, zoneId, status, now);
+	}
+
+	@Test
 	@DisplayName("작성 중 공연의 회차와 취소된 회차의 구역 좌석은 404 PERFORMANCE200 이다")
 	void zoneSeatsOfInvisibleSchedule() throws Exception {
 		Long zone = saveZone("F2구역", "1층", 1);

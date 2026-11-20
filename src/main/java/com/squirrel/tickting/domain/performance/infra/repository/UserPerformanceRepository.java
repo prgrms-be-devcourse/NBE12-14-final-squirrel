@@ -2,10 +2,10 @@ package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
-import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.type.Genre;
+import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -123,7 +123,8 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 	/**
 	 * 회차의 구역별 판매 가능(AVAILABLE) 좌석 수. 판매 가능 좌석이 없는 구역은 결과에 나오지 않는다.
 	 * 결과는 아래 ZoneRemaining 으로 받는다. (별칭 zoneId, remaining 이 getter 이름과 같아야 한다)
-	 * idx_schedule_seat_zone_status (schedule_id, zone_id, status) 를 탄다.
+	 * idx_schedule_seat_available (schedule_id, zone_id) WHERE status = 'AVAILABLE' 를 탄다.
+	 * 회차 좌석은 수천 개인데 판매 가능한 것만 담은 작은 인덱스라서 훑는 양이 적고, 팔릴수록 인덱스도 줄어든다. (V10)
 	 */
 	@Query("""
 		SELECT seat.zoneId AS zoneId, COUNT(seat) AS remaining
@@ -135,19 +136,36 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 	List<ZoneRemaining> countAvailableSeatsByZone(@Param("scheduleId") Long scheduleId);
 
 	/**
+	 * 공연장의 구역 하나의 번호와 이름. 구역 좌석 응답이 구역의 번호와 이름만 쓰므로, 공연장의 구역 전체나 좌석 수(@Formula 서브쿼리)를
+	 * 읽지 않으려고 두 값만 읽는다. 공연장 번호를 함께 걸어서 다른 공연장의 구역 번호로는 찾지 못한다.
+	 */
+	@Query("""
+		SELECT z.id AS id, z.name AS name
+		FROM VenueZone z
+		WHERE z.id = :zoneId
+		  AND z.venue.id = :venueId
+		""")
+	Optional<ZoneName> findZoneName(@Param("zoneId") Long zoneId, @Param("venueId") Long venueId);
+
+	/**
 	 * 회차의 한 구역에 있는 판매 좌석. 상태와 상관없이 모두 읽는다. (화면이 판매 완료·점유 중 좌석도 색을 달리해 보여 준다)
-	 * 열·번호는 공연장 좌석에 있어서 함께 읽고, 구역 안의 표시 순서(공연장 좌석의 sortOrder, 같으면 번호순)로 정렬한다.
+	 * 응답에 나가는 다섯 값(번호, 상태, 열, 번호, 표시 순서)만 읽는다. 좌석을 구역마다 수백 개 읽어서 엔티티를 만들면
+	 * 읽는 컬럼과 객체 만드는 비용이 커서 DB 시간과 앱 CPU 의 큰 몫이었다. (부하 테스트)
+	 * 결과는 맨 아래 ZoneSeat record 로 받는다. 인터페이스 프로젝션은 행마다 프록시를 만들어서 좌석이 많은 이 조회에서는 record 가 가볍다.
+	 * (SELECT new 의 인자 순서가 record 필드 순서와 같아야 한다)
+	 * 구역 안의 표시 순서(공연장 좌석의 sortOrder, 같으면 번호순)로 정렬한다.
 	 * idx_schedule_seat_zone_status (schedule_id, zone_id, status) 를 탄다.
 	 */
 	@Query("""
-		SELECT seat
+		SELECT new com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository$ZoneSeat(
+		       seat.id, seat.status, vs.rowLabel, vs.seatNumber, vs.sortOrder)
 		FROM ScheduleSeat seat
-		JOIN FETCH seat.venueSeat vs
+		JOIN seat.venueSeat vs
 		WHERE seat.scheduleId = :scheduleId
 		  AND seat.zoneId = :zoneId
 		ORDER BY vs.sortOrder ASC, vs.id ASC
 		""")
-	List<ScheduleSeat> findScheduleSeats(@Param("scheduleId") Long scheduleId, @Param("zoneId") Long zoneId);
+	List<ZoneSeat> findScheduleSeats(@Param("scheduleId") Long scheduleId, @Param("zoneId") Long zoneId);
 
 	/** 구역별 판매 가능 좌석 수 쿼리의 결과 한 줄 */
 	interface ZoneRemaining {
@@ -155,5 +173,22 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 		Long getZoneId();
 
 		Long getRemaining();
+	}
+
+	/** 구역 번호·이름 쿼리의 결과 */
+	interface ZoneName {
+
+		Long getId();
+
+		String getName();
+	}
+
+	// ====================================================================================
+	// record 프로젝션 (SELECT new ...). 위의 인터페이스 프로젝션과 받는 방식이 달라서 구분해 아래에 둔다.
+	// 별칭(AS)이 아니라 생성자 인자의 순서와 타입으로 맞춘다. 행마다 프록시를 만들지 않는다.
+	// ====================================================================================
+
+	/** 구역 좌석 쿼리의 결과 한 줄. 필드 순서는 findScheduleSeats 의 SELECT new 인자 순서와 같다. */
+	record ZoneSeat(Long seatId, SeatStatus status, String rowLabel, String seatNumber, Integer sortOrder) {
 	}
 }
