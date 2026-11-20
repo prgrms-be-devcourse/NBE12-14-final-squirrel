@@ -8,10 +8,10 @@ import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
-import com.squirrel.tickting.domain.performance.infra.repository.CommonGuideRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImageRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.PublishedRow;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneName;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneRemaining;
 import com.squirrel.tickting.domain.performance.type.Genre;
@@ -22,9 +22,6 @@ import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.util.LikeUtil;
 import java.time.LocalDateTime;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -47,15 +44,14 @@ public class UserPerformanceService {
 	private final PerformanceImageRepository performanceImageRepository;
 	private final PerformanceScheduleRepository performanceScheduleRepository;
 	private final CancelPolicyRuleRepository cancelPolicyRuleRepository;
-	private final CommonGuideRepository commonGuideRepository;
 
 	/**
 	 * 공개된 공연 목록·검색. 장르를 주지 않으면(null) 전체 장르이고, 지역을 주지 않으면(null·공백) 전체 지역이다.
 	 * 지역은 공연장에 있어서 공연장을 조인해서 지역이 정확히 같은 공연만 찾는다. 검색어는 제목·출연진의 부분 일치다.
 	 * pageable 은 페이지 번호와 크기만 쓰고, 정렬은 sortType 으로만 정한다.
 	 *
-	 * 첫·마지막 회차 일시는 공연의 회차 목록에서, 남은 좌석은 이 페이지의 회차만 골라 좌석을 한 번 더 읽어서 계산한다.
-	 * (회차·공연장은 지연 로딩이지만 한 페이지 분량을 묶어서 읽어서 공연마다 쿼리가 나가지 않는다)
+	 * 응답에 쓰는 값은 쿼리 한 번(과 개수 쿼리)으로 읽는다. 첫·마지막 회차 일시와 남은 좌석 여부는 쿼리 안에서 계산하고,
+	 * 판매 상태만 여기서 현재 시각으로 계산한다. (공연·회차 엔티티를 읽지 않아서 지연 로딩 쿼리도 없다)
 	 *   - 취소된 회차는 공연 일시에서 뺀다. 회차가 전부 취소된 공연은 일시가 비고(null) 판매 상태가 종료다.
 	 *   - 매진 판단은 아직 시작하지 않은 회차의 AVAILABLE 좌석만 본다. 임시 점유(HELD)만 남았으면 지금은 살 수 없으니 매진이고,
 	 *     점유가 풀려 AVAILABLE 로 돌아오면 다음 조회부터 다시 판매 중이 된다. (상태를 저장하지 않고 계산하므로 따로 되돌릴 일이 없다)
@@ -65,22 +61,16 @@ public class UserPerformanceService {
 	public Page<UserPerformanceResponse.Summary> getPublishedList(Genre genre, String region, String keyword,
 		UserPerformanceSortType sortType, Pageable pageable) {
 		LocalDateTime now = LocalDateTime.now();
-		Collection<Genre> genres = genre == null ? EnumSet.allOf(Genre.class) : EnumSet.of(genre);
+		boolean allGenres = genre == null;
 		boolean allRegions = region == null || region.isBlank();
 		Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortType.getSort());
 
-		Page<Performance> performances = userPerformanceRepository.findPublished(genres, allRegions,
-			allRegions ? "" : region.trim(), LikeUtil.containsPattern(keyword), sorted);
-		List<Long> upcomingScheduleIds = performances.stream()
-			.flatMap(performance -> activeSchedules(performance).stream())
-			.filter(schedule -> schedule.getStartAt().isAfter(now))
-			.map(PerformanceSchedule::getId)
-			.toList();
-		Set<Long> scheduleIdsWithSeat = upcomingScheduleIds.isEmpty() ? Set.of()
-			: new HashSet<>(userPerformanceRepository.findScheduleIdsWithAvailableSeat(upcomingScheduleIds));
-
-		return performances.map(performance -> UserPerformanceResponse.Summary.from(
-			summarize(performance, activeSchedules(performance), scheduleIdsWithSeat, now)));
+		// 장르·지역을 고르지 않았을 때 넘기는 값은 쿼리가 보지 않는다. (null 파라미터는 PostgreSQL 에서 타입 오류를 낸다)
+		Page<PublishedRow> rows = userPerformanceRepository.findPublished(allGenres,
+			allGenres ? Genre.values()[0] : genre, allRegions, allRegions ? "" : region.trim(),
+			LikeUtil.containsPattern(keyword), now, sorted);
+		return rows.map(row -> UserPerformanceResponse.Summary.from(row, SaleStatus.of(row.saleOpenAt(),
+			row.saleCloseAt(), row.lastStartAt(), row.hasAvailableSeat(), now)));
 	}
 
 	/**
@@ -102,8 +92,7 @@ public class UserPerformanceService {
 			.stream()
 			.filter(schedule -> schedule.getStatus() != ScheduleStatus.CANCELED)
 			.toList();
-		Set<Long> scheduleIdsWithSeat = new HashSet<>(userPerformanceRepository.findScheduleIdsWithAvailableSeat(
-			schedules.stream().map(PerformanceSchedule::getId).toList()));
+		Set<Long> scheduleIdsWithSeat = new HashSet<>(userPerformanceRepository.findScheduleIdsWithAvailableSeat(performanceId));
 		List<ScheduleItem> scheduleItems = schedules.stream()
 			.map(schedule -> new ScheduleItem(schedule, SaleStatus.of(performance.getSaleOpenAt(),
 				performance.getSaleCloseAt(), schedule.getStartAt(), scheduleIdsWithSeat.contains(schedule.getId()), now)))
@@ -115,7 +104,7 @@ public class UserPerformanceService {
 			scheduleItems,
 			userPerformanceRepository.findAssignedGrades(performanceId),
 			cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(performance.getCancelPolicy().getId()),
-			commonGuideRepository.findAll()));
+			userPerformanceRepository.findCommonGuides()));
 	}
 
 	/**
@@ -153,42 +142,6 @@ public class UserPerformanceService {
 		ZoneName zone = userPerformanceRepository.findZoneName(zoneId, schedule.getPerformance().getVenueId())
 			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.USER_ZONE_NOT_FOUND));
 		return UserPerformanceResponse.ZoneSeats.from(zone, userPerformanceRepository.findScheduleSeats(scheduleId, zoneId));
-	}
-
-	/** 취소되지 않은 회차. 공연의 회차 목록(읽기 전용 연관)에서 거른다. */
-	private List<PerformanceSchedule> activeSchedules(Performance performance) {
-		return performance.getSchedules().stream()
-			.filter(schedule -> schedule.getStatus() != ScheduleStatus.CANCELED)
-			.toList();
-	}
-
-	/** 공연 하나의 취소되지 않은 회차로 첫·마지막 회차 일시와 판매 상태를 계산한다. 회차가 없으면 일시는 null 이다. */
-	private Summary summarize(Performance performance, List<PerformanceSchedule> schedules,
-		Set<Long> scheduleIdsWithSeat, LocalDateTime now) {
-		LocalDateTime firstStartAt = schedules.stream()
-			.map(PerformanceSchedule::getStartAt)
-			.min(Comparator.naturalOrder())
-			.orElse(null);
-		LocalDateTime lastStartAt = schedules.stream()
-			.map(PerformanceSchedule::getStartAt)
-			.max(Comparator.naturalOrder())
-			.orElse(null);
-		boolean hasAvailableSeat = schedules.stream()
-			.anyMatch(schedule -> schedule.getStartAt().isAfter(now) && scheduleIdsWithSeat.contains(schedule.getId()));
-
-		SaleStatus saleStatus = SaleStatus.of(performance.getSaleOpenAt(), performance.getSaleCloseAt(), lastStartAt,
-			hasAvailableSeat, now);
-		return new Summary(performance, firstStartAt, lastStartAt, saleStatus);
-	}
-
-	/**
-	 * 공연 목록의 한 항목. 공연과, 취소되지 않은 회차로 계산한 값을 함께 담는다.
-	 *
-	 * @param firstStartAt 취소되지 않은 회차 중 가장 이른 공연 일시. 회차가 없으면 null
-	 * @param lastStartAt  취소되지 않은 회차 중 가장 늦은 공연 일시. 회차가 없으면 null
-	 */
-	public record Summary(Performance performance, LocalDateTime firstStartAt, LocalDateTime lastStartAt,
-		SaleStatus saleStatus) {
 	}
 
 	/** 공연 상세의 재료. 공연장·사업체는 공연의 읽기 전용 연관에서 꺼내므로 담지 않는다. */

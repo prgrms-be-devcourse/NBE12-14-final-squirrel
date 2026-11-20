@@ -108,4 +108,41 @@ class UserPerformanceListApiTest extends IntegrationTestSupport {
 
 		assertThat(titles(getList(""))).containsExactly("공개 공연");
 	}
+
+	/** 응답 목록에서 제목이 같은 항목의 한 필드를 꺼낸다. */
+	private String field(String body, String title, String field) {
+		List<Object> values = JsonPath.read(body, "$.data.content[?(@.title=='" + title + "')]." + field);
+		return String.valueOf(values.get(0));
+	}
+
+	@Test
+	@DisplayName("목록은 취소된 회차를 뺀 첫·마지막 회차 일시와 판매 상태를 계산하고, 장르·지역으로 거를 수 있다")
+	void summaryAndFilters() throws Exception {
+		LocalDateTime first = now.plusDays(3);
+		LocalDateTime last = now.plusDays(5);
+		Long onSale = savePerformance("판매 중 콘서트", "CONCERT", "PUBLISHED");
+		saveSeat(saveSchedule(onSale, first, "ON_SALE"), "AVAILABLE");
+		saveSchedule(onSale, last, "ON_SALE");
+		// 취소된 회차는 공연 일시에서 빠지고, 거기 남은 좌석은 판매 가능으로 세지 않는다
+		saveSeat(saveSchedule(onSale, now.plusDays(10), "CANCELED"), "AVAILABLE");
+		Long soldOut = savePerformance("매진 뮤지컬", "MUSICAL", "PUBLISHED");
+		saveSeat(saveSchedule(soldOut, now.plusDays(4), "ON_SALE"), "HELD");
+		Long seoulVenueId = venueId;
+		venueId = saveVenue("부산 홀", "부산");
+		Long busan = savePerformance("부산 콘서트", "CONCERT", "PUBLISHED");
+		saveSeat(saveSchedule(busan, now.plusDays(2), "ON_SALE"), "AVAILABLE");
+		venueId = seoulVenueId;
+
+		String body = getList("").getResponse().getContentAsString();
+		assertThat(titles(getList(""))).containsExactly("부산 콘서트", "매진 뮤지컬", "판매 중 콘서트");
+		assertThat(field(body, "판매 중 콘서트", "saleStatus")).isEqualTo("ON_SALE");
+		assertThat(LocalDateTime.parse(field(body, "판매 중 콘서트", "firstStartAt"))).isEqualTo(first);
+		assertThat(LocalDateTime.parse(field(body, "판매 중 콘서트", "lastStartAt"))).isEqualTo(last);
+		assertThat(field(body, "판매 중 콘서트", "venueName")).isEqualTo("가상 아레나");
+		assertThat(field(body, "매진 뮤지컬", "saleStatus")).isEqualTo("SOLD_OUT");
+
+		assertThat(titles(getList("?genre=MUSICAL"))).containsExactly("매진 뮤지컬");
+		assertThat(titles(getList("?region=부산"))).containsExactly("부산 콘서트");
+		assertThat(titles(getList("?genre=CONCERT&region=서울"))).containsExactly("판매 중 콘서트");
+	}
 }
