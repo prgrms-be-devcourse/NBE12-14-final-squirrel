@@ -4,10 +4,11 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
-import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneName;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneRemaining;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.ZoneSeat;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.GuideType;
@@ -19,7 +20,6 @@ import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.venue.infra.entity.Venue;
-import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
@@ -420,14 +420,14 @@ public class UserPerformanceResponse {
 	) {
 
 		/**
-		 * 구역의 판매 좌석을 구역 안의 표시 순서대로 담는다. 열·번호는 판매 좌석의 읽기 전용 연관(공연장 좌석)에서 꺼낸다.
+		 * 구역의 판매 좌석을 구역 안의 표시 순서대로 담는다. 열·번호는 쿼리가 공연장 좌석과 조인해서 함께 읽어 온 값이다.
 		 * 판매 좌석은 공연장 좌석을 그대로 복사해 만들어서 짝이 맞고, 판매 좌석이 없는 공연장 좌석(만든 뒤에 생긴 좌석)은 고를 수 없어서 나오지 않는다.
 		 */
-		public static ZoneSeats from(VenueZone zone, List<ScheduleSeat> scheduleSeats) {
+		public static ZoneSeats from(ZoneName zone, List<ZoneSeat> zoneSeats) {
 			return ZoneSeats.builder()
 				.zoneId(zone.getId())
 				.name(zone.getName())
-				.seats(scheduleSeats.stream().map(Seat::from).toList())
+				.seats(zoneSeats.stream().map(Seat::from).toList())
 				.build();
 		}
 	}
@@ -447,14 +447,13 @@ public class UserPerformanceResponse {
 		SeatStatus status
 	) {
 
-		static Seat from(ScheduleSeat scheduleSeat) {
-			VenueSeat venueSeat = scheduleSeat.getVenueSeat();
+		static Seat from(ZoneSeat zoneSeat) {
 			return Seat.builder()
-				.seatId(scheduleSeat.getId())
-				.row(venueSeat.getRowLabel())
-				.number(venueSeat.getSeatNumber())
-				.sortOrder(venueSeat.getSortOrder())
-				.status(scheduleSeat.getStatus())
+				.seatId(zoneSeat.seatId())
+				.row(zoneSeat.rowLabel())
+				.number(zoneSeat.seatNumber())
+				.sortOrder(zoneSeat.sortOrder())
+				.status(zoneSeat.status())
 				.build();
 		}
 	}

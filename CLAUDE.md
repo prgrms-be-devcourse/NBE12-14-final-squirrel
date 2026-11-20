@@ -102,7 +102,7 @@ com.squirrel.tickting
 - 연관 객체가 필요하면(예: 사업체 + 대표 계정) 서비스가 **트랜잭션 안에서** 읽어서 응답으로 만들거나 엔티티를 담아 돌려준다. 컨트롤러에서 지연 로딩 객체를 꺼내면 트랜잭션이 끝난 뒤라 `LazyInitializationException`이 난다. 응답 DTO를 서비스에서 만들면 이 문제가 생기지 않는다.
 - 의존성은 `@RequiredArgsConstructor`로 만든 생성자 주입만 쓴다. **생성자를 직접 쓰지 않는다.** 생성 후 초기화가 필요하면 `@PostConstruct`를 쓰거나 그 일을 맡는 별도 컴포넌트로 뺀다. (`PasswordVerifier` 참고)
 - 복잡한 조회는 `@Query` 텍스트 블록으로 쓰고 페이징은 `countQuery`를 분리한다.
-- **`Map`은 자유 형식 JSON 값(감사 로그의 before·after)에만 쓴다.** 서비스 반환 타입·record 필드·번호로 끼워 맞추는 `Map<Long, X>`는 쓰지 않는다. (키를 바꿔 넣어도 컴파일이 통과하고 `null`이 숨는다) 조회는 읽기 전용 연관으로, 고정된 대응표는 enum·`switch`로 쓴다. `@Query` 결과도 `Tuple`로 받지 않고 엔티티나 인터페이스 프로젝션(별칭과 같은 이름의 getter)으로 받는다.
+- **`Map`은 자유 형식 JSON 값(감사 로그의 before·after)에만 쓴다.** 서비스 반환 타입·record 필드·번호로 끼워 맞추는 `Map<Long, X>`는 쓰지 않는다. (키를 바꿔 넣어도 컴파일이 통과하고 `null`이 숨는다) 조회는 읽기 전용 연관으로, 고정된 대응표는 enum·`switch`로 쓴다. `@Query` 결과도 `Tuple`로 받지 않고 엔티티나 인터페이스 프로젝션(별칭과 같은 이름의 getter)으로 받는다. 행이 많아 프록시 비용이 문제인 조회(구역 좌석 등)는 repository 안의 `record`와 `SELECT new`로 받아도 된다. 이때 record는 repository 맨 아래에 주석 줄을 긋고 모아서 쿼리·인터페이스 프로젝션과 구분한다. (DTO나 엔티티 패키지를 쿼리에서 가져다 쓰지 않는다)
 
 ## 권한
 
