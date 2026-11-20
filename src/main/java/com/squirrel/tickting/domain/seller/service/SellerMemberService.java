@@ -77,8 +77,9 @@ public class SellerMemberService {
 	/**
 	 * 이메일·비밀번호 로그인.
 	 * 비밀번호가 맞은 뒤에만 계정·사업체 상태를 알려 준다. (틀린 사람에게 사업체 상태를 노출하지 않는다)
+	 * 트랜잭션을 걸지 않는다. 걸면 BCrypt 비교(수십 ms, 로그인이 몰리면 수 초) 동안 DB 연결을 쥐고 있어서 풀이 바닥나고 다른 API 까지 멈춘다.
+	 * 사업체는 조회할 때 JOIN FETCH 로 함께 읽어서 트랜잭션이 끝난 뒤 꺼내도 지연 로딩 오류가 나지 않는다. (조회를 바꾸면 이 점을 지킨다)
 	 */
-	@Transactional(readOnly = true)
 	public CustomUserDetails login(String rawEmail, String rawPassword) {
 		SellerMember member = sellerMemberRepository.findForLoginByEmail(EmailUtil.normalize(rawEmail))
 			.orElse(null);

@@ -56,8 +56,11 @@ public class UserMemberService {
 			.build());
 	}
 
-	/** 이메일·비밀번호 로그인. 어느 쪽이 틀렸는지는 알려 주지 않는다. */
-	@Transactional(readOnly = true)
+	/**
+	 * 이메일·비밀번호 로그인. 어느 쪽이 틀렸는지는 알려 주지 않는다.
+	 * 트랜잭션을 걸지 않는다. 걸면 BCrypt 비교(수십 ms, 로그인이 몰리면 수 초) 동안 DB 연결을 쥐고 있어서 풀이 바닥나고 다른 API 까지 멈춘다.
+	 * 조회는 쿼리 하나이고 연관을 꺼내지 않아서 트랜잭션이 없어도 결과가 같다. 여기에 쓰기를 넣으려면 그 부분만 트랜잭션으로 묶는다. (트랜잭션 밖에서 바꾼 값은 저장되지 않는다)
+	 */
 	public CustomUserDetails login(String rawEmail, String rawPassword) {
 		UserMember user = userMemberRepository.findByEmailAndDeletedAtIsNull(EmailUtil.normalize(rawEmail))
 			.orElse(null);
