@@ -25,6 +25,8 @@ public enum CommonExceptionCode implements ExceptionCode {
 	CONFLICT("COMMON003", HttpStatus.CONFLICT, "요청이 현재 상태와 충돌합니다. 잠시 후 다시 시도해 주세요."),
 	/** 분산락을 기다리는 시간 안에 잡지 못함. 같은 좌석·같은 사용자의 요청이 몰렸을 때 기다리지 않고 바로 실패시킨다 (409) */
 	LOCK_ACQUISITION_FAILED("COMMON004", HttpStatus.CONFLICT, "요청이 몰려 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+	/** 비밀번호 해시(BCrypt) 계산이 몰려 기다리는 시간 안에 자리가 나지 않음. 서버 CPU 를 지키려고 넘친 요청을 바로 돌려보낸다 (503, Retry-After 헤더) */
+	SERVER_BUSY("COMMON005", HttpStatus.SERVICE_UNAVAILABLE, "요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."),
 	/** 예상하지 못한 서버 예외. 원문 메시지는 클라이언트에 노출하지 않는다 (500) */
 	INTERNAL_ERROR("COMMON999", HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다.");
 
