@@ -7,6 +7,7 @@ import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.util.CookieUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -41,9 +42,10 @@ public class AuthController {
 	@PostMapping("/auth/users/login")
 	public ResponseEntity<ApiResponse<AuthResponse.Token>> userLogin(
 		@Valid @RequestBody AuthRequest.Login request,
+		HttpServletRequest httpRequest,
 		HttpServletResponse response
 	) {
-		AuthResponse.Token token = authFacade.userLogin(request, response);
+		AuthResponse.Token token = authFacade.userLogin(request, httpRequest, response);
 		return ResponseEntity.ok(ApiResponse.success(token));
 	}
 
@@ -61,9 +63,10 @@ public class AuthController {
 	@PostMapping("/auth/sellers/login")
 	public ResponseEntity<ApiResponse<AuthResponse.Token>> sellerLogin(
 		@Valid @RequestBody AuthRequest.Login request,
+		HttpServletRequest httpRequest,
 		HttpServletResponse response
 	) {
-		AuthResponse.Token token = authFacade.sellerLogin(request, response);
+		AuthResponse.Token token = authFacade.sellerLogin(request, httpRequest, response);
 		return ResponseEntity.ok(ApiResponse.success(token));
 	}
 
@@ -71,9 +74,10 @@ public class AuthController {
 	@PostMapping("/auth/admins/login")
 	public ResponseEntity<ApiResponse<AuthResponse.Token>> adminLogin(
 		@Valid @RequestBody AuthRequest.Login request,
+		HttpServletRequest httpRequest,
 		HttpServletResponse response
 	) {
-		AuthResponse.Token token = authFacade.adminLogin(request, response);
+		AuthResponse.Token token = authFacade.adminLogin(request, httpRequest, response);
 		return ResponseEntity.ok(ApiResponse.success(token));
 	}
 
