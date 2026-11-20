@@ -10,6 +10,7 @@ import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.service.TermsService;
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import com.squirrel.tickting.domain.user.service.UserMemberService;
+import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.global.security.SessionAuthenticator;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,6 +37,7 @@ public class AuthSessionFacade {
 	private final TermsService termsService;
 	private final SessionAuthenticator sessionAuthenticator;
 	private final TransactionTemplate transactionTemplate;
+	private final LoginFailureLimiter loginFailureLimiter;
 
 	/** 예매자 가입. 약관 확인, 회원 저장, 약관 동의 기록이 한 트랜잭션이고, 가입하면 바로 로그인(세션 생성)된다. */
 	public AuthResponse.Session userSignup(AuthRequest.UserSignup request, HttpServletRequest httpRequest,
@@ -54,18 +56,24 @@ public class AuthSessionFacade {
 
 	public AuthResponse.Session userLogin(AuthRequest.Login request, HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse) {
-		return startSession(userMemberService.login(request.email(), request.password()), httpRequest, httpResponse);
+		CustomUserDetails account = loginFailureLimiter.login(AccountType.USER, request.email(), httpRequest.getRemoteAddr(),
+			() -> userMemberService.login(request.email(), request.password()));
+		return startSession(account, httpRequest, httpResponse);
 	}
 
 	/** 사업체가 승인된 판매자만 로그인된다. (v1 과 같은 검사) */
 	public AuthResponse.Session sellerLogin(AuthRequest.Login request, HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse) {
-		return startSession(sellerMemberService.login(request.email(), request.password()), httpRequest, httpResponse);
+		CustomUserDetails account = loginFailureLimiter.login(AccountType.SELLER, request.email(), httpRequest.getRemoteAddr(),
+			() -> sellerMemberService.login(request.email(), request.password()));
+		return startSession(account, httpRequest, httpResponse);
 	}
 
 	public AuthResponse.Session adminLogin(AuthRequest.Login request, HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse) {
-		return startSession(adminMemberService.login(request.email(), request.password()), httpRequest, httpResponse);
+		CustomUserDetails account = loginFailureLimiter.login(AccountType.ADMIN, request.email(), httpRequest.getRemoteAddr(),
+			() -> adminMemberService.login(request.email(), request.password()));
+		return startSession(account, httpRequest, httpResponse);
 	}
 
 	private AuthResponse.Session startSession(CustomUserDetails account, HttpServletRequest httpRequest,

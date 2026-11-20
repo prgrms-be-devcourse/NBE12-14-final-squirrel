@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -88,6 +89,18 @@ public abstract class IntegrationTestSupport {
 	protected List<Long> requiredTermIds;
 	/** 선택 약관(탈퇴 약관)의 번호 */
 	protected Long optionalTermId;
+
+	@Autowired
+	private StringRedisTemplate stringRedisTemplate;
+
+	/** 로그인 실패 횟수는 Redis 에 남아서 다음 테스트에서 같은 이메일이 잠길 수 있다. 테스트마다 지운다. */
+	@BeforeEach
+	void clearLoginFailures() {
+		var keys = stringRedisTemplate.keys("tickting:login-fail:*");
+		if (keys != null && !keys.isEmpty()) {
+			stringRedisTemplate.delete(keys);
+		}
+	}
 
 	@BeforeEach
 	void resetDatabase() {

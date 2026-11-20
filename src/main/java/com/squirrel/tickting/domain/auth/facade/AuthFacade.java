@@ -13,7 +13,9 @@ import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.service.TermsService;
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import com.squirrel.tickting.domain.user.service.UserMemberService;
+import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +41,7 @@ public class AuthFacade {
 	private final TermsService termsService;
 	private final TokenService tokenService;
 	private final TransactionTemplate transactionTemplate;
+	private final LoginFailureLimiter loginFailureLimiter;
 
 	/**
 	 * 예매자 가입. 약관 확인, 회원 저장, 약관 동의 기록이 한 트랜잭션이다.
@@ -60,8 +63,9 @@ public class AuthFacade {
 		return tokenService.issue(account, response);
 	}
 
-	public AuthResponse.Token userLogin(AuthRequest.Login request, HttpServletResponse response) {
-		CustomUserDetails account = userMemberService.login(request.email(), request.password());
+	public AuthResponse.Token userLogin(AuthRequest.Login request, HttpServletRequest httpRequest, HttpServletResponse response) {
+		CustomUserDetails account = loginFailureLimiter.login(AccountType.USER, request.email(), httpRequest.getRemoteAddr(),
+			() -> userMemberService.login(request.email(), request.password()));
 		return tokenService.issue(account, response);
 	}
 
@@ -75,14 +79,16 @@ public class AuthFacade {
 		return new AuthResponse.SellerSignup(business.getId(), business.getStatus().name());
 	}
 
-	public AuthResponse.Token sellerLogin(AuthRequest.Login request, HttpServletResponse response) {
-		CustomUserDetails account = sellerMemberService.login(request.email(), request.password());
+	public AuthResponse.Token sellerLogin(AuthRequest.Login request, HttpServletRequest httpRequest, HttpServletResponse response) {
+		CustomUserDetails account = loginFailureLimiter.login(AccountType.SELLER, request.email(), httpRequest.getRemoteAddr(),
+			() -> sellerMemberService.login(request.email(), request.password()));
 		return tokenService.issue(account, response);
 	}
 
 	/** 관리자는 가입이 없다. 시드로 만든 계정으로 로그인한다. */
-	public AuthResponse.Token adminLogin(AuthRequest.Login request, HttpServletResponse response) {
-		CustomUserDetails account = adminMemberService.login(request.email(), request.password());
+	public AuthResponse.Token adminLogin(AuthRequest.Login request, HttpServletRequest httpRequest, HttpServletResponse response) {
+		CustomUserDetails account = loginFailureLimiter.login(AccountType.ADMIN, request.email(), httpRequest.getRemoteAddr(),
+			() -> adminMemberService.login(request.email(), request.password()));
 		return tokenService.issue(account, response);
 	}
 

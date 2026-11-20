@@ -76,6 +76,17 @@ app:
   performance:
     # 판매자가 등급 가격을 고칠 때 공연 단위 락을 기다리는 시간. 판매 좌석 생성이나 다른 수정과 겹칠 때만 기다린다. 넘으면 COMMON004(409)
     lock-wait: 1s
+  auth:
+    login:
+      # 같은 IP 에서 같은 이메일로 이 횟수만큼 비밀번호를 틀리면 잠근다. 잠긴 동안은 비밀번호가 맞아도 429(AUTH004) (임시 정책)
+      max-failures: 5
+      # 잠그는 시간. 실패 횟수도 첫 실패부터 이 시간 안의 것만 센다 (임시 정책)
+      lock-duration: 5m
+    password-hash:
+      # 서버 한 대에서 BCrypt 를 동시에 계산하는 개수. CPU(t3.small 2개)보다 많이 돌려도 빨라지지 않고 모두 함께 느려진다 (임시값, 부하 테스트로 정한다)
+      max-concurrent: 4
+      # 자리가 날 때까지 기다리는 시간. 길면 기다리는 요청이 톰캣 스레드를 쥐고 쌓이고, 짧으면 잠깐 붐빌 때도 돌려보낸다. 넘으면 503(COMMON005) (임시값)
+      wait-timeout: 1s
   cookie:
     # 리프레시 토큰 쿠키. secure 는 안전한 쪽(true)이 기본이고 로컬 프로필에서만 낮춘다.
     secure: true
@@ -96,6 +107,12 @@ jwt:
   access-token-validity-seconds: 900
   refresh-token-validity-seconds: 1209600
   # secret 은 환경마다 다르다. 로컬은 application-local.yaml, 운영은 환경 변수 JWT_SECRET.
+
+server:
+  # 앞단 Nginx 가 넘겨준 X-Forwarded-For 로 실제 사용자 IP 를 읽는다. (로그인 실패 제한이 IP 를 쓴다)
+  # 없으면 모든 요청이 Nginx 주소에서 온 것으로 보여서, IP 별 제한이 사실상 "모든 사용자 공통" 이 된다.
+  # 톰캣은 사설망 주소(10.x, 172.16~31.x, 192.168.x, 127.x)에서 온 값만 프록시로 믿는다. 운영 Nginx 는 X-Forwarded-For 를 $remote_addr 로 덮어써서 사용자가 위조할 수 없게 한다.
+  forward-headers-strategy: native
 
 management:
   endpoints:

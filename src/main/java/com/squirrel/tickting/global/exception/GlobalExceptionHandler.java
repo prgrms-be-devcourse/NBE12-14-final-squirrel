@@ -9,6 +9,8 @@ import org.hibernate.query.sqm.UnknownPathException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.core.PropertyReferenceException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -30,13 +32,19 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+	private static final String RETRY_AFTER_SECONDS = "1";
+
 	/** 서비스에서 의도적으로 던진 비즈니스 예외 (도메인별 ExceptionCode 전부) */
 	@ExceptionHandler(BusinessException.class)
 	public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
 		ExceptionCode ec = e.getExceptionCode();
 		logByStatus(ec, e);
-		return ResponseEntity.status(ec.getStatus())
-			.body(ApiResponse.error(e.getMessage(), ec.getCode()));
+		ResponseEntity.BodyBuilder response = ResponseEntity.status(ec.getStatus());
+		if (ec.getStatus() == HttpStatus.SERVICE_UNAVAILABLE) {
+			// 잠깐 몰린 것이라 곧 다시 시도하면 된다고 알려 준다. 바로 재시도가 쏟아지지 않도록 초 단위로 둔다
+			response.header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS);
+		}
+		return response.body(ApiResponse.error(e.getMessage(), ec.getCode()));
 	}
 
 	/** 시큐리티 인증 실패. 주로 컨트롤러 구간. 토큰 없는 요청의 401 은 EntryPoint 가 처리한다 */
@@ -185,9 +193,12 @@ public class GlobalExceptionHandler {
 			.body(ApiResponse.error(ec.getMessage(), ec.getCode()));
 	}
 
-	/** 5xx는 스택트레이스까지, 4xx는 메시지만 남긴다 */
+	/**
+	 * 5xx는 스택트레이스까지, 4xx는 메시지만 남긴다.
+	 * 503 은 서버 오류가 아니라 몰려서 돌려보낸 것이고, 몰릴 때 한꺼번에 쏟아지므로 메시지만 남긴다.
+	 */
 	private void logByStatus(ExceptionCode ec, Exception e) {
-		if (ec.getStatus().is5xxServerError()) {
+		if (ec.getStatus().is5xxServerError() && ec.getStatus() != HttpStatus.SERVICE_UNAVAILABLE) {
 			log.error("[{}] {}", ec.getCode(), e.getMessage(), e);
 		} else {
 			log.warn("[{}] {}", ec.getCode(), e.getMessage());

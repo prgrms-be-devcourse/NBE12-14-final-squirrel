@@ -19,6 +19,8 @@ public enum AuthExceptionCode implements ExceptionCode {
 	INVALID_CREDENTIALS("AUTH001", HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
 	/** 비활성화(정지)된 계정 */
 	ACCOUNT_DISABLED("AUTH003", HttpStatus.UNAUTHORIZED, "비활성화된 계정입니다."),
+	/** 같은 IP 에서 같은 이메일로 로그인에 여러 번 실패해 잠시 막힘 (app.auth.login.*). 잠긴 동안은 비밀번호가 맞아도 이 코드다 */
+	LOGIN_TOO_MANY_ATTEMPTS("AUTH004", HttpStatus.TOO_MANY_REQUESTS, "로그인에 여러 번 실패했습니다. 잠시 후 다시 시도해 주세요."),
 
 	/** 본인인증 결과를 확인하지 못함 (토큰 형식 오류, 인증 실패 등) */
 	IDENTITY_VERIFICATION_FAILED("AUTH300", HttpStatus.BAD_REQUEST, "본인인증에 실패했습니다."),
