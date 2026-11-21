@@ -198,7 +198,7 @@ public class SellerPerformanceController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
-	/** 응답에 공연장 구역 이름이 필요해 파사드를 부른다. 대표·담당자 모두 설정할 수 있다. */
+	/** 구역 이름은 공연의 읽기 전용 연관(공연장 구역)에서 꺼내 서비스가 응답을 만든다. 대표·담당자 모두 설정할 수 있다. */
 	@Operation(summary = "구역 상태·등급 설정",
 		description = "요청에 포함된 구역의 상태와 등급만 바꾸고 빠진 구역은 그대로 둔다. 하나라도 틀리면 아무것도 바꾸지 않는다. "
 			+ "ASSIGNED 는 gradeId 가 필요하고 UNSET·INTENTIONALLY_UNSOLD 는 gradeId 를 null 로 보낸다. "

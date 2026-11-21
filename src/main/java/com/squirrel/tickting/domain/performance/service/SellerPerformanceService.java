@@ -1,7 +1,8 @@
 package com.squirrel.tickting.domain.performance.service;
 
-import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
+import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
+import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
@@ -19,7 +20,6 @@ import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
-import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -87,10 +87,9 @@ public class SellerPerformanceService {
 	@Transactional(readOnly = true)
 	public SellerPerformanceResponse.Detail getMine(Long businessId, Long performanceId) {
 		Performance performance = getMineEntity(businessId, performanceId);
-		return SellerPerformanceResponse.Detail.from(new PerformanceDetail(
-			performance,
+		return SellerPerformanceResponse.Detail.from(performance,
 			performanceImageRepository.findByPerformanceIdOrderBySortOrder(performanceId),
-			performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId)));
+			performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId));
 	}
 
 	/**
@@ -277,9 +276,9 @@ public class SellerPerformanceService {
 	 * 등록·수정 요청 값만 보고 하는 검사. DB 를 쓰지 않아서 조회보다 먼저 한다. (판매 기간 순서, 이미지 순서값 중복)
 	 * 남의 공연에 보내도 요청만 보는 검사라 남의 공연 정보가 드러나지 않는다.
 	 */
-	public void validate(PerformanceSaveCommand command) {
-		validateSalePeriod(command.saleOpenAt(), command.saleCloseAt());
-		validateImageOrders(command.images());
+	public void validate(SellerPerformanceRequest.Save request) {
+		validateSalePeriod(request.saleOpenAt(), request.saleCloseAt());
+		validateImageOrders(request.images());
 	}
 
 	/**
@@ -297,7 +296,7 @@ public class SellerPerformanceService {
 	 * 공연장·취소 규정은 전체 교체 PUT 이라 매번 함께 오므로, 같은 값이면 통과시키고 값이 실제로 바뀔 때만 막는다.
 	 * 순서: 취소 → 공연장 → 취소 규정 → 판매 필드 → 판매 오픈 → 판매 종료 → 오픈 3시간 전.
 	 */
-	public void validateUpdatable(Performance performance, PerformanceSaveCommand command, Long venueId,
+	public void validateUpdatable(Performance performance, SellerPerformanceRequest.Save request, Long venueId,
 		Long cancelPolicyId, LocalDateTime now) {
 		if (performance.getStatus() == PerformanceStatus.CANCELED) {
 			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED);
@@ -312,23 +311,23 @@ public class SellerPerformanceService {
 			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_CHANGE_NOT_ALLOWED);
 		}
 		// 공개된 공연은 판매 필드가 모두 있어야 예매가 판매 기간을 읽을 수 있다. 비워 보내면 공개 때와 같은 이유로 막는다.
-		if (command.saleOpenAt() == null || command.saleCloseAt() == null || command.maxPerPerson() == null
-			|| command.receiveType() == null || command.bookingFee() == null) {
+		if (request.saleOpenAt() == null || request.saleCloseAt() == null || request.maxPerPerson() == null
+			|| request.receiveType() == null || request.bookingFee() == null) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_FIELDS_MISSING,
 				"공개된 공연은 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료를 비울 수 없습니다.");
 		}
 
 		boolean saleOpened = !performance.getSaleOpenAt().isAfter(now);
-		boolean openChanged = !command.saleOpenAt().equals(performance.getSaleOpenAt());
+		boolean openChanged = !request.saleOpenAt().equals(performance.getSaleOpenAt());
 		if (saleOpened && openChanged) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_OPEN_CHANGE_NOT_ALLOWED);
 		}
 		// 종료는 늘리든 줄이든 새 종료가 지금보다 늦으면 된다. 판매자가 일찍 마감할 수 있게 기존 종료와 비교하지 않는다.
-		if (!command.saleCloseAt().isAfter(now)) {
+		if (!request.saleCloseAt().isAfter(now)) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSED);
 		}
 		// 판매 오픈 전에 오픈을 옮기는 경우만 공개 때와 같은 기준(3시간)을 본다. 오픈을 그대로 두면 이미 통과한 값이다.
-		if (openChanged && !command.saleOpenAt().isAfter(now.plus(PUBLISH_LEAD_TIME))) {
+		if (openChanged && !request.saleOpenAt().isAfter(now.plus(PUBLISH_LEAD_TIME))) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_OPEN_TOO_SOON);
 		}
 	}
@@ -337,13 +336,13 @@ public class SellerPerformanceService {
 	 * 공개된 공연의 새 판매 일시가 취소되지 않은 회차와 맞는지 본다. 공개 때와 같은 규칙이다.
 	 * 작성 중 공연은 회차가 판매 기간과 맞는지 공개 때 보므로 여기서 보지 않는다.
 	 */
-	public void validateScheduleRules(Performance performance, PerformanceSaveCommand command) {
+	public void validateScheduleRules(Performance performance, SellerPerformanceRequest.Save request) {
 		if (performance.getStatus() != PerformanceStatus.PUBLISHED) {
 			return;
 		}
 		List<PerformanceSchedule> schedules = performanceScheduleRepository
 			.findByPerformanceIdAndStatusNotOrderByStartAt(performance.getId(), ScheduleStatus.CANCELED);
-		validateSaleWindow(command.saleOpenAt(), command.saleCloseAt(), schedules);
+		validateSaleWindow(request.saleOpenAt(), request.saleCloseAt(), schedules);
 	}
 
 	/**
@@ -369,11 +368,11 @@ public class SellerPerformanceService {
 	 * 호출한 쪽이 읽어 온 공연 엔티티를 받아 같은 트랜잭션에서 바꾸므로 커밋 때 저장된다.
 	 */
 	@Transactional
-	public Performance update(Performance performance, PerformanceSaveCommand command, Long newVenueId,
+	public Performance update(Performance performance, SellerPerformanceRequest.Save request, Long newVenueId,
 		CancelPolicy newCancelPolicy) {
-		performance.update(command.title(), command.genre(), command.ageLimit(), command.runningTime(),
-			command.castInfo(), command.posterUrl(), command.notice(), command.guide(), command.saleOpenAt(),
-			command.saleCloseAt(), command.maxPerPerson(), command.receiveType(), command.bookingFee());
+		performance.update(request.title(), request.genre(), request.ageLimit(), request.runningTime(),
+			request.castInfo(), request.posterUrl(), request.notice(), request.guide(), request.saleOpenAt(),
+			request.saleCloseAt(), request.maxPerPerson(), request.receiveType(), request.bookingFee());
 		if (newVenueId != null) {
 			performance.changeVenue(newVenueId);
 		}
@@ -382,7 +381,7 @@ public class SellerPerformanceService {
 		}
 
 		performanceImageRepository.deleteByPerformanceId(performance.getId());
-		performanceImageRepository.saveAll(command.images().stream()
+		performanceImageRepository.saveAll(request.images().stream()
 			.map(image -> PerformanceImage.builder()
 				.performance(performance)
 				.url(image.url())
@@ -398,31 +397,31 @@ public class SellerPerformanceService {
 	 */
 	@Transactional
 	public Performance create(Long businessId, Long createdBy, Long venueId, CancelPolicy cancelPolicy,
-		PerformanceSaveCommand command) {
-		validate(command);
+		SellerPerformanceRequest.Save request) {
+		validate(request);
 
 		Performance performance = performanceRepository.save(Performance.builder()
 			.businessId(businessId)
 			.venueId(venueId)
 			.createdBy(createdBy)
 			.cancelPolicy(cancelPolicy)
-			.title(command.title())
-			.genre(command.genre())
-			.ageLimit(command.ageLimit())
-			.runningTime(command.runningTime())
-			.castInfo(command.castInfo())
-			.posterUrl(command.posterUrl())
-			.notice(command.notice())
-			.guide(command.guide())
+			.title(request.title())
+			.genre(request.genre())
+			.ageLimit(request.ageLimit())
+			.runningTime(request.runningTime())
+			.castInfo(request.castInfo())
+			.posterUrl(request.posterUrl())
+			.notice(request.notice())
+			.guide(request.guide())
 			.status(PerformanceStatus.DRAFT)
-			.saleOpenAt(command.saleOpenAt())
-			.saleCloseAt(command.saleCloseAt())
-			.maxPerPerson(command.maxPerPerson())
-			.receiveType(command.receiveType())
-			.bookingFee(command.bookingFee())
+			.saleOpenAt(request.saleOpenAt())
+			.saleCloseAt(request.saleCloseAt())
+			.maxPerPerson(request.maxPerPerson())
+			.receiveType(request.receiveType())
+			.bookingFee(request.bookingFee())
 			.build());
 
-		performanceImageRepository.saveAll(command.images().stream()
+		performanceImageRepository.saveAll(request.images().stream()
 			.map(image -> PerformanceImage.builder()
 				.performance(performance)
 				.url(image.url())
@@ -443,8 +442,8 @@ public class SellerPerformanceService {
 	}
 
 	/** 같은 순서값이 둘이면 보여줄 순서가 정해지지 않는다. 목록 안의 관계라 요청 DTO 어노테이션으로는 막기 어렵다. */
-	private void validateImageOrders(List<PerformanceSaveCommand.Image> images) {
-		long distinctOrders = images.stream().map(PerformanceSaveCommand.Image::sortOrder).distinct().count();
+	private void validateImageOrders(List<SellerPerformanceRequest.Image> images) {
+		long distinctOrders = images.stream().map(SellerPerformanceRequest.Image::sortOrder).distinct().count();
 		if (distinctOrders != images.size()) {
 			throw new BusinessException(CommonExceptionCode.INVALID_INPUT, "이미지 순서(sortOrder)가 중복되었습니다.");
 		}

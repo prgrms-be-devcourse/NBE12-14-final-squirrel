@@ -1,8 +1,8 @@
 package com.squirrel.tickting.domain.performance.dto;
 
+import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
-import com.squirrel.tickting.domain.performance.service.GradeOverview;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
@@ -33,9 +33,10 @@ public class SellerGradeResponse {
 		 * 구역 설정은 공연장 구역 번호로만 연결되어 있어서(논리 FK) 맞는 구역이 없으면 데이터가 깨진 것이다.
 		 * 조용히 빼면 판매자가 구역이 빠진 줄 모르므로 서버 오류로 드러낸다.
 		 */
-		public static Overview from(GradeOverview overview) {
-			List<VenueZone> venueZones = overview.performance().getVenue().getZones();
-			List<Zone> zones = overview.zoneGrades().stream()
+		public static Overview from(Performance performance, List<SeatGrade> grades, List<ZoneGrade> zoneGrades,
+			boolean locked) {
+			List<VenueZone> venueZones = performance.getVenue().getZones();
+			List<Zone> zones = zoneGrades.stream()
 				.map(zoneGrade -> Zone.from(zoneGrade, venueZones.stream()
 					.filter(venueZone -> venueZone.getId().equals(zoneGrade.getZoneId()))
 					.findFirst()
@@ -44,8 +45,8 @@ public class SellerGradeResponse {
 				.sorted(Comparator.comparing(Zone::sortOrder).thenComparing(Zone::zoneId))
 				.toList();
 			return Overview.builder()
-				.locked(overview.locked())
-				.grades(overview.grades().stream().map(Grade::from).toList())
+				.locked(locked)
+				.grades(grades.stream().map(Grade::from).toList())
 				.zones(zones)
 				.build();
 		}

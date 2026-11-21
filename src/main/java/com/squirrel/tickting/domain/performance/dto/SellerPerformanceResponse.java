@@ -4,7 +4,6 @@ import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
-import com.squirrel.tickting.domain.performance.service.PerformanceDetail;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
@@ -148,8 +147,8 @@ public class SellerPerformanceResponse {
 		LocalDateTime updatedAt
 	) {
 
-		public static Detail from(PerformanceDetail detail) {
-			Performance performance = detail.performance();
+		public static Detail from(Performance performance, List<PerformanceImage> images,
+			List<PerformanceSchedule> schedules) {
 			return Detail.builder()
 				.performanceId(performance.getId())
 				.status(performance.getStatus())
@@ -162,14 +161,14 @@ public class SellerPerformanceResponse {
 				.posterUrl(performance.getPosterUrl())
 				.notice(performance.getNotice())
 				.guide(performance.getGuide())
-				.images(detail.images().stream().map(Image::from).toList())
+				.images(images.stream().map(Image::from).toList())
 				.cancelPolicyId(performance.getCancelPolicy().getId())
 				.saleOpenAt(performance.getSaleOpenAt())
 				.saleCloseAt(performance.getSaleCloseAt())
 				.maxPerPerson(performance.getMaxPerPerson())
 				.receiveType(performance.getReceiveType())
 				.bookingFee(performance.getBookingFee())
-				.schedules(detail.schedules().stream().map(Schedule::from).toList())
+				.schedules(schedules.stream().map(Schedule::from).toList())
 				.createdAt(performance.getCreatedAt())
 				.updatedAt(performance.getUpdatedAt())
 				.build();

@@ -48,11 +48,10 @@ public class GradeService {
 	@Transactional(readOnly = true)
 	public SellerGradeResponse.Overview getOverview(Long businessId, Long performanceId) {
 		Performance performance = getMine(businessId, performanceId);
-		return SellerGradeResponse.Overview.from(new GradeOverview(
-			performance,
+		return SellerGradeResponse.Overview.from(performance,
 			seatGradeRepository.findByPerformanceIdOrderByPriceDescIdAsc(performanceId),
 			zoneGradeRepository.findAllWithGradeByPerformanceId(performanceId),
-			isLocked(performanceId)));
+			isLocked(performanceId));
 	}
 
 	/**
@@ -184,7 +183,7 @@ public class GradeService {
 				item.gradeId() == null ? null : gradeOf(grades, item.gradeId()));
 		}
 		// 바로 위에서 locked 409 를 통과했으므로 false 다.
-		return SellerGradeResponse.Overview.from(new GradeOverview(performance, grades, zoneGrades, false));
+		return SellerGradeResponse.Overview.from(performance, grades, zoneGrades, false);
 	}
 
 	/**

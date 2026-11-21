@@ -1,6 +1,5 @@
 package com.squirrel.tickting.domain.performance.dto;
 
-import com.squirrel.tickting.domain.performance.service.CancelPolicySaveCommand;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -37,14 +36,6 @@ public class SellerCancelPolicyRequest {
 
 		public Save {
 			name = name == null ? null : name.trim();
-		}
-
-		public CancelPolicySaveCommand toCommand() {
-			List<CancelPolicySaveCommand.Rule> ruleCommands = rules.stream()
-				.map(rule -> new CancelPolicySaveCommand.Rule(
-					rule.daysFrom(), rule.daysTo(), rule.feeRate(), rule.cancelable()))
-				.toList();
-			return new CancelPolicySaveCommand(name, ruleCommands);
 		}
 	}
 
