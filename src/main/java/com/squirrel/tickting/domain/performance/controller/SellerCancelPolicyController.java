@@ -2,7 +2,6 @@ package com.squirrel.tickting.domain.performance.controller;
 
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyResponse;
-import com.squirrel.tickting.domain.performance.service.CancelPolicyDetail;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
@@ -51,9 +50,8 @@ public class SellerCancelPolicyController {
 		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(),
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
-		var page = cancelPolicyService.searchVisible(account.getBusinessId(), pageRequest)
-			.map(SellerCancelPolicyResponse.Summary::from);
-		PageResponse<SellerCancelPolicyResponse.Summary> response = PageResponse.from(page);
+		PageResponse<SellerCancelPolicyResponse.Summary> response = PageResponse.from(
+			cancelPolicyService.searchVisible(account.getBusinessId(), pageRequest));
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
@@ -65,8 +63,8 @@ public class SellerCancelPolicyController {
 		@AuthenticationPrincipal CustomUserDetails account,
 		@PathVariable Long cancelPolicyId
 	) {
-		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(
-			cancelPolicyService.getVisibleDetail(cancelPolicyId, account.getBusinessId()));
+		SellerCancelPolicyResponse.Detail response = cancelPolicyService.getVisibleDetail(cancelPolicyId,
+			account.getBusinessId());
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
@@ -78,8 +76,7 @@ public class SellerCancelPolicyController {
 		@AuthenticationPrincipal CustomUserDetails account,
 		@Valid @RequestBody SellerCancelPolicyRequest.Save request
 	) {
-		CancelPolicyDetail created = cancelPolicyService.create(account.getBusinessId(), request.toCommand());
-		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(created);
+		SellerCancelPolicyResponse.Detail response = cancelPolicyService.create(account.getBusinessId(), request);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 
@@ -92,9 +89,8 @@ public class SellerCancelPolicyController {
 		@PathVariable Long cancelPolicyId,
 		@Valid @RequestBody SellerCancelPolicyRequest.Save request
 	) {
-		CancelPolicyDetail updated = cancelPolicyService.update(cancelPolicyId, account.getBusinessId(),
-			request.toCommand());
-		SellerCancelPolicyResponse.Detail response = SellerCancelPolicyResponse.Detail.from(updated);
+		SellerCancelPolicyResponse.Detail response = cancelPolicyService.update(cancelPolicyId, account.getBusinessId(),
+			request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }
