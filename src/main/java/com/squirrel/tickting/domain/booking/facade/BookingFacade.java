@@ -5,6 +5,7 @@ import com.squirrel.tickting.domain.booking.dto.BookingResponse;
 import com.squirrel.tickting.domain.booking.service.BookingCreateCommand;
 import com.squirrel.tickting.domain.booking.service.BookingService;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
@@ -66,28 +67,37 @@ public class BookingFacade {
 			throw new BusinessException(BookingExceptionCode.MAX_PER_PERSON_EXCEEDED);
 		}
 
+		// 주문자 이름·연락처는 사람마다 따로 읽는 값이라 경쟁하지 않는다. 락 안에서 읽으면 그만큼 락을 오래 쥐므로 밖에서 읽는다.
+		UserMember user = userMemberService.getMe(userId);
+
 		List<String> lockNames = new ArrayList<>();
 		seatIds.forEach(seatId -> lockNames.add("seat:" + seatId));
 		lockNames.add("user-performance:" + userId + ":" + preview.performanceId());
 
 		return lockExecutor.execute(lockNames, properties.lockWait(),
-			() -> transactionTemplate.execute(status -> hold(userId, scheduleId, seatIds)));
+			() -> transactionTemplate.execute(status -> hold(userId, scheduleId, seatIds, preview.cancelRules(), user)));
 	}
 
-	/** 락을 잡은 상태에서 한 트랜잭션으로 실행한다. 하나라도 실패하면 점유와 예매 생성이 모두 되돌려진다. */
-	private BookingResponse.Created hold(Long userId, Long scheduleId, Set<Long> seatIds) {
+	/**
+	 * 락을 잡은 상태에서 한 트랜잭션으로 실행한다. 하나라도 실패하면 점유와 예매 생성이 모두 되돌려진다.
+	 *
+	 * 락을 쥔 시간이 곧 같은 좌석을 두고 기다리는 요청의 대기 시간이라서 락 안의 DB 왕복을 줄이는 순서로 짰다. (doc/load-test-plan 19장)
+	 *   - 점유 UPDATE 를 가장 먼저 한다. 인기 좌석에서는 대부분의 요청이 이미 점유된 좌석에 부딪혀 실패하는데, 판매 가능 여부와
+	 *     누적 매수를 확인한 뒤에 UPDATE 하면 실패에 이르기까지 왕복이 몇 번 더 든다. 아래 확인에서 걸리면 예외로 트랜잭션이 되돌려져
+	 *     점유도 함께 사라지므로 순서를 바꿔도 결과는 같다. 단, 둘 다 어긋난 드문 경우의 오류 코드는 점유 쪽이 먼저 나온다.
+	 *   - 회차는 판매 중인지만 다시 확인한다. 취소 규정은 락 밖에서 읽은 값을 쓴다.
+	 */
+	private BookingResponse.Created hold(Long userId, Long scheduleId, Set<Long> seatIds,
+		List<CancelPolicyRule> cancelRules, UserMember user) {
 		LocalDateTime now = LocalDateTime.now();
-		BookableSchedule schedule = scheduleService.getBookable(scheduleId, now);
-		Performance performance = schedule.performance();
+		LocalDateTime expiresAt = now.plus(properties.holdDuration());
+		List<ScheduleSeat> held = scheduleSeatService.holdSeats(scheduleId, seatIds, userId, now, expiresAt);
 
+		Performance performance = scheduleService.checkBookable(scheduleId, now);
 		long owned = bookingService.countActiveSeats(userId, performance.getId());
 		if (owned + seatIds.size() > performance.getMaxPerPerson()) {
 			throw new BusinessException(BookingExceptionCode.MAX_PER_PERSON_EXCEEDED);
 		}
-
-		LocalDateTime expiresAt = now.plus(properties.holdDuration());
-		List<ScheduleSeat> held = scheduleSeatService.holdSeats(scheduleId, seatIds, userId, now, expiresAt);
-		UserMember user = userMemberService.getMe(userId);
 
 		// 응답의 좌석 순서는 요청한 순서를 따른다. (좌석은 최대 몇 장이라 목록에서 순서를 찾아도 부담이 없다)
 		List<Long> requestedOrder = List.copyOf(seatIds);
@@ -106,7 +116,7 @@ public class BookingFacade {
 			user.getEmail(),
 			performance.getBookingFee() == null ? 0 : performance.getBookingFee(),
 			lines,
-			schedule.cancelRules().stream()
+			cancelRules.stream()
 				.map(rule -> new BookingCreateCommand.CancelRule(
 					rule.getDaysFrom(), rule.getDaysTo(), rule.getFeeRate(), rule.isCancelable()))
 				.toList(),
