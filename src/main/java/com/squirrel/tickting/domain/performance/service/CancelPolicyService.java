@@ -1,5 +1,7 @@
 package com.squirrel.tickting.domain.performance.service;
 
+import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyRequest;
+import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyResponse;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRepository;
@@ -51,12 +53,13 @@ public class CancelPolicyService {
 	 * 고칠 수 있는지는 페이지의 규정 번호를 모아 쿼리 한 번으로 본다.
 	 */
 	@Transactional(readOnly = true)
-	public Page<CancelPolicySummary> searchVisible(Long businessId, Pageable pageable) {
+	public Page<SellerCancelPolicyResponse.Summary> searchVisible(Long businessId, Pageable pageable) {
 		Page<CancelPolicy> page = cancelPolicyRepository.searchVisible(businessId, pageable);
 		List<Long> ids = page.getContent().stream().map(CancelPolicy::getId).toList();
 		Set<Long> inUse = ids.isEmpty() ? Set.of()
 			: Set.copyOf(performanceRepository.findCancelPolicyIdsInUse(ids, LOCKING_STATUSES));
-		return page.map(policy -> new CancelPolicySummary(policy, isEditable(policy, inUse.contains(policy.getId()))));
+		return page.map(policy -> SellerCancelPolicyResponse.Summary.from(policy,
+			isEditable(policy, inUse.contains(policy.getId()))));
 	}
 
 	/**
@@ -71,10 +74,10 @@ public class CancelPolicyService {
 
 	/** 볼 수 있는 규정 하나와 그 구간, 지금 고칠 수 있는지. 남의 규정·없는 규정은 getVisible 과 같은 404 다. */
 	@Transactional(readOnly = true)
-	public CancelPolicyDetail getVisibleDetail(Long cancelPolicyId, Long businessId) {
+	public SellerCancelPolicyResponse.Detail getVisibleDetail(Long cancelPolicyId, Long businessId) {
 		CancelPolicy policy = getVisible(cancelPolicyId, businessId);
 		List<CancelPolicyRule> rules = cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(policy.getId());
-		return new CancelPolicyDetail(policy, rules, isEditable(policy, isInUse(policy.getId())));
+		return SellerCancelPolicyResponse.Detail.from(policy, rules, isEditable(policy, isInUse(policy.getId())));
 	}
 
 	/**
@@ -83,19 +86,19 @@ public class CancelPolicyService {
 	 * 아직 없어서 DB 관련 TODO 로 남겨 두었다.
 	 */
 	@Transactional
-	public CancelPolicyDetail create(Long businessId, CancelPolicySaveCommand command) {
-		List<CancelPolicySaveCommand.Rule> sorted = sortAndValidate(command.rules());
-		if (cancelPolicyRepository.existsVisibleName(businessId, command.name())) {
+	public SellerCancelPolicyResponse.Detail create(Long businessId, SellerCancelPolicyRequest.Save request) {
+		List<SellerCancelPolicyRequest.Rule> sorted = sortAndValidate(request.rules());
+		if (cancelPolicyRepository.existsVisibleName(businessId, request.name())) {
 			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
 		}
 
 		CancelPolicy policy = cancelPolicyRepository.save(CancelPolicy.builder()
 			.businessId(businessId)
-			.name(command.name())
+			.name(request.name())
 			.build());
 		List<CancelPolicyRule> rules = saveRules(policy, sorted);
 		// 방금 만든 규정은 쓰는 공연이 없어서 항상 고칠 수 있다.
-		return new CancelPolicyDetail(policy, rules, true);
+		return SellerCancelPolicyResponse.Detail.from(policy, rules, true);
 	}
 
 	/**
@@ -107,39 +110,40 @@ public class CancelPolicyService {
 	 * 모든 사업체가 함께 쓰는 규정이라 락을 잡으면 공개가 한 줄로 서기 때문이다.
 	 * 같은 값으로 보내도 그대로 교체하고 200 이다.
 	 */
-	public CancelPolicyDetail update(Long cancelPolicyId, Long businessId, CancelPolicySaveCommand command) {
-		List<CancelPolicySaveCommand.Rule> sorted = sortAndValidate(command.rules());
+	public SellerCancelPolicyResponse.Detail update(Long cancelPolicyId, Long businessId,
+		SellerCancelPolicyRequest.Save request) {
+		List<SellerCancelPolicyRequest.Rule> sorted = sortAndValidate(request.rules());
 		if (cancelPolicyRepository.findMine(cancelPolicyId, businessId).isEmpty()) {
 			throw notMine(cancelPolicyId, businessId);
 		}
 		return lockExecutor.execute(List.of(PerformanceLockNames.cancelPolicy(cancelPolicyId)), properties.lockWait(),
-			() -> transactionTemplate.execute(status -> updateInTransaction(cancelPolicyId, businessId, command, sorted)));
+			() -> transactionTemplate.execute(status -> updateInTransaction(cancelPolicyId, businessId, request, sorted)));
 	}
 
 	/** 락을 기다리는 사이 공연이 공개되거나 규정이 바뀌었을 수 있어서 락 밖의 판단은 믿지 않고 다시 읽는다. */
-	private CancelPolicyDetail updateInTransaction(Long cancelPolicyId, Long businessId, CancelPolicySaveCommand command,
-		List<CancelPolicySaveCommand.Rule> sorted) {
+	private SellerCancelPolicyResponse.Detail updateInTransaction(Long cancelPolicyId, Long businessId,
+		SellerCancelPolicyRequest.Save request, List<SellerCancelPolicyRequest.Rule> sorted) {
 		CancelPolicy policy = cancelPolicyRepository.findMine(cancelPolicyId, businessId)
 			.orElseThrow(() -> notMine(cancelPolicyId, businessId));
 		if (isInUse(policy.getId())) {
 			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_IN_USE);
 		}
-		if (cancelPolicyRepository.existsVisibleNameExcept(businessId, command.name(), policy.getId())) {
+		if (cancelPolicyRepository.existsVisibleNameExcept(businessId, request.name(), policy.getId())) {
 			throw new BusinessException(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
 		}
 
-		policy.rename(command.name());
+		policy.rename(request.name());
 		cancelPolicyRuleRepository.deleteByPolicyId(policy.getId());
 		List<CancelPolicyRule> rules = saveRules(policy, sorted);
 		// 잠금 검사를 통과했으므로 고친 직후에도 고칠 수 있다.
-		return new CancelPolicyDetail(policy, rules, true);
+		return SellerCancelPolicyResponse.Detail.from(policy, rules, true);
 	}
 
 	/**
 	 * 정렬한 구간을 저장한다. 생성과 수정이 함께 쓴다.
 	 * 응답은 상세(SLR-20)와 같이 공연에서 먼 구간부터라 거꾸로 저장해서 그대로 돌려준다.
 	 */
-	private List<CancelPolicyRule> saveRules(CancelPolicy policy, List<CancelPolicySaveCommand.Rule> sortedRules) {
+	private List<CancelPolicyRule> saveRules(CancelPolicy policy, List<SellerCancelPolicyRequest.Rule> sortedRules) {
 		return cancelPolicyRuleRepository.saveAll(sortedRules.reversed().stream()
 			.map(rule -> CancelPolicyRule.builder()
 				.policy(policy)
@@ -176,12 +180,12 @@ public class CancelPolicyService {
 	 * 구간은 양끝 날짜를 포함하므로 이웃한 구간은 "다음 시작 = 앞 끝 + 1" 이어야 빈 날짜도 겹치는 날짜도 없다.
 	 * 입력 순서는 자유라 프론트가 정렬을 빠뜨려도 400 이 나지 않게 서버가 정렬한다.
 	 */
-	private List<CancelPolicySaveCommand.Rule> sortAndValidate(List<CancelPolicySaveCommand.Rule> rules) {
-		List<CancelPolicySaveCommand.Rule> sorted = rules.stream()
-			.sorted(Comparator.comparingInt(CancelPolicySaveCommand.Rule::daysFrom))
+	private List<SellerCancelPolicyRequest.Rule> sortAndValidate(List<SellerCancelPolicyRequest.Rule> rules) {
+		List<SellerCancelPolicyRequest.Rule> sorted = rules.stream()
+			.sorted(Comparator.comparingInt(SellerCancelPolicyRequest.Rule::daysFrom))
 			.toList();
 
-		for (CancelPolicySaveCommand.Rule rule : sorted) {
+		for (SellerCancelPolicyRequest.Rule rule : sorted) {
 			if (rule.daysTo() != null && rule.daysTo() < rule.daysFrom()) {
 				throw rulesInvalid(RULE_REVERSED);
 			}

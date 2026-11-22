@@ -2,8 +2,6 @@ package com.squirrel.tickting.domain.performance.dto;
 
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
-import com.squirrel.tickting.domain.performance.service.CancelPolicyDetail;
-import com.squirrel.tickting.domain.performance.service.CancelPolicySummary;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import lombok.Builder;
@@ -27,14 +25,14 @@ public class SellerCancelPolicyResponse {
 		boolean editable
 	) {
 
-		public static Summary from(CancelPolicySummary summary) {
-			CancelPolicy policy = summary.policy();
+		/** 고칠 수 있는지는 규정 엔티티에 없고 쓰는 공연을 봐야 알아서 서비스가 계산해 넘긴다. */
+		public static Summary from(CancelPolicy policy, boolean editable) {
 			return Summary.builder()
 				.cancelPolicyId(policy.getId())
 				.name(policy.getName())
 				// 사업체 번호가 비어 있는 규정이 서비스 기본 규정이다.
 				.isDefault(policy.getBusinessId() == null)
-				.editable(summary.editable())
+				.editable(editable)
 				.build();
 		}
 	}
@@ -55,14 +53,14 @@ public class SellerCancelPolicyResponse {
 		List<Rule> rules
 	) {
 
-		public static Detail from(CancelPolicyDetail detail) {
-			CancelPolicy policy = detail.policy();
+		/** 규정 엔티티에는 구간 목록이 없어서 서비스가 트랜잭션 안에서 구간을 읽어 함께 넘긴다. */
+		public static Detail from(CancelPolicy policy, List<CancelPolicyRule> rules, boolean editable) {
 			return Detail.builder()
 				.cancelPolicyId(policy.getId())
 				.name(policy.getName())
 				.isDefault(policy.getBusinessId() == null)
-				.editable(detail.editable())
-				.rules(detail.rules().stream().map(Rule::from).toList())
+				.editable(editable)
+				.rules(rules.stream().map(Rule::from).toList())
 				.build();
 		}
 	}
