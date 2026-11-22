@@ -9,7 +9,6 @@ import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.domain.performance.service.GradeService;
 import com.squirrel.tickting.domain.performance.service.PerformanceLockNames;
 import com.squirrel.tickting.domain.performance.service.PerformanceProperties;
-import com.squirrel.tickting.domain.performance.service.PerformanceSaveCommand;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
 import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
@@ -54,7 +53,7 @@ public class SellerPerformanceFacade {
 
 		Performance performance = transactionTemplate.execute(status -> {
 			Performance created = sellerPerformanceService.create(businessId, createdBy, request.venueId(), cancelPolicy,
-				request.toCommand());
+				request);
 			gradeService.initializeZones(created, zoneIds);
 			return created;
 		});
@@ -75,26 +74,25 @@ public class SellerPerformanceFacade {
 	 */
 	public SellerPerformanceResponse.Updated update(Long businessId, Long performanceId,
 		SellerPerformanceRequest.Save request) {
-		PerformanceSaveCommand command = request.toCommand();
-		sellerPerformanceService.validate(command);
+		sellerPerformanceService.validate(request);
 
 		// 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
 		sellerPerformanceService.getMinePerformance(businessId, performanceId);
 
 		Performance updated = lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)),
 			properties.lockWait(), () -> transactionTemplate.execute(
-				status -> updateInTransaction(businessId, performanceId, request, command)));
+				status -> updateInTransaction(businessId, performanceId, request)));
 		return SellerPerformanceResponse.Updated.from(updated);
 	}
 
 	/** 락을 기다리는 사이 상태가 바뀌었을 수 있어 락 밖의 판단은 믿지 않고 다시 읽는다. */
 	private Performance updateInTransaction(Long businessId, Long performanceId,
-		SellerPerformanceRequest.Save request, PerformanceSaveCommand command) {
+		SellerPerformanceRequest.Save request) {
 		// 현재 시각은 한 번만 읽어 모든 비교에 같은 값을 쓴다.
 		LocalDateTime now = LocalDateTime.now();
 		Performance performance = sellerPerformanceService.getMinePerformance(businessId, performanceId);
 
-		sellerPerformanceService.validateUpdatable(performance, command, request.venueId(), request.cancelPolicyId(), now);
+		sellerPerformanceService.validateUpdatable(performance, request, request.venueId(), request.cancelPolicyId(), now);
 
 		boolean venueChanged = !performance.getVenueId().equals(request.venueId());
 		boolean cancelPolicyChanged = !performance.getCancelPolicy().getId().equals(request.cancelPolicyId());
@@ -103,20 +101,20 @@ public class SellerPerformanceFacade {
 			? cancelPolicyService.getVisible(request.cancelPolicyId(), businessId) : null;
 		List<Long> newZoneIds = venueChanged ? venueService.getActiveZoneIds(request.venueId()) : null;
 
-		sellerPerformanceService.validateScheduleRules(performance, command);
+		sellerPerformanceService.validateScheduleRules(performance, request);
 		// 작성 중 공연은 예매가 있을 수 없어 묻지 않는다.
 		boolean maxPerPersonReduced = performance.getStatus() == PerformanceStatus.PUBLISHED
-			&& command.maxPerPerson() < performance.getMaxPerPerson();
+			&& request.maxPerPerson() < performance.getMaxPerPerson();
 		if (maxPerPersonReduced && bookingService.existsOccupying(performanceId)) {
 			throw new BusinessException(PerformanceExceptionCode.MAX_PER_PERSON_REDUCE_NOT_ALLOWED);
 		}
-		boolean runningTimeIncreased = command.runningTime() > performance.getRunningTime();
+		boolean runningTimeIncreased = request.runningTime() > performance.getRunningTime();
 		if (venueChanged || runningTimeIncreased) {
 			Long targetVenueId = venueChanged ? request.venueId() : performance.getVenueId();
-			sellerPerformanceService.validateNoOverlap(performanceId, targetVenueId, command.runningTime());
+			sellerPerformanceService.validateNoOverlap(performanceId, targetVenueId, request.runningTime());
 		}
 
-		sellerPerformanceService.update(performance, command, venueChanged ? request.venueId() : null, newCancelPolicy);
+		sellerPerformanceService.update(performance, request, venueChanged ? request.venueId() : null, newCancelPolicy);
 		if (venueChanged) {
 			// 옛 공연장 기준의 구역 설정과 판매 좌석은 의미가 없다. 좌석은 스케줄러가 새 공연장 기준으로 다시 만든다.
 			gradeService.resetZones(performance, newZoneIds);

@@ -1,7 +1,6 @@
 package com.squirrel.tickting.domain.performance.dto;
 
 import com.squirrel.tickting.domain.image.validation.ImageUrl;
-import com.squirrel.tickting.domain.performance.service.PerformanceSaveCommand;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -105,28 +104,9 @@ public class SellerPerformanceRequest {
 			castInfo = trimToNull(castInfo);
 			notice = trimToNull(notice);
 			guide = trimToNull(guide);
-		}
-
-		public PerformanceSaveCommand toCommand() {
-			List<PerformanceSaveCommand.Image> imageCommands = images == null ? List.of() : images.stream()
-				.map(image -> new PerformanceSaveCommand.Image(image.url(), image.sortOrder()))
-				.toList();
-			return PerformanceSaveCommand.builder()
-				.title(title)
-				.genre(genre)
-				.ageLimit(ageLimit)
-				.runningTime(runningTime)
-				.castInfo(castInfo)
-				.posterUrl(posterUrl)
-				.notice(notice)
-				.guide(guide)
-				.saleOpenAt(saleOpenAt)
-				.saleCloseAt(saleCloseAt)
-				.maxPerPerson(maxPerPerson)
-				.receiveType(receiveType)
-				.bookingFee(bookingFee)
-				.images(imageCommands)
-				.build();
+			// 비우면 "이미지 없음"으로 전체 교체한다. 서비스가 null 을 따로 다루지 않게 여기서 빈 목록으로 바꾼다.
+			// List.copyOf 는 null 원소에서 검증보다 먼저 터져서 쓰지 않는다. (null 원소는 @NotNull 이 400 으로 막는다)
+			images = images == null ? List.of() : images;
 		}
 	}
 
