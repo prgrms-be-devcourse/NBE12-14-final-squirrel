@@ -47,7 +47,20 @@ public class ScheduleService {
 	 */
 	@Transactional(readOnly = true)
 	public BookableSchedule getBookable(Long scheduleId, LocalDateTime now) {
-		PerformanceSchedule schedule = performanceScheduleRepository.findById(scheduleId)
+		Performance performance = checkBookable(scheduleId, now);
+		List<CancelPolicyRule> cancelRules =
+			cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(performance.getCancelPolicy().getId());
+		return new BookableSchedule(scheduleId, performance, cancelRules);
+	}
+
+	/**
+	 * getBookable 과 같은 기준으로 예매할 수 있는지만 확인하고 공연을 돌려준다. 취소 규정은 읽지 않는다.
+	 * 점유가 락 안에서 다시 확인할 때 쓴다. 취소 규정은 락 밖에서 이미 읽은 값으로 예매에 복사해도 되고(예매 당시 규정이라
+	 * 락을 기다린 1초 안팎의 차이는 의미가 없다), 락 안의 왕복이 하나 줄어 락을 쥐는 시간이 짧아진다.
+	 */
+	@Transactional(readOnly = true)
+	public Performance checkBookable(Long scheduleId, LocalDateTime now) {
+		PerformanceSchedule schedule = performanceScheduleRepository.findWithPerformanceById(scheduleId)
 			.orElseThrow(() -> new BusinessException(BookingExceptionCode.SCHEDULE_NOT_FOUND));
 		Performance performance = schedule.getPerformance();
 		if (performance.getStatus() != PerformanceStatus.PUBLISHED) {
@@ -59,10 +72,7 @@ public class ScheduleService {
 		if (!saleOpen || !scheduleOpen) {
 			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE);
 		}
-
-		List<CancelPolicyRule> cancelRules =
-			cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(performance.getCancelPolicy().getId());
-		return new BookableSchedule(schedule.getId(), performance, cancelRules);
+		return performance;
 	}
 
 	/**

@@ -4,6 +4,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +14,13 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 
 	/** 이 사업체의 공연에 속한 회차인가. 남의 회차와 없는 회차를 구분하지 않으려고 존재 여부만 묻는다. */
 	boolean existsByIdAndPerformanceBusinessId(Long id, Long businessId);
+
+	/**
+	 * 회차와 그 공연을 한 번에 읽는다. 예매할 수 있는지 확인할 때 공연을 지연 로딩으로 따로 읽으면 왕복이 하나 더 든다.
+	 * 점유는 락 안에서 이 쿼리를 다시 부르므로 왕복이 곧 락을 쥐는 시간이다.
+	 */
+	@Query("SELECT s FROM PerformanceSchedule s JOIN FETCH s.performance WHERE s.id = :scheduleId")
+	Optional<PerformanceSchedule> findWithPerformanceById(@Param("scheduleId") Long scheduleId);
 
 	/** 공연의 모든 회차. 취소·연기된 회차도 포함하고 공연 일시가 빠른 순이다. */
 	List<PerformanceSchedule> findByPerformanceIdOrderByStartAt(Long performanceId);

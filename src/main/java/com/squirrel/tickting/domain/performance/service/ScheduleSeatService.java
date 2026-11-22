@@ -38,25 +38,31 @@ public class ScheduleSeatService {
 	 * 요청한 좌석을 모두 임시 점유(HELD)한다. 하나라도 점유할 수 없으면 예외를 던지고, 호출한 쪽의 트랜잭션이 되돌려서 아무것도 점유하지 않는다.
 	 * 분산락 안에서 부르는 것을 전제로 한다. 락이 풀리는 순간에도 중복 점유가 없도록 마지막 판단은 상태 조건이 있는 UPDATE 가 한다.
 	 *
+	 * 점유 UPDATE 를 먼저 하고 좌석은 그 뒤에 읽는다. 인기 좌석에 요청이 몰리면 대부분은 이미 점유된 좌석이라 실패하는데, 실패하는
+	 * 요청도 락을 차례로 잡고 들어오기 때문에 실패까지 걸리는 왕복 수가 곧 뒤따르는 요청의 대기 시간이다. 읽기를 앞에 두면 실패에
+	 * 이르기까지 왕복이 더 든다. 좌석을 읽는 것은 성공하면 예매에 복사할 값을 얻으려는 것이고, 실패하면 오류의 이유
+	 * (없음·판매 제외·이미 점유됨)를 가르려는 것이다.
+	 *
 	 * @param seatIds 중복이 없는 좌석 번호. 개수가 곧 점유해야 할 행 수다
-	 * @return 점유한 좌석. 가격·구역·등급을 예매에 복사하는 용도이고, status·heldBy 는 점유 전 값이다
+	 * @return 점유한 좌석. 가격·구역·등급을 예매에 복사하는 용도다. UPDATE 뒤에 읽으므로 status·heldBy 는 점유한 값이다
 	 */
 	@Transactional
 	public List<ScheduleSeat> holdSeats(Long scheduleId, Set<Long> seatIds, Long userId, LocalDateTime now,
 		LocalDateTime heldUntil) {
+		int held = scheduleSeatRepository.holdAvailable(scheduleId, seatIds, userId, heldUntil, now);
 		List<ScheduleSeat> seats = scheduleSeatRepository.findWithLocationByScheduleIdAndIdIn(scheduleId, seatIds);
+		if (held == seatIds.size()) {
+			return seats;
+		}
+
+		// 일부 좌석을 점유했을 수 있어도 예외로 호출한 쪽의 트랜잭션이 되돌려서 아무것도 점유하지 않는다.
 		if (seats.size() != seatIds.size()) {
 			throw new BusinessException(BookingExceptionCode.SEAT_NOT_FOUND);
 		}
 		if (seats.stream().anyMatch(ScheduleSeatService::isExcludedFromSale)) {
 			throw new BusinessException(BookingExceptionCode.SEAT_NOT_SELLABLE);
 		}
-
-		int held = scheduleSeatRepository.holdAvailable(scheduleId, seatIds, userId, heldUntil, now);
-		if (held != seatIds.size()) {
-			throw new BusinessException(BookingExceptionCode.SEAT_ALREADY_TAKEN);
-		}
-		return seats;
+		throw new BusinessException(BookingExceptionCode.SEAT_ALREADY_TAKEN);
 	}
 
 	/**
