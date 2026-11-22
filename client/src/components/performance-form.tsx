@@ -14,6 +14,7 @@ import type {
   VenueItem,
 } from "@/lib/types";
 import { Field, Panel } from "@/components/console";
+import { ImageUpload } from "@/components/image-upload";
 import { Loading } from "@/components/ui";
 
 const GENRES: Genre[] = ["CONCERT", "MUSICAL", "PLAY", "CLASSIC", "ETC"];
@@ -70,6 +71,10 @@ export function PerformanceFormView({
   const policies = useApi<Page<CancelPolicySummary>>("/api/v1/seller/cancel-policies", { size: 20 });
 
   const [v, setV] = useState<Values>(() => initial(existing));
+  // 상세 이미지. 순서는 목록 순서이고 저장할 때 1부터 번호를 매긴다.
+  const [images, setImages] = useState<string[]>(() =>
+    [...(existing?.images ?? [])].sort((a, b) => a.sortOrder - b.sortOrder).map((image) => image.url),
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -83,6 +88,10 @@ export function PerformanceFormView({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (!v.posterUrl) {
+      setMessage("포스터 사진을 올려 주세요");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     const number = (text: string) => (text.trim() === "" ? null : Number(text));
@@ -103,7 +112,7 @@ export function PerformanceFormView({
         maxPerPerson: number(v.maxPerPerson),
         receiveType: v.receiveType || null,
         bookingFee: number(v.bookingFee),
-        images: existing?.images ?? [],
+        images: images.map((url, index) => ({ url, sortOrder: index + 1 })),
       });
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : "저장하지 못했습니다");
@@ -149,9 +158,46 @@ export function PerformanceFormView({
           <Field label="출연진" className="sm:col-span-2">
             <input className="input" value={v.castInfo} onChange={set("castInfo")} />
           </Field>
-          <Field label="포스터 주소" hint="http:// 또는 https:// 로 시작해야 합니다" className="sm:col-span-2">
-            <input className="input" type="url" value={v.posterUrl} onChange={set("posterUrl")} placeholder="https://" required />
-          </Field>
+          <div className="sm:col-span-2">
+            <span className="label">포스터</span>
+            <ImageUpload value={v.posterUrl} purpose="POSTER" label="포스터" onChange={(url) => setV({ ...v, posterUrl: url })} />
+            <span className="mt-1 block text-xs text-muted">올린 사진만 쓸 수 있습니다. 다른 사이트 주소는 받지 않습니다</span>
+          </div>
+          <div className="sm:col-span-2">
+            <span className="label">상세 이미지</span>
+            <ul className="space-y-3">
+              {images.map((url, index) => (
+                <li key={url} className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`상세 이미지 ${index + 1}`} className="h-16 w-24 rounded-lg border border-line object-cover" />
+                  <span className="text-sm text-muted">{index + 1}번</span>
+                  <span className="ml-auto flex gap-2">
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={index === 0}
+                      onClick={() => setImages(images.map((_, i) => images[i === index - 1 ? index : i === index ? index - 1 : i]))}
+                    >
+                      위로
+                    </button>
+                    <button type="button" className="btn" onClick={() => setImages(images.filter((_, i) => i !== index))}>
+                      삭제
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3">
+              <ImageUpload
+                key={images.length}
+                value=""
+                purpose="DETAIL"
+                label="상세 이미지"
+                onChange={(url) => setImages([...images, url])}
+              />
+            </div>
+            <span className="mt-1 block text-xs text-muted">공연 상세 화면에 순서대로 보입니다</span>
+          </div>
           <Field label="공지" className="sm:col-span-2">
             <textarea className="input h-24 py-3" value={v.notice} onChange={set("notice")} />
           </Field>

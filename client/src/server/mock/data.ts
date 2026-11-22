@@ -48,7 +48,7 @@ type MockSeed = {
   firstDay: number;
   scheduleCount: number;
   saleOpenDay: number;
-  grades: { name: string; price: number; color: string }[];
+  grades: { name: string; price: number }[];
   maxPerPerson: number;
   bookingFee: number;
   receiveType: "ONSITE" | "DELIVERY" | "BOTH";
@@ -75,9 +75,9 @@ const SEEDS: MockSeed[] = [
     scheduleCount: 3,
     saleOpenDay: -3,
     grades: [
-      { name: "VIP석", price: 165000, color: "#c8452d" },
-      { name: "R석", price: 132000, color: "#d98a2b" },
-      { name: "S석", price: 99000, color: "#4a7c59" },
+      { name: "VIP", price: 165000 },
+      { name: "R", price: 132000 },
+      { name: "S", price: 99000 },
     ],
     maxPerPerson: 4,
     bookingFee: 2000,
@@ -96,9 +96,9 @@ const SEEDS: MockSeed[] = [
     scheduleCount: 4,
     saleOpenDay: -10,
     grades: [
-      { name: "VIP석", price: 150000, color: "#c8452d" },
-      { name: "R석", price: 120000, color: "#d98a2b" },
-      { name: "S석", price: 90000, color: "#4a7c59" },
+      { name: "VIP", price: 150000 },
+      { name: "R", price: 120000 },
+      { name: "S", price: 90000 },
     ],
     maxPerPerson: 6,
     bookingFee: 1000,
@@ -117,8 +117,8 @@ const SEEDS: MockSeed[] = [
     scheduleCount: 2,
     saleOpenDay: -20,
     grades: [
-      { name: "전석", price: 55000, color: "#4a7c59" },
-      { name: "스탠딩", price: 35000, color: "#5f6f8f" },
+      { name: "ALL", price: 55000 },
+      { name: "STANDING", price: 35000 },
     ],
     maxPerPerson: 4,
     bookingFee: 1000,
@@ -137,9 +137,9 @@ const SEEDS: MockSeed[] = [
     scheduleCount: 2,
     saleOpenDay: 4,
     grades: [
-      { name: "R석", price: 110000, color: "#d98a2b" },
-      { name: "S석", price: 80000, color: "#4a7c59" },
-      { name: "A석", price: 50000, color: "#5f6f8f" },
+      { name: "R", price: 110000 },
+      { name: "S", price: 80000 },
+      { name: "A", price: 50000 },
     ],
     maxPerPerson: 4,
     bookingFee: 1000,
@@ -158,8 +158,8 @@ const SEEDS: MockSeed[] = [
     scheduleCount: 2,
     saleOpenDay: -1,
     grades: [
-      { name: "일반", price: 77000, color: "#4a7c59" },
-      { name: "스탠딩", price: 66000, color: "#5f6f8f" },
+      { name: "R", price: 77000 },
+      { name: "STANDING", price: 66000 },
     ],
     maxPerPerson: 2,
     bookingFee: 1000,
@@ -177,7 +177,7 @@ const SEEDS: MockSeed[] = [
     firstDay: -4,
     scheduleCount: 1,
     saleOpenDay: -40,
-    grades: [{ name: "전석", price: 88000, color: "#4a7c59" }],
+    grades: [{ name: "ALL", price: 88000 }],
     maxPerPerson: 4,
     bookingFee: 1000,
     receiveType: "ONSITE",

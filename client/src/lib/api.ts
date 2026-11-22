@@ -133,3 +133,43 @@ export function useApi<T>(path: string | null, query?: Query, headers?: Record<s
     reload,
   };
 }
+
+export type ImagePurpose = "POSTER" | "DETAIL" | "PROFILE";
+
+export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+// 사진을 서버로 보내면 서버가 S3 에 올리고 공개 주소를 돌려준다. (api-spec IMG-01)
+// 요청 전체가 11MB 를 넘으면 서버가 JSON 없이 연결을 끊으므로 올리기 전에 크기를 확인한다.
+export async function uploadImage(file: File, purpose: ImagePurpose): Promise<string> {
+  if (!IMAGE_TYPES.includes(file.type)) {
+    throw new ApiError(400, "CLIENT", "jpg, png, webp 형식의 사진만 올릴 수 있습니다");
+  }
+  if (file.size === 0 || file.size > IMAGE_MAX_BYTES) {
+    throw new ApiError(400, "CLIENT", "사진은 10MB 이하여야 합니다");
+  }
+  const form = new FormData();
+  form.set("purpose", purpose);
+  form.set("file", file);
+
+  let response: Response;
+  try {
+    // Content-Type 은 브라우저가 경계값과 함께 붙이므로 직접 쓰지 않는다.
+    response = await fetch("/api/v1/images", { method: "POST", body: form, cache: "no-store" });
+  } catch {
+    throw new ApiError(0, "CLIENT", "사진을 올리지 못했습니다. 잠시 뒤 다시 시도해 주세요");
+  }
+  if (response.headers.get("x-mock")) markMock();
+
+  let envelope: ApiEnvelope<{ imageUrl: string }> | null = null;
+  try {
+    envelope = (await response.json()) as ApiEnvelope<{ imageUrl: string }>;
+  } catch {
+    envelope = null;
+  }
+  if (!response.ok || !envelope?.success) {
+    if (response.status === 401) clearAccount();
+    throw new ApiError(response.status, envelope?.code ?? "COMMON999", envelope?.message || "사진을 올리지 못했습니다");
+  }
+  return envelope.data.imageUrl;
+}

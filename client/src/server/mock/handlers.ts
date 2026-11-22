@@ -328,7 +328,6 @@ async function zoneSummary(ctx: MockContext, scheduleId: number): Promise<Respon
       name: def.name,
       floor: def.floor,
       grade: grade?.name ?? null,
-      color: grade?.color ?? null,
       price: grade?.price ?? null,
       remaining,
       total: ROWS * COLS,
@@ -538,8 +537,10 @@ function listBookings(ctx: MockContext): Response {
   if (session instanceof Response) return session;
   sweep();
   const status = ctx.search.get("status");
+  // 시간이 지난(EXPIRED) 예매는 내역에 나오지 않고, 상태로 요청하면 400 이다. (api-spec BKG-04)
+  if (status === "EXPIRED") return fail(400, "COMMON000", "요청 값이 올바르지 않습니다.");
   const items: BookingSummary[] = state()
-    .bookings.filter((b) => b.ownerKey === session.key && (!status || b.status === status))
+    .bookings.filter((b) => b.ownerKey === session.key && b.status !== "EXPIRED" && (!status || b.status === status))
     .sort((a, b) => b.bookingId - a.bookingId)
     .map((b) => ({
       bookingId: b.bookingId,
@@ -756,19 +757,109 @@ function logout(): Response {
   return ok(null, 200, { "Set-Cookie": "MOCK_SESSION=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" });
 }
 
+// 내 정보에서 고친 닉네임·프로필 사진. 개발 서버가 다시 컴파일돼도 유지되게 globalThis 에 둔다.
+const profileGlobal = globalThis as unknown as { __ticktingProfile?: Map<string, { nickname: string; profileImg: string | null }> };
+
+function profiles() {
+  profileGlobal.__ticktingProfile ??= new Map();
+  return profileGlobal.__ticktingProfile;
+}
+
 function me(ctx: MockContext): Response {
   const session = requireSession(ctx, "USER");
   if (session instanceof Response) return session;
+  const profile = profiles().get(session.key);
   return ok({
     userId: 1,
     email: session.email,
     name: nameOf(session.email),
-    nickname: nameOf(session.email),
+    nickname: profile?.nickname ?? nameOf(session.email),
     phone: "01012345678",
-    profileImg: null,
+    profileImg: profile?.profileImg ?? null,
     birthDate: "1990-01-01",
     createdAt: isoLocal(new Date(Date.now() - 30 * DAY)),
   });
+}
+
+async function updateMe(ctx: MockContext): Promise<Response> {
+  const session = requireSession(ctx, "USER");
+  if (session instanceof Response) return session;
+  const body = (await ctx.json().catch(() => ({}))) as { nickname?: string; profileImg?: string | null };
+  const nickname = body.nickname?.trim() ?? "";
+  if (nickname.length < 2 || nickname.length > 20) {
+    return fail(400, "COMMON000", "닉네임은 2글자 이상 20글자 이하로 입력해 주세요.");
+  }
+  // 생략하거나 null 이면 사진이 지워진다. (api-spec AUTH-07)
+  profiles().set(session.key, { nickname, profileImg: body.profileImg ?? null });
+  return ok({ userId: 1, nickname, profileImg: body.profileImg ?? null, updatedAt: isoLocal(new Date()) });
+}
+
+function withdraw(ctx: MockContext): Response {
+  const session = requireSession(ctx, "USER");
+  if (session instanceof Response) return session;
+  sweep();
+  // 결제 대기나 공연 전 결제 완료 예매가 있으면 탈퇴할 수 없다. (api-spec AUTH-08)
+  const active = state().bookings.some(
+    (b) => b.ownerKey === session.key && (b.status === "PENDING" || b.status === "PAID" || b.status === "PARTIAL_CANCELED"),
+  );
+  if (active) return fail(409, "USER003", "진행 중인 예매가 있어 탈퇴할 수 없습니다. 예매를 취소하거나 공연이 끝난 뒤에 탈퇴해 주세요.");
+  profiles().delete(session.key);
+  return logout();
+}
+
+// ---------- 대기열 ----------
+
+// 대기 화면을 확인할 수 있게, 처음 한 번은 줄을 서게 하고 상태를 세 번 확인하면 입장시킨다.
+const QUEUE_WAIT_POLLS = 3;
+const queueGlobal = globalThis as unknown as { __ticktingQueue?: Map<string, number> };
+
+function queues(): Map<string, number> {
+  queueGlobal.__ticktingQueue ??= new Map();
+  return queueGlobal.__ticktingQueue;
+}
+
+function queueStatus(key: string): Response {
+  const polls = queues().get(key);
+  if (polls === undefined) return ok({ status: "NONE", position: null, waitingCount: null, expiresAt: null });
+  if (polls >= QUEUE_WAIT_POLLS) {
+    return ok({ status: "ADMITTED", position: null, waitingCount: null, expiresAt: isoLocal(new Date(Date.now() + 10 * MINUTE)) });
+  }
+  return ok({ status: "WAITING", position: QUEUE_WAIT_POLLS - polls + 1, waitingCount: 40 - polls * 10, expiresAt: null });
+}
+
+function queueEnter(ctx: MockContext, scheduleId: string): Response {
+  const session = requireSession(ctx, "USER");
+  if (session instanceof Response) return session;
+  const key = `${session.key}:${scheduleId}`;
+  if (!queues().has(key)) queues().set(key, 0);
+  return queueStatus(key);
+}
+
+function queuePoll(ctx: MockContext, scheduleId: string): Response {
+  const session = requireSession(ctx, "USER");
+  if (session instanceof Response) return session;
+  const key = `${session.key}:${scheduleId}`;
+  const polls = queues().get(key);
+  if (polls !== undefined && polls < QUEUE_WAIT_POLLS) queues().set(key, polls + 1);
+  return queueStatus(key);
+}
+
+function queueLeave(ctx: MockContext, scheduleId: string): Response {
+  const session = requireSession(ctx, "USER");
+  if (session instanceof Response) return session;
+  queues().delete(`${session.key}:${scheduleId}`);
+  return ok(null);
+}
+
+// ---------- 이미지 업로드 ----------
+
+// 실제 서버는 파일을 S3 에 올리고 주소를 준다. 목은 파일을 읽지 않고 단색 이미지 주소를 돌려준다.
+function uploadImage(ctx: MockContext): Response {
+  const session = sessionOf(ctx);
+  if (!session) return fail(401, "AUTH200", "로그인이 필요합니다.");
+  const hue = Math.floor(Math.random() * 360);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="hsl(${hue} 45% 42%)"/></svg>`;
+  return ok({ imageUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}` });
 }
 
 // ---------- 라우터 ----------
@@ -785,9 +876,15 @@ const ROUTES: [string, string, Handler][] = [
   ["POST", "/api/v2/auth/users/signup", (ctx) => signup(ctx)],
   ["POST", "/api/v2/auth/logout", () => logout()],
   ["GET", "/api/v1/users/me", (ctx) => me(ctx)],
+  ["PATCH", "/api/v1/users/me", (ctx) => updateMe(ctx)],
+  ["DELETE", "/api/v1/users/me", (ctx) => withdraw(ctx)],
 
   ["GET", "/api/v1/performances", (ctx) => listPerformances(ctx)],
   ["GET", "/api/v1/performances/:id", (_ctx, [id]) => performanceDetail(Number(id))],
+  ["POST", "/api/v1/images", (ctx) => uploadImage(ctx)],
+  ["POST", "/api/v1/schedules/:scheduleId/queue", (ctx, [id]) => queueEnter(ctx, id)],
+  ["GET", "/api/v1/schedules/:scheduleId/queue", (ctx, [id]) => queuePoll(ctx, id)],
+  ["DELETE", "/api/v1/schedules/:scheduleId/queue", (ctx, [id]) => queueLeave(ctx, id)],
   ["GET", "/api/v1/schedules/:scheduleId/zones", (ctx, [id]) => zoneSummary(ctx, Number(id))],
   ["GET", "/api/v1/schedules/:scheduleId/zones/:zoneId/seats", (_ctx, [id, zoneId]) =>
     zoneSeats(Number(id), Number(zoneId))],

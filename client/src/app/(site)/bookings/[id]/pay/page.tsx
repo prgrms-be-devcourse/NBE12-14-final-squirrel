@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, useApi, useMockSeen } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
+import { useBookingWindow } from "@/lib/popup";
 import { dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
 import { Ticket } from "@/components/ticket";
@@ -75,7 +75,8 @@ function useNow(intervalMs: number): number {
 
 export default function PayPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  // 별도 예매 창 안이면 주소에 /popup 을 붙이고, 끝나면 본 창을 옮긴 뒤 이 창을 닫는다.
+  const { inPopup, prefix, goTo, close, toLogin } = useBookingWindow();
 
   // 예매 정보는 예매를 만들 때 받아 둔 값을 먼저 쓴다. 없을 때(다른 탭, 새 창)만 예매 상세를 부른다.
   const cache = useCachedBooking(id);
@@ -158,7 +159,7 @@ export default function PayPage() {
 
   if (cache.state === "unknown" || (cache.state === "none" && detail.loading)) return <Loading />;
   if (!view) {
-    if (detail.error?.status === 401) router.push("/login");
+    if (detail.error?.status === 401) toLogin();
     return detail.error ? <ErrorBox error={detail.error} onRetry={detail.reload} /> : null;
   }
   const b = view;
@@ -195,8 +196,8 @@ export default function PayPage() {
         await widgets.requestPayment({
           orderId: ready.orderId,
           orderName: ready.orderName,
-          successUrl: `${window.location.origin}/bookings/${b.bookingId}/pay/success`,
-          failUrl: `${window.location.origin}/bookings/${b.bookingId}/pay/fail`,
+          successUrl: `${window.location.origin}${prefix}/bookings/${b.bookingId}/pay/success`,
+          failUrl: `${window.location.origin}${prefix}/bookings/${b.bookingId}/pay/fail`,
         });
         return;
       }
@@ -206,7 +207,7 @@ export default function PayPage() {
         body: { paymentKey: testPaymentKey(), orderId: ready.orderId, amount: ready.amount },
       });
       clearBooking(b.bookingId);
-      router.push("/bookings");
+      goTo("/bookings");
     } catch (error) {
       if (error instanceof ApiError) setMessage(error.message);
       else if (isTossError(error)) {
@@ -222,9 +223,9 @@ export default function PayPage() {
     return (
       <div className="card mx-auto max-w-lg p-6 text-center">
         <p className="font-medium">이미 처리된 예매입니다</p>
-        <Link href="/bookings" className="btn mt-4">
+        <button type="button" className="btn mt-4" onClick={() => goTo("/bookings")}>
           내 예매 보기
-        </Link>
+        </button>
       </div>
     );
   }
@@ -274,9 +275,9 @@ export default function PayPage() {
       {expired ? (
         <div className="rounded-xl border border-accent/30 bg-accent-soft p-5 text-sm text-accent-strong">
           <p>좌석 점유 시간이 지났습니다. 처음부터 다시 선택해 주세요.</p>
-          <Link href={`/performances/${b.performanceId}`} className="btn mt-3">
-            공연으로 돌아가기
-          </Link>
+          <button type="button" className="btn mt-3" onClick={() => (inPopup ? close() : goTo(`/performances/${b.performanceId}`))}>
+            {inPopup ? "창 닫기" : "공연으로 돌아가기"}
+          </button>
         </div>
       ) : (
         <>

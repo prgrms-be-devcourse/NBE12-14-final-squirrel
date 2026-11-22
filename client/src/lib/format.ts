@@ -74,7 +74,7 @@ export const GENRE_COLOR: Record<Genre, string> = {
 };
 
 // 서버는 등급을 코드(VIP, R, S ...)로만 준다. 화면 이름과 색은 프론트가 정한다. (api-spec SLR-08)
-const GRADE_LABEL: Record<string, string> = {
+export const GRADE_LABEL: Record<string, string> = {
   VIP: "VIP석",
   R: "R석",
   S: "S석",
@@ -98,6 +98,9 @@ const GRADE_COLOR: Record<string, string> = {
   B: "#6a4a9c",
   C: "#4b5060",
 };
+
+// 등급 코드 목록. 새로 만들 수 있는 값은 이 코드뿐이다. (api-spec SLR-08)
+export const GRADE_CODES = Object.keys(GRADE_LABEL);
 
 export function gradeLabel(code: string | null | undefined): string {
   if (!code) return "";
