@@ -152,9 +152,14 @@ erDiagram
 |  | 본인인증 고유값 | `ci_hash` | String | NULL | CI를 해시한 값. 탈퇴하지 않은 회원끼리 중복 불가 (1인 1계정). 가입할 때는 필수이고, 탈퇴하면 비움 |
 |  | 생년월일 | `birth_date` | LocalDate | NULL | 관람 연령 확인용 (선택) |
 |  | 상태 | `status` | enum | NOT NULL | ACTIVE 사용 중 / SUSPENDED 이용 제한 [확장] |
+|  | 이메일 인증일 | `email_verified_at` | LocalDateTime | NULL | 가입 이메일의 주인임을 인증한 시각. NULL이면 미인증이고 예매하기(대기열 입장)가 막힌다 (V11, API는 미구현) |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
 |  | 삭제일 | `deleted_at` | LocalDateTime | NULL | 탈퇴 시각. 값이 있으면 탈퇴한 회원 |
+
+**Q. 이메일 인증 여부는 왜 Redis가 아니라 이 테이블에 있나요?**
+
+인증번호는 5분 뒤 사라져도 되는 값이라 Redis에 둡니다. 하지만 **인증을 마쳤다는 사실은 영구히 남아야** 합니다. Redis에만 두면 재시작이나 키 삭제 때 인증한 회원이 미인증으로 돌아가, 티켓 오픈 순간에 인증 모달이 뜰 수 있습니다. 시각으로 남겨 언제 인증했는지도 알 수 있게 했습니다. 정책과 API는 `doc/api-spec.md`의 "이메일 인증 (AUTH-17·18)"에 있습니다.
 
 **Q. 이름(`name`)과 닉네임(`nickname`)이 왜 둘 다 있나요?**
 
