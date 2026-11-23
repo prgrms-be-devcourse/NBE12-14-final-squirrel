@@ -22,9 +22,6 @@ public enum AuthExceptionCode implements ExceptionCode {
 	/** 같은 IP 에서 같은 이메일로 로그인에 여러 번 실패해 잠시 막힘 (app.auth.login.*). 잠긴 동안은 비밀번호가 맞아도 이 코드다 */
 	LOGIN_TOO_MANY_ATTEMPTS("AUTH004", HttpStatus.TOO_MANY_REQUESTS, "로그인에 여러 번 실패했습니다. 잠시 후 다시 시도해 주세요."),
 
-	/** 본인인증 결과를 확인하지 못함 (토큰 형식 오류, 인증 실패 등) */
-	IDENTITY_VERIFICATION_FAILED("AUTH300", HttpStatus.BAD_REQUEST, "본인인증에 실패했습니다."),
-
 	/** 로그인은 됐으나 권한 부족 (예: 예매자가 관리자 API 호출, 403) */
 	ACCESS_DENIED("AUTH100", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 

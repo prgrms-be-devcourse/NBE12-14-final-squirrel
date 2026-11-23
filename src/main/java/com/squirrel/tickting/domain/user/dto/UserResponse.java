@@ -2,7 +2,6 @@ package com.squirrel.tickting.domain.user.dto;
 
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import io.swagger.v3.oas.annotations.media.Schema;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.Builder;
 
@@ -13,7 +12,7 @@ public class UserResponse {
 
 	/**
 	 * 로그인한 예매자 본인의 정보. 본인에게만 보여 주는 값이라 이름·휴대폰도 그대로 준다.
-	 * 비밀번호와 본인인증 해시(ciHash)는 어느 응답에도 넣지 않는다.
+	 * 비밀번호는 어느 응답에도 넣지 않는다.
 	 */
 	@Builder
 	@Schema(name = "UserMe", description = "내 정보")
@@ -22,16 +21,14 @@ public class UserResponse {
 		Long userId,
 		@Schema(description = "이메일 (로그인 아이디)", example = "user@example.com")
 		String email,
-		@Schema(description = "이름. 본인인증으로 확인된 값", example = "홍길동")
+		@Schema(description = "이름", example = "홍길동")
 		String name,
 		@Schema(description = "닉네임", example = "길동이")
 		String nickname,
-		@Schema(description = "휴대폰 번호. 본인인증으로 확인된 값", example = "01012345678")
+		@Schema(description = "휴대폰 번호", example = "01012345678")
 		String phone,
 		@Schema(description = "프로필 이미지 주소. 없으면 null")
 		String profileImg,
-		@Schema(description = "생년월일", example = "1990-01-01")
-		LocalDate birthDate,
 		@Schema(description = "가입 일시")
 		LocalDateTime createdAt
 	) {
@@ -44,7 +41,6 @@ public class UserResponse {
 				.nickname(user.getNickname())
 				.phone(user.getPhone())
 				.profileImg(user.getProfileImg())
-				.birthDate(user.getBirthDate())
 				.createdAt(user.getCreatedAt())
 				.build();
 		}

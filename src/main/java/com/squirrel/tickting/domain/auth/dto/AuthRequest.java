@@ -31,10 +31,13 @@ public class AuthRequest {
 		@Schema(description = "화면에 보이는 닉네임", example = "홍길동")
 		String nickname,
 
-		@NotBlank
-		@Schema(description = "본인인증 토큰. 본인인증 Mock 형식: mock|이름|CI|휴대폰|생년월일(yyyyMMdd)",
-			example = "mock|홍길동|ci-hong-001|01012345678|19900101")
-		String identityToken,
+		@NotBlank @Size(max = 50)
+		@Schema(description = "이름. 예매할 때 주문자 정보로 채워진다", example = "홍길동")
+		String name,
+
+		@NotBlank @ValidPhone
+		@Schema(description = "휴대폰 번호 (하이픈 없이 숫자만). 예매할 때 주문자 정보로 채워진다", example = "01012345678")
+		String phone,
 
 		@NotNull
 		@Schema(description = "동의한 약관 번호 목록. 최신 필수 약관을 모두 포함해야 한다", example = "[1, 2]")
@@ -43,6 +46,7 @@ public class AuthRequest {
 
 		public UserSignup {
 			email = trim(email);
+			name = trim(name);
 		}
 	}
 
@@ -57,17 +61,20 @@ public class AuthRequest {
 		@Schema(description = "비밀번호 (8~25자, 영문·숫자·특수문자 포함)", example = "password1!")
 		String password,
 
-		@NotBlank
-		@Schema(description = "대표자 본인인증 토큰. 본인인증 Mock 형식: mock|이름|CI|휴대폰|생년월일(yyyyMMdd)",
-			example = "mock|김대표|ci-owner-001|01099998888|19800101")
-		String identityToken,
+		@NotBlank @Size(max = 50)
+		@Schema(description = "대표자 계정 이름", example = "김대표")
+		String name,
+
+		@NotBlank @ValidPhone
+		@Schema(description = "대표자 휴대폰 번호 (하이픈 없이 숫자만)", example = "01099998888")
+		String phone,
 
 		@NotBlank @Size(max = 100)
 		@Schema(description = "사업체명(기획사 이름)", example = "(주)가상기획")
 		String companyName,
 
 		@NotBlank @Size(max = 50)
-		@Schema(description = "대표자명. 본인인증으로 확인된 이름과 같아야 한다", example = "김대표")
+		@Schema(description = "사업자등록증의 대표자명", example = "김대표")
 		String representativeName,
 
 		@NotBlank @Pattern(regexp = "^\\d{10}$", message = "사업자등록번호는 하이픈 없이 숫자 10자리로 입력해 주세요.")
@@ -89,6 +96,7 @@ public class AuthRequest {
 
 		public SellerSignup {
 			email = trim(email);
+			name = trim(name);
 			contactEmail = trim(contactEmail);
 		}
 	}

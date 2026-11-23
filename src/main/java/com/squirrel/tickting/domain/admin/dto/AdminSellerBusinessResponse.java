@@ -16,7 +16,7 @@ public class AdminSellerBusinessResponse {
 
 	/**
 	 * 관리자 사업체 목록의 한 줄. 상세를 눌러서 보는 값(연락처, 반려 사유 등)은 넣지 않고 목록에서 고를 때 필요한 것만 둔다.
-	 * 계정 정보와 본인인증 값은 어느 응답에도 넣지 않는다.
+	 * 계정 정보는 어느 응답에도 넣지 않는다.
 	 */
 	@Builder
 	@Schema(name = "SellerBusinessSummary", description = "판매자 사업체 목록 항목")
@@ -52,8 +52,8 @@ public class AdminSellerBusinessResponse {
 
 	/**
 	 * 관리자 사업체 상세. 승인·반려를 판단하는 데 필요한 값을 모두 담는다.
-	 * 대표 계정(owner)은 신청과 함께 가입한 본인이다. 비밀번호·CI 해시·생년월일 같은 값은 넣지 않는다.
-	 * 이름은 본인인증 이름과 대표자명이 같아야 가입되므로 대표자명으로 충분해서 넣지 않는다.
+	 * 대표 계정(owner)은 신청과 함께 가입한 본인이다. 비밀번호 같은 값은 넣지 않는다.
+	 * 계정 이름은 넣지 않는다. 관리자는 사업체의 대표자명으로 신청자를 판단한다.
 	 */
 	@Builder
 	@Schema(name = "SellerBusinessDetail", description = "판매자 사업체 상세")
@@ -158,7 +158,7 @@ public class AdminSellerBusinessResponse {
 		Long memberId,
 		@Schema(description = "로그인 이메일")
 		String email,
-		@Schema(description = "본인인증으로 확인된 휴대폰")
+		@Schema(description = "대표 계정 휴대폰")
 		String phone,
 		@Schema(description = "계정 상태", example = "ACTIVE")
 		SellerMemberStatus status

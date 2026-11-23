@@ -9,7 +9,7 @@
 
 **컬럼 표 읽는 법**: 열쇠 아이콘은 키입니다. 금색 = **PK**(이 테이블의 고유 번호), 분홍색 = **FK**(다른 테이블의 번호를 가리키는 컬럼). 타입은 자바 기준이고, NULL은 "비워 둬도 되는지"입니다. 모든 테이블 그림은 따로 이미지(`p1-*.png`)로도 있습니다.
 
-> 예매자 테이블(`user_member`, 약관)은 팀원이 맡은 부분이라, `name`, `ci_hash` 추가는 팀원과 맞춰야 합니다.
+> 예매자 테이블(`user_member`, 약관)은 팀원이 맡은 부분이라, `name` 추가는 팀원과 맞춰야 합니다.
 
 ---
 
@@ -25,8 +25,6 @@ erDiagram
         String nickname
         String phone
         String profile_img
-        String ci_hash UK "본인인증 CI 해시, 탈퇴 제외 중복 불가, 탈퇴 시 NULL"
-        LocalDate birth_date
         enum status "ACTIVE SUSPENDED"
         LocalDateTime created_at
         LocalDateTime updated_at
@@ -69,7 +67,6 @@ erDiagram
         String name
         String phone
         enum role "OWNER STAFF"
-        String ci_hash "사업체 안에서 중복 불가"
         enum status "ACTIVE INACTIVE"
         LocalDateTime created_at
         LocalDateTime updated_at
@@ -136,7 +133,7 @@ erDiagram
 
 **Q. 이 테이블에는 무엇을 저장하나요?**
 
-로그인 정보(이메일, 암호화된 비밀번호)와 본인인증으로 확인된 정보(이름, 휴대폰), 화면에 보이는 정보(닉네임, 프로필 이미지), 그리고 상태입니다.
+로그인 정보(이메일, 암호화된 비밀번호)와 가입할 때 입력한 정보(이름, 휴대폰), 화면에 보이는 정보(닉네임, 프로필 이미지), 그리고 상태입니다.
 
 **회원 (예매자)** · `user_member`
 
@@ -145,12 +142,10 @@ erDiagram
 | PK | 회원 번호 | `id` | Long | NOT NULL | 회원 고유 번호 |
 |  | 이메일 | `email` | String | NOT NULL | 로그인 아이디. 삭제되지 않은 회원끼리 중복 불가 |
 |  | 비밀번호 | `password` | String | NOT NULL | 암호화(BCrypt)한 값을 저장 |
-|  | 이름 | `name` | String | NOT NULL | 본인인증으로 확인된 실명. 주문자 정보에 사용 |
+|  | 이름 | `name` | String | NOT NULL | 가입할 때 입력한 이름. 주문자 정보에 사용 |
 |  | 닉네임 | `nickname` | String | NOT NULL | 화면에 보이는 이름 |
 |  | 휴대폰 번호 | `phone` | String | NOT NULL |  |
 |  | 프로필 이미지 | `profile_img` | String | NULL | 이미지 주소 |
-|  | 본인인증 고유값 | `ci_hash` | String | NULL | CI를 해시한 값. 탈퇴하지 않은 회원끼리 중복 불가 (1인 1계정). 가입할 때는 필수이고, 탈퇴하면 비움 |
-|  | 생년월일 | `birth_date` | LocalDate | NULL | 관람 연령 확인용 (선택) |
 |  | 상태 | `status` | enum | NOT NULL | ACTIVE 사용 중 / SUSPENDED 이용 제한 [확장] |
 |  | 이메일 인증일 | `email_verified_at` | LocalDateTime | NULL | 가입 이메일의 주인임을 인증한 시각. NULL이면 미인증이고 예매하기(대기열 입장)가 막힌다 (V11, API는 미구현) |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
@@ -163,11 +158,11 @@ erDiagram
 
 **Q. 이름(`name`)과 닉네임(`nickname`)이 왜 둘 다 있나요?**
 
-닉네임은 화면에 보이는 이름이고, 이름은 본인인증으로 확인된 실명입니다. 예매할 때 **주문자 정보를 자동으로 채워 주려면 실명이 필요**합니다. 닉네임으로는 채울 수 없습니다.
+닉네임은 화면에 보이는 이름이고, 이름은 가입할 때 입력한 실명입니다. 예매할 때 **주문자 정보를 자동으로 채워 주려면 실명이 필요**합니다. 닉네임으로는 채울 수 없습니다.
 
-**Q. `ci_hash`는 왜 있나요? id로 구분하면 되지 않나요?**
+**Q. 본인인증(`ci_hash`)은 왜 없나요? 한 사람이 계정을 여러 개 만들 수 있지 않나요?**
 
-`id`는 우리 DB가 계정마다 붙이는 번호라서, 같은 사람이 계정을 두 번 만들면 다른 번호가 붙습니다. id만으로는 같은 사람인지 알 수 없습니다. CI는 본인인증 기관이 사람마다 주는 고유값이라, 이것을 해시해서 중복 불가로 걸면 **한 사람이 계정을 여러 개 만드는 것**을 막을 수 있습니다. 티켓 매크로 방어와도 이어집니다. 원문 CI는 저장하지 않습니다.
+처음에는 본인인증 기관이 사람마다 주는 고유값(CI)을 해시해 `ci_hash`로 저장하고 중복 불가로 걸어서 **1인 1계정**을 지키려 했습니다. 하지만 본인인증은 유료라서 교육과정 프로젝트에서는 쓰지 않기로 했고(2026-11-23), V12에서 `ci_hash`와 `birth_date`를 지웠습니다. 그래서 이름·휴대폰은 가입자가 직접 입력한 값이고, 같은 사람이 이메일만 바꿔 여러 계정을 만드는 것은 막지 못합니다. 이메일 인증(`email_verified_at`)이 가입 이메일의 주인임을 확인하는 정도의 대신 수단이고, 매크로 방어는 대기열·캡차 쪽에서 다룹니다. (`doc/later/queue-captcha-macro.md`)
 
 **Q. 탈퇴하면 행을 지우나요?**
 
@@ -183,8 +178,7 @@ erDiagram
 | `password` | 로그인할 수 없는 무효한 값으로 교체 |
 | `name`, `nickname` | `탈퇴회원` |
 | `phone` | 빈 값(`-`) |
-| `profile_img`, `birth_date` | NULL |
-| `ci_hash` | **NULL** (그래서 같은 사람이 다시 가입할 수 있음) |
+| `profile_img` | NULL |
 
 예매할 때의 이름·연락처는 `booking`에 **스냅샷**으로 따로 남아 있어서, 거래 기록은 유지됩니다. (거래 기록의 보관 기간과 범위는 실제 서비스라면 법적 기준을 확인해야 합니다.)
 
@@ -192,12 +186,6 @@ erDiagram
 >
 > ```sql
 > CREATE UNIQUE INDEX uq_user_email ON user_member (email) WHERE deleted_at IS NULL;
-> ```
->
-> `ci_hash`도 같은 방식입니다. 그냥 UNIQUE로 걸면 탈퇴한 사람이 다시 가입할 수 없습니다. (NULL은 서로 중복으로 보지 않아서 탈퇴 회원은 걸리지 않습니다.)
->
-> ```sql
-> CREATE UNIQUE INDEX uq_user_ci ON user_member (ci_hash) WHERE deleted_at IS NULL;
 > ```
 >
 > ⚠️ **JPA 소프트 삭제 필터**: `@SQLRestriction("deleted_at is null")`을 엔티티 전체에 걸면 탈퇴한 회원이 조회되지 않습니다. 그러면 예매 내역에서 회원을 가져올 때 값이 비어 오류가 날 수 있습니다. 전역 필터로 걸지 말고 필요한 조회에만 조건을 씁니다.
@@ -258,7 +246,7 @@ seller_business (회사 1개)
 |---|---|---|---|---|---|
 | PK | 사업체 번호 | `id` | Long | NOT NULL |  |
 |  | 사업체명 | `company_name` | String | NOT NULL | 기획사(회사) 이름 |
-|  | 대표자명 | `representative_name` | String | NOT NULL | 본인인증된 이름과 같아야 함 |
+|  | 대표자명 | `representative_name` | String | NOT NULL | 사업자등록증의 대표자명. 대표 계정 이름(`seller_member.name`)과 따로 입력받는다 |
 |  | 사업자등록번호 | `business_number` | String | NOT NULL | 중복 불가 (같은 사업자 중복 가입 방지) |
 |  | 연락처 | `contact_phone` | String | NOT NULL | 담당자 연락처 |
 |  | 연락 이메일 | `contact_email` | String | NOT NULL | 담당자 이메일 |
@@ -283,19 +271,17 @@ seller_business (회사 1개)
 |  | 이름 | `name` | String | NOT NULL |  |
 |  | 휴대폰 번호 | `phone` | String | NOT NULL |  |
 |  | 역할 | `role` | enum | NOT NULL | OWNER 대표자 / STAFF 담당자 |
-|  | 본인인증 고유값 | `ci_hash` | String | NOT NULL | CI 해시. 같은 사업체 안에서 중복 불가 |
 |  | 상태 | `status` | enum | NOT NULL | ACTIVE 사용 중 / INACTIVE 비활성 |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
 |  | 삭제일 | `deleted_at` | LocalDateTime | NULL | 담당자는 삭제하지 않고 비활성화만 하므로 쓰지 않음 |
 
-- 대표자, 담당자 **모두 본인인증**을 하고 `ci_hash`를 저장합니다.
-- `ci_hash`는 **같은 사업체 안에서** 중복 불가입니다. 같은 사람이 한 회사에 두 번 가입하는 것만 막고, 다른 회사에 가입하는 것은 막지 않습니다. (`business_id` + `ci_hash` 조합에 중복 불가)
+- 대표자, 담당자 모두 **이름과 휴대폰을 가입할 때 직접 입력**합니다. 본인인증(휴대폰 인증)은 유료라 쓰지 않습니다. (V12에서 `ci_hash`를 지움)
 - 담당자는 **삭제하지 않고 비활성화**만 합니다. 그래서 `deleted_at`은 공통 컬럼으로만 두고 담당자에게는 쓰지 않습니다. (삭제 = `deleted_at`, 비활성 = `status`)
 
 ### 판매자 가입 신청 흐름 (대표자)
 
-1. 대표자가 **본인인증**을 합니다.
+1. 대표자가 이름·휴대폰과 로그인 정보를 입력합니다.
 2. 회사 정보(사업체명, 사업자번호 등)를 입력하고 약관에 동의합니다.
 3. 서버가 `seller_business`(**승인 대기**)와 `seller_member`(**대표자**)를 **한꺼번에 만듭니다.**
 4. 승인 전에는 로그인할 수 없습니다 (회사 상태가 승인이 아니면 차단).
@@ -329,7 +315,7 @@ seller_business (회사 1개)
 
 1. 대표자가 담당자 이메일을 입력합니다 → `seller_invitation`이 만들어지고 링크가 메일로 나갑니다.
 2. 담당자가 링크로 접속합니다 → 서버가 토큰이 **존재하는지, 만료되지 않았는지, 이미 쓰지 않았는지** 확인합니다.
-3. 담당자가 **본인인증**을 하고 계정 정보를 입력합니다.
+3. 담당자가 이름·휴대폰과 계정 정보를 입력합니다.
 4. `seller_member`(**담당자**, 사용 중)가 만들어지고, 초대의 `used_at`에 시각이 기록됩니다.
 
 **담당자 비활성화**: 대표자가 담당자를 비활성화하면 `status`만 바뀝니다. 삭제하지 않으므로 그 사람의 과거 작업 이력이 남습니다. 대표자 본인은 비활성화할 수 없습니다.
@@ -361,14 +347,14 @@ seller_business (회사 1개)
 
 | 기능 | 쓰는 테이블 | 핵심 동작 |
 |---|---|---|
-| 예매자 회원가입 | `user_member`, `user_terms_agreement` (`terms` 조회) | 본인인증, 이메일 중복 확인, 필수 약관 동의 확인, `ci_hash` 중복이면 가입 불가 |
+| 예매자 회원가입 | `user_member`, `user_terms_agreement` (`terms` 조회) | 이메일 중복 확인, 필수 약관 동의 확인 |
 | 예매자 로그인 | `user_member` | 비밀번호 확인, 상태가 사용 중이고 탈퇴하지 않은 회원만 JWT 발급 |
-| 예매자 탈퇴 | `user_member` | `deleted_at` 기록, 개인정보 비식별 처리, `ci_hash` 비움, 토큰 블랙리스트 처리 |
-| 판매자 가입 신청 | `seller_business`, `seller_member` | 본인인증 이름과 대표자명 일치 확인, 사업자번호 중복 확인, 둘을 한 번에 저장 |
+| 예매자 탈퇴 | `user_member` | `deleted_at` 기록, 개인정보 비식별 처리, 토큰 블랙리스트 처리 |
+| 판매자 가입 신청 | `seller_business`, `seller_member` | 사업자번호 중복 확인, 둘을 한 번에 저장 |
 | 판매자 승인·반려 | `seller_business` | 상태 변경, 처리한 관리자와 시각 기록, 반려면 사유 저장 |
 | 판매자 로그인 | `seller_member`, `seller_business` | 회사가 승인이고 계정이 사용 중일 때만 JWT 발급 |
 | 담당자 초대 | `seller_invitation` | 토큰 생성, 만료 시각 설정, 메일 발송 (대표자만) |
-| 담당자 가입 | `seller_invitation`, `seller_member` | 토큰 검증, 본인인증, 담당자 생성, `used_at` 기록 |
+| 담당자 가입 | `seller_invitation`, `seller_member` | 토큰 검증, 담당자 생성, `used_at` 기록 |
 | 담당자 비활성화 | `seller_member` | 상태를 비활성으로 변경 (대표자만), 토큰 블랙리스트 처리 |
 | 관리자 로그인 | `admin_member` | 비밀번호 확인 후 JWT 발급 |
 
@@ -381,8 +367,8 @@ seller_business (회사 1개)
 ## 1부 요약
 
 - 사용자는 예매자, 판매자, 관리자 3종류이고 **완전히 따로** 만든다. (서로 중복 검사 없음)
-- 로그인은 이메일로 한다. 예매자는 본인인증으로 이름과 CI를 저장해 1인 1계정을 지킨다.
+- 로그인은 이메일로 한다. 이름·휴대폰은 가입할 때 직접 입력받는다. (본인인증은 유료라 쓰지 않는다. 계정 중복 가입은 이메일 인증으로 줄인다)
 - 판매자는 **회사(`seller_business`) + 계정(`seller_member`)** 구조다. 대표자는 회사당 1명, 담당자는 초대 링크로 들어온다.
-- 삭제하지 않는다. 회원 탈퇴는 `deleted_at`, 담당자 비활성화는 `status`로 처리한다. 탈퇴할 때는 개인정보를 비식별 처리하고 `ci_hash`를 비운다.
+- 삭제하지 않는다. 회원 탈퇴는 `deleted_at`, 담당자 비활성화는 `status`로 처리한다. 탈퇴할 때는 개인정보를 비식별 처리한다.
 
 다음은 **2부. 공연장 영역** (`venue`, `venue_zone`, `venue_seat`)입니다.

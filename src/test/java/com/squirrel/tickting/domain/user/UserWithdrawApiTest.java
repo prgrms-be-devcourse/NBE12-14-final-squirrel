@@ -46,8 +46,8 @@ class UserWithdrawApiTest extends IntegrationTestSupport {
 	// ---- 데이터 만들기 ----
 
 	/** 가입하고 v2 로 로그인해서 SESSION 쿠키를 돌려준다. */
-	private Cookie signupAndLogin(String email, String ci) throws Exception {
-		postJson(SIGNUP, userSignupBody(email, ci)).andExpect(status().isCreated());
+	private Cookie signupAndLogin(String email) throws Exception {
+		postJson(SIGNUP, userSignupBody(email)).andExpect(status().isCreated());
 		MvcResult login = postJson(LOGIN, loginBody(email, PASSWORD)).andExpect(status().isOk()).andReturn();
 		return login.getResponse().getHeaders("Set-Cookie").stream()
 			.filter(header -> header.startsWith("SESSION="))
@@ -95,7 +95,7 @@ class UserWithdrawApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("탈퇴하면 개인정보가 지워지고 지금 세션이 끝나며, 같은 이메일·본인인증으로 다시 가입할 수 있다")
 	void withdraw() throws Exception {
-		Cookie session = signupAndLogin("user@example.com", "ci-001");
+		Cookie session = signupAndLogin("user@example.com");
 		Long userId = userId("user@example.com");
 		// 이미 시작한 공연(1시간 전 시작, 아직 공연 중)의 결제 완료 예매, 만료된 예매, 제한 시각이 지난 결제 대기는 탈퇴를 막지 않는다
 		saveBooking(userId, saveSchedule(now.minusHours(1)), "PAID", now.minusDays(2));
@@ -111,9 +111,7 @@ class UserWithdrawApiTest extends IntegrationTestSupport {
 			.containsEntry("email", "deleted-" + userId + "@withdrawn.invalid")
 			.containsEntry("name", "탈퇴회원")
 			.containsEntry("nickname", "탈퇴회원")
-			.containsEntry("phone", "-")
-			.containsEntry("ci_hash", null)
-			.containsEntry("birth_date", null);
+			.containsEntry("phone", "-");
 		assertThat(row.get("deleted_at")).isNotNull();
 		assertThat(row.get("password")).isEqualTo("WITHDRAWN");
 
@@ -121,14 +119,14 @@ class UserWithdrawApiTest extends IntegrationTestSupport {
 			.andExpect(status().isUnauthorized());
 		postJson(LOGIN, loginBody("user@example.com", PASSWORD))
 			.andExpect(status().isUnauthorized());
-		postJson(SIGNUP, userSignupBody("user@example.com", "ci-001"))
+		postJson(SIGNUP, userSignupBody("user@example.com"))
 			.andExpect(status().isCreated());
 	}
 
 	@Test
 	@DisplayName("결제 대기 예매나 아직 시작하지 않은 공연의 결제 완료 예매가 있으면 409 USER003 이고 탈퇴되지 않는다")
 	void ongoingBookingBlocksWithdraw() throws Exception {
-		Cookie session = signupAndLogin("user@example.com", "ci-001");
+		Cookie session = signupAndLogin("user@example.com");
 		Long userId = userId("user@example.com");
 
 		// 1. 결제 제한 시각이 남은 결제 대기

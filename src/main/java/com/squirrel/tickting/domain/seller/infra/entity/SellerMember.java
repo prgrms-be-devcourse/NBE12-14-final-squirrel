@@ -53,10 +53,6 @@ public class SellerMember extends SoftDeletableEntity {
 	@Column(nullable = false, length = 20)
 	private SellerRole role;
 
-	/** 본인인증 CI 의 해시. 같은 사업체 안에서 중복될 수 없다. */
-	@Column(nullable = false, length = 64)
-	private String ciHash;
-
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private SellerMemberStatus status;

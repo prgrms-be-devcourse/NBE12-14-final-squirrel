@@ -22,8 +22,6 @@ class UniqueConstraintCodesTest {
 	void findRegisteredConstraint() {
 		assertThat(UniqueConstraintCodes.find(violation("uq_user_email")))
 			.contains(UserExceptionCode.EMAIL_DUPLICATED);
-		assertThat(UniqueConstraintCodes.find(violation("UQ_USER_CI")))
-			.contains(UserExceptionCode.ALREADY_REGISTERED);
 		assertThat(UniqueConstraintCodes.find(violation("uq_seller_email")))
 			.contains(SellerExceptionCode.EMAIL_DUPLICATED);
 		assertThat(UniqueConstraintCodes.find(violation("uq_seller_business_number")))

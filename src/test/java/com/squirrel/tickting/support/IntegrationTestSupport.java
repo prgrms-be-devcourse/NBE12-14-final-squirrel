@@ -122,25 +122,23 @@ public abstract class IntegrationTestSupport {
 
 	// ---- 요청 만들기 ----
 
-	protected static String identityToken(String name, String ci, String phone) {
-		return "mock|" + name + "|" + ci + "|" + phone + "|19900101";
-	}
-
-	protected Map<String, Object> userSignupBody(String email, String ci) {
+	protected Map<String, Object> userSignupBody(String email) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("email", email);
 		body.put("password", PASSWORD);
 		body.put("nickname", "tester");
-		body.put("identityToken", identityToken("홍길동", ci, "01012345678"));
+		body.put("name", "홍길동");
+		body.put("phone", "01012345678");
 		body.put("agreedTermIds", requiredTermIds);
 		return body;
 	}
 
-	protected Map<String, Object> sellerSignupBody(String email, String ci, String businessNumber) {
+	protected Map<String, Object> sellerSignupBody(String email, String businessNumber) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("email", email);
 		body.put("password", PASSWORD);
-		body.put("identityToken", identityToken("김대표", ci, "01099998888"));
+		body.put("name", "김대표");
+		body.put("phone", "01099998888");
 		body.put("companyName", "(주)가상기획");
 		body.put("representativeName", "김대표");
 		body.put("businessNumber", businessNumber);

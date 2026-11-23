@@ -3,8 +3,6 @@ package com.squirrel.tickting.domain.auth.facade;
 import com.squirrel.tickting.domain.admin.service.AdminMemberService;
 import com.squirrel.tickting.domain.auth.dto.AuthRequest;
 import com.squirrel.tickting.domain.auth.dto.AuthResponse;
-import com.squirrel.tickting.domain.auth.identity.IdentityVerifier;
-import com.squirrel.tickting.domain.auth.identity.VerifiedIdentity;
 import com.squirrel.tickting.domain.auth.service.TokenService;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.service.SellerMemberService;
@@ -34,7 +32,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class AuthFacade {
 
-	private final IdentityVerifier identityVerifier;
 	private final UserMemberService userMemberService;
 	private final SellerMemberService sellerMemberService;
 	private final AdminMemberService adminMemberService;
@@ -46,17 +43,15 @@ public class AuthFacade {
 	/**
 	 * 예매자 가입. 약관 확인, 회원 저장, 약관 동의 기록이 한 트랜잭션이다.
 	 *
-	 * 본인인증 확인(나중에는 외부 호출)과 토큰 발급은 트랜잭션 밖에 둔다. DB 연결을 오래 잡지 않으려고
+	 * 토큰 발급은 트랜잭션 밖에 둔다. DB 연결을 오래 잡지 않으려고
 	 * 메서드 전체에 @Transactional 을 걸지 않고 저장 부분만 TransactionTemplate 으로 묶는다.
 	 * 동시 요청의 중복(DB UNIQUE 인덱스 위반)은 GlobalExceptionHandler 가 409 로 바꾼다.
 	 */
 	public AuthResponse.Token userSignup(AuthRequest.UserSignup request, HttpServletResponse response) {
-		VerifiedIdentity identity = identityVerifier.verify(request.identityToken());
-
 		CustomUserDetails account = transactionTemplate.execute(status -> {
 			List<Terms> agreedTerms = termsService.validateAgreement(request.agreedTermIds());
 			UserMember user = userMemberService.create(request.email(), request.password(),
-				request.nickname(), identity);
+				request.nickname(), request.name(), request.phone());
 			termsService.recordAgreements(user.getId(), agreedTerms);
 			return userMemberService.toAccount(user);
 		});
@@ -71,9 +66,8 @@ public class AuthFacade {
 
 	/** 판매자는 관리자 승인 전에는 로그인할 수 없으므로 토큰을 주지 않고 신청 결과만 돌려준다. */
 	public AuthResponse.SellerSignup sellerSignup(AuthRequest.SellerSignup request) {
-		VerifiedIdentity identity = identityVerifier.verify(request.identityToken());
 		SellerBusiness business = sellerMemberService.signup(new SellerSignupCommand(
-			request.email(), request.password(), identity, request.companyName(),
+			request.email(), request.password(), request.name(), request.phone(), request.companyName(),
 			request.representativeName(), request.businessNumber(), request.contactPhone(),
 			request.contactEmail()));
 		return new AuthResponse.SellerSignup(business.getId(), business.getStatus().name());

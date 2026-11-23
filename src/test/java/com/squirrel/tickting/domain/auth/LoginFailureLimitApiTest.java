@@ -31,7 +31,7 @@ class LoginFailureLimitApiTest extends IntegrationTestSupport {
 
 	@BeforeEach
 	void signup() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody(EMAIL, "ci-001")).andExpect(status().isCreated());
+		postJson("/api/v1/auth/users/signup", userSignupBody(EMAIL)).andExpect(status().isCreated());
 	}
 
 	private ResultActions login(String url, String password, String ip) throws Exception {

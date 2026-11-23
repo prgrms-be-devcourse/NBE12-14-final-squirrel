@@ -8,7 +8,7 @@
 | 항목 | 반영 위치 |
 |---|---|
 | `refund.idempotency_key`, 상태 `PROCESSING` (이중 환불 방지) | 4부, 5부 |
-| `ci_hash` 부분 UNIQUE와 탈퇴 시 개인정보 비식별 처리 | 1부 |
+| 탈퇴 시 개인정보 비식별 처리 (`ci_hash` UNIQUE는 2026-11-23 제거) | 1부 |
 | `booking.performance_id` 추가 | 4부 |
 | 연기 무료 취소 판정 규칙 (한 곳에서만 판단) | 3부 |
 | `schedule_seat` 부분 인덱스와 `fillfactor` | 3부 3-5 |

@@ -23,8 +23,8 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	private static final String LOGIN = "/api/v1/auth/users/login";
 	private static final String REFRESH = "/api/v1/auth/refresh";
 
-	private MvcResult signup(String email, String ci) throws Exception {
-		return postJson(SIGNUP, userSignupBody(email, ci)).andExpect(status().isCreated()).andReturn();
+	private MvcResult signup(String email) throws Exception {
+		return postJson(SIGNUP, userSignupBody(email)).andExpect(status().isCreated()).andReturn();
 	}
 
 	private MvcResult login(String email, String password) throws Exception {
@@ -36,7 +36,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("가입하면 액세스 토큰은 본문, 리프레시 토큰은 HttpOnly 쿠키로 받고 DB 에는 해시만 저장된다")
 	void signupIssuesTokensAndStoresSafely() throws Exception {
-		MvcResult result = postJson(SIGNUP, userSignupBody("User@Example.com", "ci-001"))
+		MvcResult result = postJson(SIGNUP, userSignupBody("User@Example.com"))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
@@ -51,7 +51,6 @@ class UserAuthApiTest extends IntegrationTestSupport {
 		Map<String, Object> row = jdbc.queryForMap("SELECT * FROM user_member");
 		assertThat(row.get("email")).isEqualTo("user@example.com");
 		assertThat((String) row.get("password")).startsWith("$2").isNotEqualTo(PASSWORD);
-		assertThat((String) row.get("ci_hash")).hasSize(64).isNotEqualTo("ci-001");
 		assertThat(row.get("name")).isEqualTo("홍길동");
 		assertThat(row.get("phone")).isEqualTo("01012345678");
 		assertThat(row.get("status")).isEqualTo("ACTIVE");
@@ -63,45 +62,16 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("대소문자·앞뒤 공백만 다른 이메일은 같은 이메일로 보고 409 이다")
 	void emailDuplicateIgnoresCaseAndSpaces() throws Exception {
-		signup("user@example.com", "ci-001");
+		signup("user@example.com");
 
-		postJson(SIGNUP, userSignupBody("  USER@Example.COM ", "ci-002"))
+		postJson(SIGNUP, userSignupBody("  USER@Example.COM "))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("USER000"));
 
 		assertThat(count("user_member")).isEqualTo(1);
 	}
 
-	@Test
-	@DisplayName("같은 본인인증 정보(CI)로 다른 이메일을 만들 수 없다 (1인 1계정)")
-	void sameCiCannotRegisterTwice() throws Exception {
-		signup("first@example.com", "ci-same");
-
-		postJson(SIGNUP, userSignupBody("second@example.com", "ci-same"))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("USER001"));
-
-		assertThat(count("user_member")).isEqualTo(1);
-	}
-
 	// ---------------------------------------------------------------- 약관
-
-	// ---------------------------------------------------------------- 입력 검증
-
-	@Test
-	@DisplayName("잘못된 본인인증 토큰은 400 AUTH300 이고 아무것도 저장되지 않는다")
-	void invalidIdentityToken() throws Exception {
-		for (String token : List.of("garbage", "mock|이름|ci", "mock||ci-001|01012345678|19900101",
-			"mock|홍길동|ci-001|12345|19900101", "mock|홍길동|ci-001|01012345678|not-a-date")) {
-			Map<String, Object> body = userSignupBody("user@example.com", "ci-001");
-			body.put("identityToken", token);
-
-			postJson(SIGNUP, body)
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("AUTH300"));
-		}
-		assertThat(count("user_member")).isZero();
-	}
 
 	// ---------------------------------------------------------------- 동시성
 
@@ -109,7 +79,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@DisplayName("같은 이메일로 동시에 가입하면 한 명만 만들어지고 나머지는 500 이 아니라 409 이다")
 	void concurrentSignupSameEmail() throws Exception {
 		List<MvcResult> results = runConcurrently(8, i -> () ->
-			postJson(SIGNUP, userSignupBody("same@example.com", "ci-race-" + i)).andReturn());
+			postJson(SIGNUP, userSignupBody("same@example.com")).andReturn());
 
 		assertThat(results.stream().filter(r -> r.getResponse().getStatus() == 201)).hasSize(1);
 		assertThat(results.stream().filter(r -> r.getResponse().getStatus() == 409)).hasSize(7);
@@ -122,23 +92,12 @@ class UserAuthApiTest extends IntegrationTestSupport {
 		assertThat(count("user_terms_agreement")).isEqualTo(2);
 	}
 
-	@Test
-	@DisplayName("같은 사람(CI)이 다른 이메일로 동시에 가입해도 한 계정만 만들어진다")
-	void concurrentSignupSameCi() throws Exception {
-		List<MvcResult> results = runConcurrently(8, i -> () ->
-			postJson(SIGNUP, userSignupBody("user" + i + "@example.com", "ci-same-person")).andReturn());
-
-		assertThat(results.stream().filter(r -> r.getResponse().getStatus() == 201)).hasSize(1);
-		assertThat(results.stream().filter(r -> r.getResponse().getStatus() == 409)).hasSize(7);
-		assertThat(count("user_member")).isEqualTo(1);
-	}
-
 	// ---------------------------------------------------------------- 로그인
 
 	@Test
 	@DisplayName("로그인하면 토큰을 받고, 이메일 대소문자·공백은 무시한다")
 	void loginSuccess() throws Exception {
-		signup("user@example.com", "ci-001");
+		signup("user@example.com");
 
 		MvcResult result = postJson(LOGIN, loginBody(" USER@example.com ", PASSWORD))
 			.andExpect(status().isOk())
@@ -153,7 +112,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("비밀번호가 틀린 경우와 없는 이메일은 같은 401 AUTH001 이고 같은 메시지다")
 	void loginFailureDoesNotRevealWhichIsWrong() throws Exception {
-		signup("user@example.com", "ci-001");
+		signup("user@example.com");
 
 		MvcResult wrongPassword = login("user@example.com", "wrong-password1!");
 		MvcResult unknownEmail = login("nobody@example.com", PASSWORD);
@@ -170,7 +129,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("이용이 제한된 회원은 비밀번호가 맞아도 로그인할 수 없다")
 	void suspendedUserCannotLogin() throws Exception {
-		signup("user@example.com", "ci-001");
+		signup("user@example.com");
 		jdbc.update("UPDATE user_member SET status = 'SUSPENDED'");
 
 		MvcResult result = login("user@example.com", PASSWORD);
@@ -182,7 +141,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("탈퇴한 회원은 로그인할 수 없다")
 	void withdrawnUserCannotLogin() throws Exception {
-		signup("user@example.com", "ci-001");
+		signup("user@example.com");
 		jdbc.update("UPDATE user_member SET deleted_at = now()");
 
 		MvcResult result = login("user@example.com", PASSWORD);
@@ -196,7 +155,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("리프레시 쿠키로 액세스 토큰을 다시 받는다")
 	void refreshSuccess() throws Exception {
-		String refresh = refreshCookie(signup("user@example.com", "ci-001"));
+		String refresh = refreshCookie(signup("user@example.com"));
 
 		MvcResult result = mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", refresh)))
 			.andExpect(status().isOk())
@@ -210,7 +169,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("액세스 토큰이나 위조·만료된 토큰을 리프레시 쿠키로 보내면 거절한다")
 	void refreshWithWrongTokens() throws Exception {
-		MvcResult signup = signup("user@example.com", "ci-001");
+		MvcResult signup = signup("user@example.com");
 		Long id = jwtProvider.parseAccessToken(accessToken(signup)).getId();
 
 		// 액세스 토큰은 리프레시 자리에 쓸 수 없다
@@ -233,7 +192,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("이용이 제한되거나 탈퇴한 회원은 이미 받은 리프레시 토큰으로도 재발급받을 수 없다")
 	void refreshBlockedForDisabledAccounts() throws Exception {
-		String refresh = refreshCookie(signup("user@example.com", "ci-001"));
+		String refresh = refreshCookie(signup("user@example.com"));
 
 		jdbc.update("UPDATE user_member SET status = 'SUSPENDED'");
 		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", refresh)))
