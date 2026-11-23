@@ -17,21 +17,6 @@ public interface UserMemberRepository extends JpaRepository<UserMember, Long> {
 
 	boolean existsByEmailAndDeletedAtIsNull(String email);
 
-	/** 탈퇴하지 않은 회원이 이메일 인증을 마쳤는지. 예매하기(대기열 입장)마다 부르므로 엔티티를 읽지 않고 한 건만 확인한다. */
-	boolean existsByIdAndEmailVerifiedAtIsNotNullAndDeletedAtIsNull(Long id);
-
-	/**
-	 * 이메일 인증 시각을 남긴다. 아직 인증하지 않은 회원만 바꾸는 조건부 UPDATE 라서, 같은 회원의 확인이 겹쳐도 한 번만 반영된다.
-	 * 바뀐 행 수를 돌려준다. (0 이면 이미 인증했거나 탈퇴한 회원)
-	 */
-	@Modifying
-	@Query("""
-		UPDATE UserMember u
-		SET u.emailVerifiedAt = :now, u.updatedAt = :now
-		WHERE u.id = :id AND u.emailVerifiedAt IS NULL AND u.deletedAt IS NULL
-		""")
-	int markEmailVerified(@Param("id") Long id, @Param("now") LocalDateTime now);
-
 	/**
 	 * 비밀번호 재설정. 탈퇴하지 않은 회원만 바꾸는 조건부 UPDATE 다. 엔티티를 읽어 고치면 같은 순간의 탈퇴(비밀번호를 지움)를 덮어써서
 	 * 탈퇴한 회원에게 진짜 비밀번호가 남을 수 있어서 DB 에서 조건을 걸어 바꾼다. 바뀐 행 수를 돌려준다. (0 이면 그 사이 탈퇴한 회원)

@@ -52,13 +52,9 @@ public class UserMember extends SoftDeletableEntity {
 	@Column(nullable = false, length = 20)
 	private UserStatus status;
 
-	/** 가입 이메일의 주인임을 인증한 시각. null 이면 미인증이고 예매하기(대기열 입장)가 막힌다. */
+	/** 가입 이메일의 주인임을 인증한 시각. 가입 전에 인증을 마쳐야 가입할 수 있어서 가입 시각과 같게 채워진다. */
 	@Column(name = "email_verified_at")
 	private LocalDateTime emailVerifiedAt;
-
-	public boolean isEmailVerified() {
-		return emailVerifiedAt != null;
-	}
 
 	public boolean isActive() {
 		return status == UserStatus.ACTIVE && !isDeleted();

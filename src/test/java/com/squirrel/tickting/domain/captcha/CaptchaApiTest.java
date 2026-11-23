@@ -46,7 +46,7 @@ class CaptchaApiTest extends BookingTestSupport {
 	@DisplayName("캡챠 토큰이 없거나 실패하면 403 CAPTCHA000 이고 줄에 서지 않는다. 통과한 토큰이면 입장한다")
 	void queueEntryRequiresCaptcha() throws Exception {
 		Show show = show(1);
-		User user = signupVerified("captcha");
+		User user = signup("captcha");
 		String path = "/api/v1/schedules/" + show.scheduleId() + "/queue";
 
 		mockMvc.perform(post(path).header("Authorization", user.bearer()))
@@ -66,7 +66,7 @@ class CaptchaApiTest extends BookingTestSupport {
 	@DisplayName("상태 확인(GET)과 나가기(DELETE)는 캡챠 토큰 없이 된다. 화면이 2~3초마다 상태를 확인하기 때문이다")
 	void statusAndLeaveDoNotRequireCaptcha() throws Exception {
 		Show show = show(1);
-		User user = signupVerified("polling");
+		User user = signup("polling");
 		String path = "/api/v1/schedules/" + show.scheduleId() + "/queue";
 
 		mockMvc.perform(post(path).header("Authorization", user.bearer()).header(TOKEN_HEADER, "pass"))

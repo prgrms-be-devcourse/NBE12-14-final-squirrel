@@ -54,10 +54,10 @@ class QueueApiTest extends BookingTestSupport {
 	@DisplayName("정원 안이면 바로 입장하고, 정원을 넘으면 순번을 받아 기다린다. 이미 줄에 있는 사람이 다시 들어와도 순번이 그대로다")
 	void admitsUpToCapacityThenQueues() throws Exception {
 		Show show = show(2);
-		User first = signupVerified("first");
-		User second = signupVerified("second");
-		User third = signupVerified("third");
-		User fourth = signupVerified("fourth");
+		User first = signup("first");
+		User second = signup("second");
+		User third = signup("third");
+		User fourth = signup("fourth");
 
 		enter(first, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
 		enter(second, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
@@ -77,10 +77,10 @@ class QueueApiTest extends BookingTestSupport {
 	@DisplayName("입장한 사람이 나가면 빈 자리만큼 앞사람부터 입장하고, 뒷사람의 순번이 당겨진다")
 	void nextInLineIsAdmittedWhenSomeoneLeaves() throws Exception {
 		Show show = show(2);
-		User first = signupVerified("first");
-		User second = signupVerified("second");
-		User third = signupVerified("third");
-		User fourth = signupVerified("fourth");
+		User first = signup("first");
+		User second = signup("second");
+		User third = signup("third");
+		User fourth = signup("fourth");
 		enter(first, show);
 		enter(second, show);
 		enter(third, show);
@@ -98,10 +98,10 @@ class QueueApiTest extends BookingTestSupport {
 	@DisplayName("오래 상태를 확인하지 않아 떠난 것으로 보는 대기자는 자리를 주지 않고 건너뛴다")
 	void skipsWaitingUserWhoStoppedPolling() throws Exception {
 		Show show = show(2);
-		User first = signupVerified("first");
-		User second = signupVerified("second");
-		User ghost = signupVerified("ghost");
-		User waiting = signupVerified("waiting");
+		User first = signup("first");
+		User second = signup("second");
+		User ghost = signup("ghost");
+		User waiting = signup("waiting");
 		enter(first, show);
 		enter(second, show);
 		enter(ghost, show);
@@ -122,7 +122,7 @@ class QueueApiTest extends BookingTestSupport {
 		int people = 12;
 		List<User> users = new ArrayList<>();
 		for (int i = 0; i < people; i++) {
-			users.add(signupVerified("crowd" + i));
+			users.add(signup("crowd" + i));
 		}
 
 		List<String> results = runConcurrently(people, i -> () -> {
@@ -149,8 +149,8 @@ class QueueApiTest extends BookingTestSupport {
 		Show show = show(2);
 		// 구역 좌석 조회는 판매 좌석을 만든 회차만 볼 수 있다
 		jdbc.update("UPDATE performance_schedule SET seats_generated_at = ? WHERE id = ?", now, show.scheduleId());
-		User admitted = signupVerified("admitted");
-		User outsider = signupVerified("outsider");
+		User admitted = signup("admitted");
+		User outsider = signup("outsider");
 		enter(admitted, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
 
 		for (String path : List.of("/zones", "/zones/" + zoneId + "/seats")) {
@@ -171,7 +171,7 @@ class QueueApiTest extends BookingTestSupport {
 	void requiresLoginAndIsPerSchedule() throws Exception {
 		Show show = show(1);
 		Show other = show(1);
-		User user = signupVerified("user");
+		User user = signup("user");
 		enter(user, show);
 
 		mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + "/zones")).andExpect(status().isUnauthorized());
@@ -184,7 +184,7 @@ class QueueApiTest extends BookingTestSupport {
 	@DisplayName("입장 만료 시각이 지나면 다시 403 QUEUE000 이고, 다시 입장하면 통과한다")
 	void admissionExpires() throws Exception {
 		Show show = show(1);
-		User user = signupVerified("user");
+		User user = signup("user");
 		enter(user, show);
 		String zonesUrl = "/api/v1/schedules/" + show.scheduleId() + "/zones";
 		mockMvc.perform(get(zonesUrl).header("Authorization", user.bearer())).andExpect(status().isOk());
@@ -206,7 +206,7 @@ class QueueApiTest extends BookingTestSupport {
 	@DisplayName("판매 중이 아닌 회차는 400 BOOKING002, 없는 회차는 404 BOOKING004 이고 대기열 키가 만들어지지 않는다")
 	void rejectsSchedulesThatCannotBeBooked() throws Exception {
 		Show beforeOpen = show(1, "PUBLISHED", "ON_SALE", now.plusDays(10), now.plusDays(1), now.plusDays(30), "BOTH", 2000);
-		User user = signupVerified("user");
+		User user = signup("user");
 
 		enter(user, beforeOpen).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BOOKING002"));
 		mockMvc.perform(post("/api/v1/schedules/999999/queue").header("Authorization", user.bearer())
@@ -215,33 +215,6 @@ class QueueApiTest extends BookingTestSupport {
 			.andExpect(jsonPath("$.code").value("BOOKING004"));
 
 		assertThat(redis.keys("tickting:queue:*")).isEmpty();
-	}
-
-	// ---------------------------------------------------------------- 이메일 인증
-
-	@Test
-	@DisplayName("이메일 인증을 안 한 예매자는 줄을 서기 전에 403 AUTH307 이고, 인증을 마치면 다시 로그인하지 않고 같은 토큰으로 입장한다")
-	void unverifiedUserCannotEnterUntilVerified() throws Exception {
-		Show show = show(1);
-		User user = signup("plain");
-
-		enter(user, show).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH307"));
-		assertThat(redis.keys("tickting:queue:*")).isEmpty();
-
-		verifyEmail("plain@example.com", user.bearer());
-
-		enter(user, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
-	}
-
-	@Test
-	@DisplayName("인증 확인이 회차 확인보다 먼저다. 미인증이면 없는 회차도 404 가 아니라 403 AUTH307 이다")
-	void verificationIsCheckedBeforeSchedule() throws Exception {
-		User user = signup("plain");
-
-		mockMvc.perform(post("/api/v1/schedules/999999/queue").header("Authorization", user.bearer())
-				.header(CaptchaInterceptor.TOKEN_HEADER, "pass"))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("AUTH307"));
 	}
 
 	// ---------------------------------------------------------------- 호출 도우미

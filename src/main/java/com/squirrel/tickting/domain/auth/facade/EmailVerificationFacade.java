@@ -7,21 +7,20 @@ import com.squirrel.tickting.domain.auth.mail.EmailSender;
 import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService;
 import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService.Issued;
 import com.squirrel.tickting.domain.auth.service.EmailVerificationProperties;
-import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import com.squirrel.tickting.domain.user.service.UserMemberService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
+import com.squirrel.tickting.global.util.EmailUtil;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * 이메일 인증. 회원(user 도메인)과 인증번호·메일(auth 도메인)을 엮는다.
+ * 가입 전 이메일 인증. 이미 가입한 이메일인지(user 도메인)와 인증번호·메일(auth 도메인)을 엮는다.
+ * 가입 전이라 로그인이 없고, 인증을 마친 이메일은 Redis 에 표시로 남아 가입 API 가 확인한다.
  *
  * <p>발송은 비동기다. 인증번호를 저장하고 발송을 접수하면 바로 응답하고, 메일은 발송 스레드가 뒤에서 보낸다.
  * 인기 공연 오픈 때 인증하는 사람이 몰려도 발송이 요청 스레드를 묶어 대기열·예매까지 밀리지 않게 하려는 것이다.
@@ -42,18 +41,17 @@ public class EmailVerificationFacade {
 	private final EmailSendExecutor sendExecutor;
 	private final EmailVerificationProperties properties;
 	private final MeterRegistry meterRegistry;
-	private final Clock clock;
 
 	/**
 	 * 인증번호를 만들어 저장하고 발송을 접수한다.
-	 * 확인 순서: 회원(404) → 정지(401) → 이미 인증(409) → 재발송 간격(429) → 하루 한도(429) → 발송 대기(503).
-	 * 메일은 요청으로 받지 않고 가입한 이메일로만 보낸다.
+	 * 확인 순서: 이미 가입한 이메일(409) → 재발송 간격(429) → 하루 한도(429) → 발송 대기(503).
+	 * 가입한 이메일에는 번호도 간격·횟수 키도 만들지 않고 메일도 보내지 않는다. (남의 메일함에 메일을 보내는 길을 줄이려는 것이다)
 	 */
-	public EmailVerificationResponse.Sent send(Long userId) {
-		UserMember user = userMemberService.getEmailVerificationTarget(userId);
-		String email = user.getEmail();
+	public EmailVerificationResponse.Sent send(EmailVerificationRequest.Send request) {
+		String email = EmailUtil.normalize(request.email());
+		userMemberService.requireEmailNotTaken(email);
 
-		Issued issued = codeService.issue(userId);
+		Issued issued = codeService.issue(email);
 		try {
 			sendExecutor.execute(() -> deliver(email, issued));
 		} catch (RejectedExecutionException e) {
@@ -69,17 +67,13 @@ public class EmailVerificationFacade {
 	}
 
 	/**
-	 * 인증번호를 확인하고 인증 시각을 남긴다.
-	 * 확인 순서: 회원(404) → 정지(401) → 이미 인증(409) → 인증번호(400).
-	 * 번호를 지운 뒤 DB 반영이 실패하면 사용자는 번호를 다시 받아야 한다. (드문 경우라 받아들인다)
+	 * 인증번호를 확인하고 그 이메일을 인증한 것으로 표시한다. 확인 순서: 인증번호(400).
+	 * 이미 가입한 이메일인지는 보지 않는다. 가입한 이메일로는 번호를 받을 수 없어서 확인할 번호가 없기 때문이다.
 	 */
-	public EmailVerificationResponse.Confirmed confirm(Long userId, EmailVerificationRequest.Confirm request) {
-		userMemberService.getEmailVerificationTarget(userId);
-		codeService.confirm(userId, request.code());
-
-		LocalDateTime now = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
-		userMemberService.markEmailVerified(userId, now);
-		return EmailVerificationResponse.Confirmed.builder().emailVerifiedAt(now).build();
+	public EmailVerificationResponse.Confirmed confirm(EmailVerificationRequest.Confirm request) {
+		String email = EmailUtil.normalize(request.email());
+		LocalDateTime verifiedUntil = codeService.confirm(email, request.code());
+		return EmailVerificationResponse.Confirmed.builder().verifiedUntil(verifiedUntil).build();
 	}
 
 	/** 발송 스레드에서 실행된다. 실패해도 예외를 밖으로 내보내지 않고 인증번호·횟수를 되돌린다. */
@@ -90,7 +84,7 @@ public class EmailVerificationFacade {
 		} catch (RuntimeException e) {
 			countSend("failure");
 			// 메일 라이브러리의 예외 메시지에는 받는 주소가 들어 있을 수 있어서 종류만 남긴다. (로그에 개인정보를 남기지 않는다)
-			log.warn("이메일 인증번호 발송에 실패했습니다. userId={}, error={}", issued.userId(), e.getClass().getSimpleName());
+			log.warn("이메일 인증번호 발송에 실패했습니다. error={}", e.getClass().getSimpleName());
 			discardQuietly(issued);
 		}
 	}
@@ -99,8 +93,7 @@ public class EmailVerificationFacade {
 		try {
 			codeService.discardAfterSendFailure(issued);
 		} catch (RuntimeException e) {
-			log.error("발송 실패한 인증번호를 되돌리지 못했습니다. userId={}, error={}", issued.userId(),
-				e.getClass().getSimpleName());
+			log.error("발송 실패한 인증번호를 되돌리지 못했습니다. error={}", e.getClass().getSimpleName());
 		}
 	}
 
