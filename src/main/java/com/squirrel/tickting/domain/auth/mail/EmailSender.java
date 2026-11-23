@@ -1,0 +1,16 @@
+package com.squirrel.tickting.domain.auth.mail;
+
+import java.time.Duration;
+
+/**
+ * 이메일 인증번호 메일을 보낸다. 외부(메일 서버) 호출이라 인터페이스 뒤에 두고, 테스트는 가짜로 갈아 끼운다.
+ * 보낼 때 DB 트랜잭션을 쥐고 있지 않도록 호출하는 쪽이 트랜잭션 밖에서 부른다.
+ */
+public interface EmailSender {
+
+	/**
+	 * 인증번호 메일을 보낸다. 메일 서버가 받아 줄 때까지 기다리고, 실패하면 RuntimeException 을 던진다.
+	 * (받아 준 뒤 스팸함으로 가거나 상대 메일함에서 거절되는 것은 알 수 없다)
+	 */
+	void sendVerificationCode(String to, String code, Duration validFor);
+}

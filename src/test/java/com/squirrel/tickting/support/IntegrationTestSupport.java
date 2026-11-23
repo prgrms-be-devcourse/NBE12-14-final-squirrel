@@ -1,6 +1,7 @@
 package com.squirrel.tickting.support;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.TestcontainersConfiguration;
@@ -9,6 +10,9 @@ import com.squirrel.tickting.domain.terms.infra.repository.TermsRepository;
 import com.squirrel.tickting.domain.terms.type.TermsType;
 import com.squirrel.tickting.global.jwt.JwtProperties;
 import com.squirrel.tickting.global.jwt.JwtProvider;
+import com.squirrel.tickting.support.EmailTestConfiguration.ControllableClock;
+import com.squirrel.tickting.support.EmailTestConfiguration.ControllableEmailSendExecutor;
+import com.squirrel.tickting.support.EmailTestConfiguration.FakeEmailSender;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,7 +48,7 @@ import tools.jackson.databind.ObjectMapper;
 // 대기열 테스트는 @DynamicPropertySource 로 켠다. (그 값이 여기 값보다 우선한다)
 @SpringBootTest(properties = "app.queue.enabled=false")
 @AutoConfigureMockMvc
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, EmailTestConfiguration.class})
 public abstract class IntegrationTestSupport {
 
 	protected static final String PASSWORD = "password1!";
@@ -63,6 +67,12 @@ public abstract class IntegrationTestSupport {
 		registry.add("app.s3.access-key-id", TestSecrets::randomAwsAccessKeyId);
 		registry.add("app.s3.secret-access-key", TestSecrets::randomAwsSecretKey);
 		registry.add("app.s3.base-url", () -> "https://cdn.example.com");
+		// 메일 발송기는 FakeEmailSender 로 갈아 끼워서 실제로는 접속하지 않는다. 접속 정보가 있어야 앱이 뜬다.
+		registry.add("spring.mail.host", () -> "localhost");
+		registry.add("spring.mail.port", () -> "1025");
+		registry.add("spring.mail.username", () -> "");
+		registry.add("spring.mail.password", () -> "");
+		registry.add("app.auth.email-verification.from-address", () -> "no-reply@tickting.local");
 	}
 
 	private static final Pattern REFRESH_COOKIE = Pattern.compile("refreshToken=([^;]*)");
@@ -92,6 +102,27 @@ public abstract class IntegrationTestSupport {
 
 	@Autowired
 	private StringRedisTemplate stringRedisTemplate;
+
+	@Autowired
+	protected FakeEmailSender fakeEmailSender;
+
+	@Autowired
+	protected ControllableEmailSendExecutor emailSendExecutor;
+
+	@Autowired
+	protected ControllableClock emailClock;
+
+	/** 인증번호·재발송 간격·하루 횟수는 Redis 에 남아서 다음 테스트에 섞일 수 있다. 가짜 메일함·실행기·시계와 함께 테스트마다 비운다. */
+	@BeforeEach
+	void resetEmailVerification() {
+		var keys = stringRedisTemplate.keys("tickting:email-verify:*");
+		if (keys != null && !keys.isEmpty()) {
+			stringRedisTemplate.delete(keys);
+		}
+		fakeEmailSender.reset();
+		emailSendExecutor.reset();
+		emailClock.reset();
+	}
 
 	/** 로그인 실패 횟수는 Redis 에 남아서 다음 테스트에서 같은 이메일이 잠길 수 있다. 테스트마다 지운다. */
 	@BeforeEach
@@ -155,6 +186,18 @@ public abstract class IntegrationTestSupport {
 		body.put("email", email);
 		body.put("password", password);
 		return body;
+	}
+
+	/** 이메일 인증을 마친 상태로 만든다. 가짜 메일에서 번호를 읽어 진짜 발송·확인 API 를 거친다. */
+	protected void verifyEmail(String email, String bearer) throws Exception {
+		mockMvc.perform(post("/api/v1/users/me/email-verification").header("Authorization", bearer))
+			.andExpect(status().isOk());
+		String code = fakeEmailSender.lastCode(email);
+		mockMvc.perform(post("/api/v1/users/me/email-verification/confirm")
+				.header("Authorization", bearer)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"code\":\"" + code + "\"}"))
+			.andExpect(status().isOk());
 	}
 
 	protected ResultActions postJson(String url, Object body) throws Exception {

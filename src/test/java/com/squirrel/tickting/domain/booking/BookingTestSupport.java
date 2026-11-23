@@ -121,6 +121,13 @@ public abstract class BookingTestSupport extends IntegrationTestSupport {
 		return new User(id, "Bearer " + accessToken(result));
 	}
 
+	/** 가입한 뒤 이메일 인증까지 마친 예매자. 대기열을 켜는 테스트가 쓴다. (미인증이면 대기열 입장이 403 이다) */
+	protected User signupVerified(String name) throws Exception {
+		User user = signup(name);
+		verifyEmail(name + "@example.com", user.bearer());
+		return user;
+	}
+
 	protected ResultActions book(String bearer, Long scheduleId, List<Long> seatIds) throws Exception {
 		return mockMvc.perform(post("/api/v1/schedules/" + scheduleId + "/bookings")
 			.header("Authorization", bearer)

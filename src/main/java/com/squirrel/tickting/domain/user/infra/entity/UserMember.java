@@ -10,6 +10,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -50,6 +51,14 @@ public class UserMember extends SoftDeletableEntity {
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private UserStatus status;
+
+	/** 가입 이메일의 주인임을 인증한 시각. null 이면 미인증이고 예매하기(대기열 입장)가 막힌다. */
+	@Column(name = "email_verified_at")
+	private LocalDateTime emailVerifiedAt;
+
+	public boolean isEmailVerified() {
+		return emailVerifiedAt != null;
+	}
 
 	public boolean isActive() {
 		return status == UserStatus.ACTIVE && !isDeleted();
