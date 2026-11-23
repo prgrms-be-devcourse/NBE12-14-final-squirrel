@@ -126,6 +126,7 @@ public abstract class IntegrationTestSupport {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("email", email);
 		body.put("password", PASSWORD);
+		body.put("passwordConfirm", PASSWORD);
 		body.put("nickname", "tester");
 		body.put("name", "홍길동");
 		body.put("phone", "01012345678");
@@ -137,6 +138,7 @@ public abstract class IntegrationTestSupport {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("email", email);
 		body.put("password", PASSWORD);
+		body.put("passwordConfirm", PASSWORD);
 		body.put("name", "김대표");
 		body.put("phone", "01099998888");
 		body.put("companyName", "(주)가상기획");

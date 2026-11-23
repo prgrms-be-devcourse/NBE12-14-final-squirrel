@@ -167,6 +167,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 {
   "email": "user@example.com",
   "password": "password1!",
+  "passwordConfirm": "password1!",
   "nickname": "홍길동",
   "name": "홍길동",
   "phone": "01012345678",
@@ -178,6 +179,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 | --- | --- |
 | `email` | 이메일 형식, 최대 255자, 앞뒤 공백 제거, 대소문자 구분 없음 |
 | `password` | 8~25자, 영문·숫자·특수문자 포함 |
+| `passwordConfirm` | 필수, `password`와 같아야 함 (다르면 400 `COMMON000`) |
 | `nickname` | 2~20자 |
 | `name` | 필수, 최대 50자, 앞뒤 공백 제거 |
 | `phone` | 하이픈 없는 휴대폰 번호 (`01X` + 7~8자리) |
@@ -352,6 +354,7 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 {
   "email": "owner@company.com",
   "password": "password1!",
+  "passwordConfirm": "password1!",
   "name": "김대표",
   "phone": "01099998888",
   "companyName": "(주)가상기획",
@@ -366,6 +369,7 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 | 필드 | 규칙 |
 | --- | --- |
 | `companyName` | 최대 100자 |
+| `passwordConfirm` | 필수, `password`와 같아야 함 (다르면 400 `COMMON000`) |
 | `name` | 대표 계정 이름. 최대 50자, 앞뒤 공백 제거 |
 | `phone` | 대표 계정 휴대폰. 하이픈 없는 숫자 |
 | `representativeName` | 사업자등록증의 대표자명. 최대 50자 (`name`과 같지 않아도 가입된다) |
