@@ -3,7 +3,8 @@ package com.squirrel.tickting.domain.auth.mail;
 import org.springframework.web.util.HtmlUtils;
 
 /**
- * 비밀번호 재설정 메일(재설정 링크, 변경 알림)의 본문. 보내는 일(SmtpEmailSender)과 모양을 나누려고 따로 둔다.
+ * 인증 관련 메일(이메일 인증번호, 비밀번호 재설정 링크, 비밀번호 변경 알림)의 본문. 보내는 일(SmtpEmailSender)과 모양을 나누려고 따로 둔다.
+ * 세 메일이 같은 바깥 틀(layout)을 써서 같은 서비스의 메일로 보이게 한다.
  *
  * <p>메일 앱은 웹 브라우저와 달라서 모양을 만드는 방식이 정해져 있다.
  * <ul>
@@ -15,7 +16,7 @@ import org.springframework.web.util.HtmlUtils;
  * 색은 서비스 화면(client/src/app/globals.css)과 같은 값이다. 화면의 색이 바뀌면 여기도 같이 바꾼다.
  * HTML 을 보지 못하는 메일 앱을 위해 텍스트 본문도 함께 만든다.
  */
-final class PasswordResetMailTemplate {
+final class AuthMailTemplate {
 
 	// 서비스 화면의 색 (globals.css)
 	private static final String ACCENT = "#d23a1f";
@@ -30,7 +31,43 @@ final class PasswordResetMailTemplate {
 
 	private static final String FONT = "'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',Arial,sans-serif";
 
-	private PasswordResetMailTemplate() {
+	private AuthMailTemplate() {
+	}
+
+	static String verificationText(String code, long validMinutes) {
+		return """
+			인증번호: %s
+			%d분 동안 유효합니다.
+			본인이 요청하지 않았다면 이 메일을 무시해 주세요.
+			""".formatted(code, validMinutes);
+	}
+
+	/** 링크는 넣지 않는다. (피싱 메일과 헷갈리지 않게. 사용자가 번호를 화면에 직접 입력한다) 번호는 한눈에 보이게 큰 글씨 박스에 둔다. */
+	static String verificationHtml(String brand, String code, long validMinutes) {
+		String content = """
+			<tr><td style="padding:36px 40px 8px 40px;font-family:{{font}};">
+			  <div style="font-size:22px;line-height:1.4;font-weight:700;color:{{foreground}};">이메일 인증번호</div>
+			  <div style="padding-top:14px;font-size:15px;line-height:1.7;color:{{secondary}};">
+			    아래 인증번호를 화면에 입력해 이메일 인증을 마쳐 주세요.
+			  </div>
+			</td></tr>
+			<tr><td align="center" style="padding:24px 40px 8px 40px;font-family:{{font}};">
+			  <div style="padding:20px 16px;background-color:{{raised}};border-radius:8px;font-size:34px;line-height:1.2;font-weight:800;letter-spacing:10px;color:{{accent}};text-align:center;">{{code}}</div>
+			</td></tr>
+			<tr><td style="padding:20px 40px 0 40px;font-family:{{font}};">
+			  <div style="padding:12px 16px;background-color:{{warnSoft}};border-radius:8px;font-size:14px;line-height:1.6;color:{{warn}};">
+			    이 인증번호는 <strong>{{minutes}}분 동안</strong>만 유효합니다. 다시 받으면 이전 인증번호는 사용할 수 없게 됩니다.
+			  </div>
+			</td></tr>
+			<tr><td style="padding:28px 40px 36px 40px;font-family:{{font}};">
+			  <div style="padding-top:20px;border-top:1px solid {{line}};font-size:13px;line-height:1.6;color:{{muted}};">
+			    본인이 요청하지 않았다면 이 메일을 무시해 주세요. 인증번호를 알려 주지 않으면 아무 일도 일어나지 않습니다.
+			  </div>
+			</td></tr>
+			""";
+		return layout(brand, "이메일 인증번호입니다. " + validMinutes + "분 동안 유효합니다.",
+			content.replace("{{code}}", HtmlUtils.htmlEscape(code))
+				.replace("{{minutes}}", String.valueOf(validMinutes)));
 	}
 
 	static String resetText(String account, long validMinutes, String link) {

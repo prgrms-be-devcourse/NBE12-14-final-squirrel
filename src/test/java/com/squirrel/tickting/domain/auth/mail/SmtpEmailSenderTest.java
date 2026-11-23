@@ -91,6 +91,10 @@ class SmtpEmailSenderTest {
 		String text = get("/api/v1/message/" + summary.path("ID").asString()).path("Text").asString();
 		assertThat(text).contains("인증번호: 482915").contains("5분 동안 유효합니다.").contains("본인이 요청하지 않았다면");
 		assertThat(text).doesNotContain("http");
+		// HTML 본문에도 같은 번호와 유효 시간이 있고, 링크는 없다
+		String html = get("/api/v1/message/" + summary.path("ID").asString()).path("HTML").asString();
+		assertThat(html).contains("482915").contains("5분 동안").contains("#d23a1f");
+		assertThat(html).doesNotContain("href=");
 	}
 
 	@Test
