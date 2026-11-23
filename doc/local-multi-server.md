@@ -70,6 +70,8 @@ MAIL_USERNAME=
 MAIL_PASSWORD=
 # 메일의 보낸 사람 주소. Mailpit 은 아무 주소나 받는다
 MAIL_FROM=no-reply@tickting.local
+# 비밀번호 재설정 메일의 링크 앞부분(프론트 주소). 끝에 / 를 붙이지 않는다. 운영은 실제 프론트 주소
+FRONTEND_BASE_URL=http://localhost:3000
 ```
 
 - 인증번호 메일은 `http://localhost:8025`에서 봅니다. 요청이 성공(200)해도 메일은 몇 초 뒤에 도착합니다. (발송이 비동기)
