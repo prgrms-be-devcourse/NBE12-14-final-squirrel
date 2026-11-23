@@ -37,6 +37,10 @@ app:
   cookie:
     # 로컬은 http 라서 Secure 쿠키가 저장되지 않는다.
     secure: false
+  captcha:
+    # mock 이면 구글 키 없이 동작한다. 실제 reCAPTCHA 를 확인하려면 recaptcha 로 두고 RECAPTCHA_SECRET_KEY 도 넣는다.
+    # 쓰는 키: CAPTCHA_VERIFIER(필수, mock 또는 recaptcha), RECAPTCHA_SECRET_KEY(recaptcha 일 때만 필수)
+    verifier: ${CAPTCHA_VERIFIER}
 
 jwt:
   # 로컬 개발 전용 기본값이다. (HS 서명은 32바이트 이상이어야 한다)

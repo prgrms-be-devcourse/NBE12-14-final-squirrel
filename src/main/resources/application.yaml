@@ -131,6 +131,19 @@ app:
     same-site: Lax
     path: /api/v1/auth
 
+  captcha:
+    # 캡챠 검증 구현. recaptcha 는 구글에 실제로 묻고, mock 은 키 없이 흐름만 확인한다. mock 은 로컬 프로필에서만 고른다.
+    verifier: recaptcha
+    # 이 점수보다 낮으면 사람이 아닌 것으로 본다 (0.0~1.0, 임시값)
+    min-score: 0.5
+
+# 구글 reCAPTCHA v3. secret-key 는 .env 의 RECAPTCHA_SECRET_KEY 에서 읽고 여기에 적지 않는다. (verifier 가 recaptcha 일 때만 읽는다)
+recaptcha:
+  base-url: https://www.google.com
+  secret-key: ${RECAPTCHA_SECRET_KEY}
+  connect-timeout: 2s
+  read-timeout: 3s
+
 # 토스페이먼츠. secret-key 는 .env 의 TOSS_SECRET_KEY 에서 읽고 여기에 적지 않는다. (app.payment.gateway 가 toss 일 때만 읽는다)
 toss:
   base-url: https://api.tosspayments.com
