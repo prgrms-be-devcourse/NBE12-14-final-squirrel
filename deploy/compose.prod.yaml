@@ -1,0 +1,91 @@
+# 운영 서버(EC2 한 대)에서 앱 + Redis + Nginx 를 같이 띄우는 설계도.
+# 서버의 같은 폴더에 .env 를 두고 `docker compose -f compose.prod.yaml up -d` 로 실행한다. (.env 는 git 에 올리지 않는다)
+# DB 는 이 파일에 없다. RDS 는 서버 밖에서 AWS 가 관리하고, 접속 정보는 .env 의 SPRING_DATASOURCE_* 로 넣는다.
+#
+# .env 에 있어야 하는 값(이름만 적는다. 값은 서버에서 직접 넣는다):
+#   APP_IMAGE                       실행할 앱 이미지. 예) 도커허브아이디/저장소:커밋해시  (배포할 때 바꾸는 값)
+#   REDIS_PASSWORD                  Redis 비밀번호
+#   SPRING_DATASOURCE_URL           예) jdbc:postgresql://RDS엔드포인트:5432/tickting?sslmode=require
+#   SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD
+#   JWT_SECRET                      로컬과 다른 값. 32바이트 이상
+#   S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, IMAGE_BASE_URL
+#   TOSS_SECRET_KEY                 토스 시크릿 키
+#   MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM   이메일 인증 메일(SMTP). 모두 필수라 하나라도 없으면 앱이 뜨지 않는다.
+#                                   운영은 암호화(STARTTLS)와 로그인을 켜 두어서 USERNAME·PASSWORD 를 비울 수 없다. 예) Gmail: smtp.gmail.com, 587, 앱 비밀번호
+
+name: tickting
+
+# 컨테이너 로그가 디스크를 채우지 않게 한다. 서버 디스크가 작아서(16GB) 로그가 쌓이면 서버가 멈춘다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    # 이미지 이름은 .env 의 APP_IMAGE 에서 읽는다. 없으면 실행을 멈춘다. (엉뚱한 기본 이미지가 뜨는 것을 막는다)
+    image: ${APP_IMAGE:?.env 에 APP_IMAGE 를 설정하세요}
+    # 비밀 값은 이미지가 아니라 서버의 .env 에서 넣는다.
+    env_file: .env
+    environment:
+      # prod 프로필: 개발용 설정과 목 결제가 켜지지 않는다. (결제는 토스로 고정된다)
+      SPRING_PROFILES_ACTIVE: prod
+      # 서비스 이름(redis)이 곧 주소다. compose 가 컨테이너끼리 이름으로 찾게 해 준다.
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?.env 에 REDIS_PASSWORD 를 설정하세요}
+      # DB 연결 풀. 부하 테스트에서 앱 한 대당 30 이 가장 좋았다. (15 는 연결이 모자라고, 60 은 DB 경합만 늘었다)
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "30"
+    depends_on:
+      redis:
+        condition: service_healthy
+    # 죽거나 서버가 재부팅되면 자동으로 다시 시작한다. (서버를 09~18시에만 켜는 운영이라 필요하다)
+    restart: unless-stopped
+    # 서버 메모리를 한 컨테이너가 다 먹어서 전체가 죽는 일을 막는다. JVM 힙은 이 한도의 60% (Dockerfile 의 JAVA_OPTS)
+    mem_limit: 1200m
+    # 종료 신호를 받은 뒤 진행 중인 요청을 마칠 시간
+    stop_grace_period: 30s
+    logging: *default-logging
+    # ports 를 열지 않는다. 앱(8080)은 같은 네트워크의 Nginx 만 부를 수 있고 인터넷에서 직접 닿지 않는다.
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?.env 에 REDIS_PASSWORD 를 설정하세요}
+      # redis-cli 가 비밀번호를 환경변수로 읽게 해서 헬스체크 명령에 비밀번호를 적지 않는다.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    # 비밀번호가 명령줄(ps)에 보이지 않게 셸이 환경변수를 읽어 넣는다.
+    # maxmemory: 한도를 넘으면 오래된 키를 지우지 않고 쓰기를 거절한다. (세션·락·대기열이 조용히 사라지는 것보다 낫다)
+    # save/appendonly 끔: 디스크에 저장하지 않는다. 서버를 껐다 켜면 로그인 세션과 대기열이 초기화되는 것을 감수한다.
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 128mb --maxmemory-policy noeviction --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 200m
+    logging: *default-logging
+    # ports 를 열지 않는다. Redis 는 같은 네트워크의 앱만 쓴다.
+
+  nginx:
+    image: nginx:1.27-alpine
+    # 인터넷에 열리는 유일한 문이다. (HTTPS 인증서와 서버 설정은 다음 단계에서 추가한다)
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # Let's Encrypt 인증서(읽기 전용). certbot 이 서버의 ./certbot/conf 에 저장한다. 인증서가 없으면 nginx 가 뜨지 않는다.
+      - ./certbot/conf:/etc/letsencrypt:ro
+    # 앱이 건강해진 뒤에 시작해서, 앱이 뜨는 동안 사용자에게 502 오류가 나가는 것을 줄인다.
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 64m
+    logging: *default-logging
