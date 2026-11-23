@@ -16,6 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
@@ -102,5 +103,20 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 		}
 		assertThat(savedGrades(othersCanceled)).isEmpty();
 		assertThat(savedGrades(othersLocked)).isEmpty();
+	}
+
+	@Test
+	@DisplayName("같은 등급을 동시에 추가하면 하나만 201 이고 나머지는 409 PERFORMANCE302 이며 저장은 1건이다 (UNIQUE 가 마지막 방어선)")
+	void concurrentSameGradeAddsOnlyOne() throws Exception {
+		Long performanceId = insertPerformance(MY_BUSINESS, "DRAFT");
+		int threads = 5;
+
+		List<MvcResult> results = runConcurrently(threads, i -> () -> add(performanceId, body("R", 1000 + i)).andReturn());
+
+		assertThat(results).filteredOn(result -> result.getResponse().getStatus() == 201).hasSize(1);
+		assertThat(results).filteredOn(result -> result.getResponse().getStatus() == 409)
+			.hasSize(threads - 1)
+			.allSatisfy(result -> assertThat(result.getResponse().getContentAsString()).contains("PERFORMANCE302"));
+		assertThat(savedGrades(performanceId)).hasSize(1);
 	}
 }

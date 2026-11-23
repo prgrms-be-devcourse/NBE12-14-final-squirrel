@@ -34,7 +34,12 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 
 	/** 승인·반려·정지 상태를 빠르게 만들려고 승인 API 를 거치지 않고 DB 의 사업체 상태를 직접 바꾼다. */
 	private void setBusinessStatus(String businessNumber, String status) {
-		jdbc.update("UPDATE seller_business SET status = ? WHERE business_number = ?", status, businessNumber);
+		// 반려 상태는 사유 없이 저장되지 않아서(ck_seller_business_reject_reason) 반려일 때만 사유를 넣는다
+		jdbc.update("""
+			UPDATE seller_business
+			SET status = ?, reject_reason = CASE WHEN ? = 'REJECTED' THEN '테스트 반려 사유' END
+			WHERE business_number = ?
+			""", status, status, businessNumber);
 	}
 
 	private MvcResult signupAndApprove() throws Exception {
