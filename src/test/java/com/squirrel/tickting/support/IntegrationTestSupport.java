@@ -65,6 +65,8 @@ public abstract class IntegrationTestSupport {
 		registry.add("app.booking.expiry-enabled", () -> "false");
 		// 토스 키 없이 결제 흐름을 확인한다. 토스를 부르는 코드는 TossPaymentGatewayTest 가 가짜 서버로 따로 확인한다.
 		registry.add("app.payment.gateway", () -> "mock");
+		// 구글을 부르지 않는다. 토큰이 있으면 통과, "fail" 이면 실패다. 구글을 부르는 코드는 RecaptchaVerifierTest 가 가짜 서버로 따로 확인한다.
+		registry.add("app.captcha.verifier", () -> "mock");
 		// 업로드 주소는 서버 안에서 서명만 해서 만들므로 가짜 키로도 만들어진다. 이미지 주소 검증은 base-url 로 시작하는 값만 통과시킨다.
 		registry.add("app.s3.bucket", () -> "test-bucket");
 		registry.add("app.s3.region", () -> "ap-northeast-2");

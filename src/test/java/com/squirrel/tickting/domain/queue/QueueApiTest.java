@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.domain.booking.BookingTestSupport;
+import com.squirrel.tickting.domain.captcha.interceptor.CaptchaInterceptor;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -208,7 +209,8 @@ class QueueApiTest extends BookingTestSupport {
 		User user = signupVerified("user");
 
 		enter(user, beforeOpen).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BOOKING002"));
-		mockMvc.perform(post("/api/v1/schedules/999999/queue").header("Authorization", user.bearer()))
+		mockMvc.perform(post("/api/v1/schedules/999999/queue").header("Authorization", user.bearer())
+				.header(CaptchaInterceptor.TOKEN_HEADER, "pass"))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("BOOKING004"));
 
@@ -236,7 +238,8 @@ class QueueApiTest extends BookingTestSupport {
 	void verificationIsCheckedBeforeSchedule() throws Exception {
 		User user = signup("plain");
 
-		mockMvc.perform(post("/api/v1/schedules/999999/queue").header("Authorization", user.bearer()))
+		mockMvc.perform(post("/api/v1/schedules/999999/queue").header("Authorization", user.bearer())
+				.header(CaptchaInterceptor.TOKEN_HEADER, "pass"))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("AUTH307"));
 	}
@@ -245,7 +248,8 @@ class QueueApiTest extends BookingTestSupport {
 
 	private ResultActions enter(User user, Show show) throws Exception {
 		return mockMvc.perform(post("/api/v1/schedules/" + show.scheduleId() + "/queue")
-			.header("Authorization", user.bearer()));
+			.header("Authorization", user.bearer())
+			.header(CaptchaInterceptor.TOKEN_HEADER, "pass"));
 	}
 
 	private ResultActions queueStatus(User user, Show show) throws Exception {
