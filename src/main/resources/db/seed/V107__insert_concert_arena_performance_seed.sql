@@ -1,4 +1,4 @@
--- 시연용 공연(모든 환경): 가상 콘서트홀 (44구역, V105)에서 판매 중인 공연 1개와 회차 2개.
+-- 시연용 공연(모든 환경): 인스파이어 아레나(V105)에서 판매 중인 공연 1개와 회차 2개.
 -- 예매자 화면(공연 목록 → 구역 도면 → 좌석 → 결제)을 이 공연장으로 바로 확인하려는 시드다. 공연장 생성·공연 등록 흐름이 아직 다 없어서 시드로 넣는다.
 -- 판매자는 V106 의 시연용 사업체다. 날짜는 시드를 적용한 시점 기준 상대값이라 DB 를 새로 만들 때마다 "지금 판매 중"인 상태가 된다.
 --
@@ -18,7 +18,7 @@ SELECT b.id, v.id, m.id, (SELECT id FROM cancel_policy WHERE business_id IS NULL
 FROM venue v
 JOIN seller_business b ON b.business_number = '0000000002'
 JOIN seller_member m ON m.business_id = b.id AND m.role = 'OWNER'
-WHERE v.name = '가상 콘서트홀 (44구역)';
+WHERE v.name = '인스파이어 아레나';
 
 -- 공연 상세 설명용 이미지
 INSERT INTO performance_image (performance_id, url, sort_order)
@@ -65,7 +65,7 @@ DECLARE
     assigned INTEGER;
 BEGIN
     SELECT COUNT(*) INTO zones
-    FROM venue_zone z JOIN venue v ON v.id = z.venue_id WHERE v.name = '가상 콘서트홀 (44구역)';
+    FROM venue_zone z JOIN venue v ON v.id = z.venue_id WHERE v.name = '인스파이어 아레나';
     SELECT COUNT(*) INTO assigned
     FROM zone_grade zg JOIN performance p ON p.id = zg.performance_id
     WHERE p.title = '가상 월드투어 콘서트 (샘플)' AND zg.assignment_status = 'ASSIGNED';

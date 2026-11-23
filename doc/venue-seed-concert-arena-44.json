@@ -1,7 +1,7 @@
 {
-  "name": "가상 콘서트홀 (44구역)",
-  "address": "서울 (가상)",
-  "region": "서울",
+  "name": "인스파이어 아레나",
+  "address": "인천광역시 중구 공항문화로 127",
+  "region": "인천",
   "layoutKey": "concert-arena-44",
   "zones": [
     {

@@ -1,4 +1,4 @@
--- 공연장 시드(모든 환경, 시연용): 가상 콘서트홀 (44구역). 구역 44개, 좌석 10,813석, layout_key = concert-arena-44.
+-- 공연장 시드(모든 환경, 시연용): 인스파이어 아레나. 구역 44개, 좌석 10,813석, layout_key = concert-arena-44.
 -- 이 파일은 doc/venue-seed-concert-arena-44.json 에서 doc/gen-venue-seed.mjs 로 만들었다. 손으로 고치지 말고 JSON 을 고친 뒤 다시 만든다.
 --
 -- 지켜야 할 것: 이 공연장은 프론트가 구역 모양을 직접 그려서 보여 준다. 아래를 어기면 도면이 깨진다.
@@ -14,7 +14,7 @@
 -- 개발용 공연장(가상 아레나·소극장)은 앱 시드에서 빼고 테스트 전용 시드(src/test/resources/db/test-seed)로 옮겼다. 시드는 V100 번대를 쓴다.
 
 INSERT INTO venue (name, address, region, total_seats, layout_key, status, created_at, updated_at) VALUES
-    ('가상 콘서트홀 (44구역)', '서울 (가상)', '서울', 0, 'concert-arena-44', 'ACTIVE', NOW(), NOW());
+    ('인스파이어 아레나', '인천광역시 중구 공항문화로 127', '인천', 0, 'concert-arena-44', 'ACTIVE', NOW(), NOW());
 
 -- 구역 (적은 순서가 화면에 보이는 순서 sort_order 가 된다)
 INSERT INTO venue_zone (venue_id, name, floor, sort_order)
@@ -66,7 +66,7 @@ FROM venue v,
         (43, '314구역', '3층'),
         (44, '315구역', '3층')
      ) AS z(sort_order, name, floor)
-WHERE v.name = '가상 콘서트홀 (44구역)';
+WHERE v.name = '인스파이어 아레나';
 
 -- 좌석. 한 줄이 열 하나다: (순서, 구역, 열 시작, 열 끝, 열 이름 뒤에 붙일 글자, 열 이름 직접 지정, 번호 시작, 번호 끝)
 -- 열 이름을 직접 지정하므로 열 시작·끝·글자는 쓰지 않는다. (첫 줄의 NULL 은 PostgreSQL 이 열 종류를 알도록 적은 것이다)
@@ -607,9 +607,9 @@ JOIN (VALUES
      ) AS d(ord, zone_name, r1, r2, suffix, row_name, n1, n2) ON d.zone_name = z.name
 CROSS JOIN LATERAL generate_series(COALESCE(d.r1, 1), COALESCE(d.r2, 1)) AS g1(rn)
 CROSS JOIN LATERAL generate_series(d.n1, d.n2) AS g2(sn)
-WHERE v.name = '가상 콘서트홀 (44구역)';
+WHERE v.name = '인스파이어 아레나';
 
 -- 총 좌석 수는 만든 좌석을 세서 넣는다. 이 공연장 것만 갱신해서 다른 공연장의 값을 건드리지 않는다.
 UPDATE venue v
 SET total_seats = (SELECT COUNT(*) FROM venue_seat s WHERE s.venue_id = v.id)
-WHERE v.name = '가상 콘서트홀 (44구역)';
+WHERE v.name = '인스파이어 아레나';
