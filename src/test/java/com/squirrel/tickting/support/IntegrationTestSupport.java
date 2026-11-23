@@ -57,6 +57,10 @@ public abstract class IntegrationTestSupport {
 	@DynamicPropertySource
 	static void jwtSecret(DynamicPropertyRegistry registry) {
 		registry.add("jwt.secret", TestSecrets::randomJwtSecret);
+		// 앱 시드(db/seed)에는 개발용 공연장이 없다. 여러 테스트가 이름으로 찾아 쓰는 가상 아레나·소극장은 테스트 전용 시드에서 넣는다.
+		// 시연 시드(db/seed-demo)는 운영에는 없지만 로컬과 같게 더한다. 좌석 점유 테스트(ScheduleSeatServiceTest)가 시연 공연의 판매 좌석·등급을 쓴다.
+		registry.add("spring.flyway.locations",
+			() -> "classpath:db/migration,classpath:db/seed,classpath:db/seed-demo,classpath:db/test-seed");
 		// 주기 작업이 테스트가 만든 데이터를 먼저 처리하지 않게 끈다. 작업이 하는 일은 파사드를 직접 불러서 확인한다.
 		registry.add("app.booking.expiry-enabled", () -> "false");
 		// 토스 키 없이 결제 흐름을 확인한다. 토스를 부르는 코드는 TossPaymentGatewayTest 가 가짜 서버로 따로 확인한다.
