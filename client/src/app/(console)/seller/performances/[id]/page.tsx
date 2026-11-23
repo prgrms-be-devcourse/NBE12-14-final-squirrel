@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ApiError, api, useApi } from "@/lib/api";
-import { GENRE_LABEL, dateTimeText, won } from "@/lib/format";
+import { GENRE_LABEL, GRADE_CODES, dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import {
   PERFORMANCE_BADGE,
   PERFORMANCE_LABEL,
@@ -248,8 +248,8 @@ export default function SellerPerformanceDetailPage() {
             {grades.data?.grades.map((g) => (
               <li key={g.gradeId} className="flex items-center justify-between py-3">
                 <span className="flex items-center gap-3">
-                  <span className="size-4 rounded-full" style={{ backgroundColor: g.color }} />
-                  {g.name}
+                  <span className="size-4 rounded-full" style={{ backgroundColor: gradeColor(g.name) ?? undefined }} />
+                  {gradeLabel(g.name)}
                 </span>
                 <span className="flex items-center gap-4">
                   {won(g.price)}
@@ -278,7 +278,7 @@ export default function SellerPerformanceDetailPage() {
           <ul className="divide-y divide-line text-sm">
             {grades.data?.zones.map((z) => {
               const value = zoneEdits[z.zoneId] ?? zoneValue(z);
-              const color = value.startsWith("grade:") ? gradeById.get(Number(value.slice(6)))?.color : undefined;
+              const color = value.startsWith("grade:") ? gradeColor(gradeById.get(Number(value.slice(6)))?.name) : undefined;
               return (
                 <li key={z.zoneId} className="flex items-center justify-between gap-3 py-3">
                   <span className="flex items-center gap-3">
@@ -303,7 +303,7 @@ export default function SellerPerformanceDetailPage() {
                     <option value="UNSOLD">판매 제외</option>
                     {grades.data?.grades.map((g) => (
                       <option key={g.gradeId} value={`grade:${g.gradeId}`}>
-                        {g.name}
+                        {gradeLabel(g.name)}
                       </option>
                     ))}
                   </select>
@@ -359,6 +359,7 @@ export default function SellerPerformanceDetailPage() {
       {modal?.kind === "grade" && (
         <GradeModal
           grade={modal.grade}
+          taken={(grades.data?.grades ?? []).filter((g) => g.gradeId !== modal.grade?.gradeId).map((g) => g.name)}
           busy={busy}
           onClose={() => setModal(null)}
           onSubmit={(form) =>
@@ -431,35 +432,41 @@ function ScheduleModal({
 
 function GradeModal({
   grade,
+  taken,
   busy,
   onClose,
   onSubmit,
 }: {
   grade?: Grade;
+  // 같은 공연에는 같은 등급을 하나만 둘 수 있어서 이미 쓰는 코드는 고르지 못하게 한다.
+  taken: string[];
   busy: boolean;
   onClose: () => void;
-  onSubmit: (form: { name: string; price: number; color: string }) => void;
+  onSubmit: (form: { name: string; price: number }) => void;
 }) {
-  const [name, setName] = useState(grade?.name ?? "");
+  const available = GRADE_CODES.filter((code) => !taken.includes(code));
+  const [name, setName] = useState(grade?.name ?? available[0] ?? "");
   const [price, setPrice] = useState(String(grade?.price ?? ""));
-  const [color, setColor] = useState(grade?.color ?? "#c2361c");
   return (
     <Modal title={grade ? "등급 수정" : "등급 추가"} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit({ name: name.trim(), price: Number(price), color });
+          onSubmit({ name, price: Number(price) });
         }}
         className="space-y-5"
       >
-        <Field label="등급 이름">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="VIP석" required />
+        <Field label="등급" hint="화면에 보이는 이름과 색은 등급마다 정해져 있습니다">
+          <select className="input" value={name} onChange={(e) => setName(e.target.value)} required>
+            {available.map((code) => (
+              <option key={code} value={code}>
+                {gradeLabel(code)}
+              </option>
+            ))}
+          </select>
         </Field>
-        <Field label="가격 (원)">
-          <input className="input" type="number" min={0} step={1000} value={price} onChange={(e) => setPrice(e.target.value)} required />
-        </Field>
-        <Field label="색" hint="구역 지도와 가격표에 쓰입니다">
-          <input className="h-11 w-full cursor-pointer rounded-xl border border-line bg-surface p-1" type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+        <Field label="가격 (원)" hint="0원 이상 1,000만원 이하">
+          <input className="input" type="number" min={0} max={10000000} step={1000} value={price} onChange={(e) => setPrice(e.target.value)} required />
         </Field>
         <div className="flex justify-end gap-2">
           <button type="button" className="btn" onClick={onClose}>

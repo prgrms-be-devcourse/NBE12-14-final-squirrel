@@ -3,12 +3,14 @@
 import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiWithMeta, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
+import { useBookingWindow } from "@/lib/popup";
 import { saveBooking } from "@/lib/booking-cache";
 import { dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { BookingCreated, PerformanceDetail, Seat, Zone, ZoneSeats, ZoneSummary } from "@/lib/types";
+import { QueueGate } from "@/components/queue-gate";
 import { ErrorBox, Loading } from "@/components/ui";
 
 type Picked = {
@@ -24,8 +26,20 @@ const tint = (color: string | null, alpha: string) => (color ? `${color}${alpha}
 
 export default function SeatSelectPage() {
   const { id, scheduleId } = useParams<{ id: string; scheduleId: string }>();
+  // 예매하기를 누르면 먼저 대기열에 입장해야 구역·좌석을 볼 수 있다.
+  return (
+    <QueueGate scheduleId={scheduleId} backHref={`/performances/${id}`}>
+      {(reenter) => <SeatSelect onNotAdmitted={reenter} />}
+    </QueueGate>
+  );
+}
+
+function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
+  const { id, scheduleId } = useParams<{ id: string; scheduleId: string }>();
   const router = useRouter();
   const account = useAccount();
+  // 별도 예매 창 안이면 주소에 /popup 을 붙이고, 로그인처럼 사이트 화면으로 갈 때는 본 창을 옮긴 뒤 이 창을 닫는다.
+  const { inPopup, prefix, toLogin } = useBookingWindow();
 
   const performance = useApi<PerformanceDetail>(`/api/v1/performances/${id}`);
   // 구역·좌석 API 가 아직 Spring 에 없을 때 목 응답이 공연 등급을 쓰도록 공연 번호를 함께 보낸다
@@ -39,6 +53,13 @@ export default function SeatSelectPage() {
     undefined,
     hint,
   );
+
+  // 입장 시간이 지났거나 밀려나면 구역·좌석 조회가 QUEUE000 으로 막힌다. 다시 입장시킨다.
+  const notAdmitted = zones.error?.code === "QUEUE000" || seats.error?.code === "QUEUE000";
+  const reenter = useCallback(() => onNotAdmitted(), [onNotAdmitted]);
+  useEffect(() => {
+    if (notAdmitted) reenter();
+  }, [notAdmitted, reenter]);
 
   const [picked, setPicked] = useState<Picked[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -90,10 +111,14 @@ export default function SeatSelectPage() {
         scheduleStartAt: schedule?.startAt ?? "",
         mock,
       });
-      router.push(`/bookings/${booking.bookingId}/pay`);
+      router.push(`${prefix}/bookings/${booking.bookingId}/pay`);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        router.push("/login");
+        toLogin();
+        return;
+      }
+      if (error instanceof ApiError && error.code === "QUEUE000") {
+        onNotAdmitted();
         return;
       }
       setMessage(error instanceof ApiError ? error.message : "예매에 실패했습니다");
@@ -123,14 +148,16 @@ export default function SeatSelectPage() {
 
   return (
     <div>
-      <Link
-        href={`/performances/${id}`}
-        className="inline-flex items-center gap-2 text-sm text-secondary transition-colors duration-150 hover:text-foreground"
-      >
-        <ArrowLeft size={16} strokeWidth={1.5} />
-        공연 상세
-      </Link>
-      <h1 className="mt-4 text-3xl leading-tight font-semibold">{p.title}</h1>
+      {!inPopup && (
+        <Link
+          href={`/performances/${id}`}
+          className="inline-flex items-center gap-2 text-sm text-secondary transition-colors duration-150 hover:text-foreground"
+        >
+          <ArrowLeft size={16} strokeWidth={1.5} />
+          공연 상세
+        </Link>
+      )}
+      <h1 className={`${inPopup ? "" : "mt-4 "}text-3xl leading-tight font-semibold`}>{p.title}</h1>
       <p className="mt-2 text-secondary">{schedule ? dateTimeText(schedule.startAt) : "회차 정보 없음"}</p>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[1fr_340px]">
@@ -291,9 +318,9 @@ export default function SeatSelectPage() {
           </dl>
           {message && <p className="text-sm text-accent-strong">{message}</p>}
           {account === null ? (
-            <Link href="/login" className="btn btn-primary btn-lg w-full">
+            <button type="button" className="btn btn-primary btn-lg w-full" onClick={toLogin}>
               로그인하고 예매하기
-            </Link>
+            </button>
           ) : (
             <button
               type="button"

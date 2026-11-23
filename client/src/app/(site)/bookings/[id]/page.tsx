@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ApiError, api, useApi } from "@/lib/api";
-import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, won } from "@/lib/format";
+import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingDetail, CancelResult } from "@/lib/types";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
@@ -123,7 +123,7 @@ export default function BookingDetailPage() {
                 )}
                 <span className={s.active ? "" : "text-muted line-through"}>
                   {s.zoneName} {s.rowLabel} {s.seatNumber}번
-                  <span className="ml-2 text-muted">{s.gradeName}</span>
+                  <span className="ml-2 text-muted">{gradeLabel(s.gradeName)}</span>
                 </span>
               </label>
               <span className="text-right">

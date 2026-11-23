@@ -10,10 +10,12 @@ import type {
   ScheduleBooking,
   SellerPerformanceDetail,
   SellerPerformanceSummary,
+  TicketGroup,
   VenueForm,
   VenueItem,
   ZoneAssignment,
 } from "@/lib/types";
+import { GRADE_CODES } from "@/lib/format";
 import type { Handler, MockContext } from "@/server/mock/handlers";
 import {
   DEFAULT_CANCEL_POLICY,
@@ -504,15 +506,15 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
       if (s instanceof Response) return s;
       const perf = findPerf(id);
       if (!perf) return notFound();
-      if (gradesView(perf).locked) return fail(409, "PERFORMANCE014", "판매 좌석을 만든 뒤에는 등급을 바꿀 수 없습니다");
       const b = await body<Grade>(ctx);
-      if (!b.name?.trim() || typeof b.price !== "number" || b.price < 0 || !/^#[0-9a-fA-F]{6}$/.test(b.color ?? "")) {
-        return fail(400, "COMMON000", "name, price, color: 이름, 0 이상의 가격, #RRGGBB 색을 입력해 주세요");
+      if (!GRADE_CODES.includes(b.name ?? "") || typeof b.price !== "number" || b.price < 0 || b.price > 10_000_000) {
+        return fail(400, "COMMON000", "name, price: 등급 코드와 0원 이상 1,000만원 이하의 가격을 입력해 주세요");
       }
-      if (perf.grades.some((x) => x.name === b.name!.trim())) {
-        return fail(409, "PERFORMANCE015", "같은 이름의 등급이 있습니다");
+      if (perf.grades.some((x) => x.name === b.name)) {
+        return fail(409, "PERFORMANCE302", "이미 같은 등급이 있습니다");
       }
-      const grade: Grade = { gradeId: perf.nextGradeId++, name: b.name.trim(), price: b.price, color: b.color! };
+      if (gradesView(perf).locked) return fail(409, "PERFORMANCE301", "판매 좌석을 만든 뒤에는 등급을 바꿀 수 없습니다");
+      const grade: Grade = { gradeId: perf.nextGradeId++, name: b.name!, price: b.price };
       perf.grades.push(grade);
       return ok(grade, 201);
     }],
@@ -522,13 +524,16 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
       const perf = findPerf(id);
       if (!perf) return notFound();
       const grade = perf.grades.find((x) => x.gradeId === Number(gradeId));
-      if (!grade) return fail(404, "PERFORMANCE016", "등급을 찾을 수 없습니다");
-      if (gradesView(perf).locked) return fail(409, "PERFORMANCE014", "판매 좌석을 만든 뒤에는 등급을 바꿀 수 없습니다");
+      if (!grade) return fail(404, "PERFORMANCE300", "등급을 찾을 수 없습니다");
       const b = await body<Grade>(ctx);
-      if (!b.name?.trim() || typeof b.price !== "number" || b.price < 0 || !/^#[0-9a-fA-F]{6}$/.test(b.color ?? "")) {
-        return fail(400, "COMMON000", "name, price, color: 이름, 0 이상의 가격, #RRGGBB 색을 입력해 주세요");
+      if (!GRADE_CODES.includes(b.name ?? "") || typeof b.price !== "number" || b.price < 0 || b.price > 10_000_000) {
+        return fail(400, "COMMON000", "name, price: 등급 코드와 0원 이상 1,000만원 이하의 가격을 입력해 주세요");
       }
-      Object.assign(grade, { name: b.name.trim(), price: b.price, color: b.color });
+      if (perf.grades.some((x) => x.gradeId !== grade.gradeId && x.name === b.name)) {
+        return fail(409, "PERFORMANCE302", "이미 같은 등급이 있습니다");
+      }
+      if (gradesView(perf).locked) return fail(409, "PERFORMANCE301", "판매 좌석을 만든 뒤에는 등급을 바꿀 수 없습니다");
+      Object.assign(grade, { name: b.name!, price: b.price });
       return ok(grade);
     }],
     ["PATCH", "/api/v1/seller/performances/:id/zone-grades", async (ctx, [id]) => {
@@ -662,21 +667,45 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
       const s = seller(ctx);
       if (s instanceof Response) return s;
       const found = findSchedule(sid);
-      if (!found) return fail(404, "SCHEDULE000", "회차를 찾을 수 없습니다");
+      if (!found) return fail(404, "PERFORMANCE008", "회차를 찾을 수 없습니다");
       if (!found.schedule.seatsGeneratedAt) return ok(pageOf([], ctx.search));
       const names = ["김민준", "이서연", "박도윤", "최하은", "정시우", "한지아", "오세훈", "윤나린"];
       const status = ctx.search.get("status");
-      const items: ScheduleBooking[] = names.map((name, i) => ({
-        bookingId: 2000 + Number(sid) + i,
-        bookingNo: `20261${110 + i}${(name.charCodeAt(0) * 7919).toString(36).toUpperCase().slice(0, 6)}`,
-        status: (i === 5 ? "CANCELED" : i === 6 ? "PARTIAL_CANCELED" : "PAID") as ScheduleBooking["status"],
-        ordererName: name,
-        ordererPhone: `0101234${String(1000 + i * 37).slice(0, 4)}`,
-        seatCount: (i % 3) + 1,
-        totalAmount: ((i % 3) + 1) * 134000,
-        receiveType: (i % 4 === 0 ? "DELIVERY" : "ONSITE") as ScheduleBooking["receiveType"],
-        createdAt: isoLocal(new Date(Date.now() - (i + 1) * 3_600_000 * 5)),
-      })).filter((b) => !status || b.status === status);
+      const receiveType = ctx.search.get("receiveType");
+      const bookingNo = ctx.search.get("bookingNo");
+      if (status && !["PENDING", "PAID", "PARTIAL_CANCELED", "CANCELED", "EXPIRED"].includes(status)) {
+        return fail(400, "COMMON000", "요청 값이 올바르지 않습니다.");
+      }
+      const items: ScheduleBooking[] = names.map((name, i) => {
+        const bookingStatus = (i === 5 ? "CANCELED" : i === 6 ? "PARTIAL_CANCELED" : "PAID") as ScheduleBooking["status"];
+        const count = (i % 3) + 1;
+        const delivery = i % 4 === 0;
+        const canceled = bookingStatus === "CANCELED" ? count : bookingStatus === "PARTIAL_CANCELED" ? 1 : 0;
+        const kept = count - canceled;
+        const tickets: TicketGroup[] = kept > 0 ? [{ gradeName: i % 2 === 0 ? "VIP" : "R", price: i % 2 === 0 ? 150000 : 120000, count: kept, amount: kept * (i % 2 === 0 ? 150000 : 120000) }] : [];
+        const canceledTickets: TicketGroup[] = canceled > 0 ? [{ gradeName: "S", price: 90000, count: canceled, amount: canceled * 90000 }] : [];
+        return {
+          bookingId: 2000 + Number(sid) + i,
+          bookingNo: `20261${110 + i}${(name.charCodeAt(0) * 7919).toString(36).toUpperCase().slice(0, 6)}`,
+          status: bookingStatus,
+          ordererName: name,
+          ordererPhone: `0101234${String(1000 + i * 37).slice(0, 4)}`,
+          receiveType: (delivery ? "DELIVERY" : "ONSITE") as ScheduleBooking["receiveType"],
+          delivery: delivery ? { recipientName: name, recipientPhone: `0102345${String(1000 + i * 41).slice(0, 4)}`, recipientAddress: "서울 가상구 1" } : null,
+          tickets,
+          canceledTickets,
+          seatCount: kept,
+          canceledSeatCount: canceled,
+          ticketAmount: tickets.reduce((sum, t) => sum + t.amount, 0),
+          createdAt: isoLocal(new Date(Date.now() - (i + 1) * 3_600_000 * 5)),
+        };
+      }).filter(
+        (b) =>
+          // 상태를 주지 않으면 남은 표가 있는 예매(PAID, PARTIAL_CANCELED)만 나온다.
+          (status ? b.status === status : b.status === "PAID" || b.status === "PARTIAL_CANCELED") &&
+          (!receiveType || b.receiveType === receiveType) &&
+          (!bookingNo || b.bookingNo === bookingNo),
+      );
       return ok(pageOf(items, ctx.search));
     }],
 

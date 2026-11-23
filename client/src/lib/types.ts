@@ -88,7 +88,7 @@ export type PerformanceDetail = {
     status: string;
     saleStatus: SaleStatus;
   }[];
-  grades: { gradeId: number; name: string; price: number; color: string }[];
+  grades: { gradeId: number; name: string; price: number }[];
   cancelPolicy: CancelRule[];
   commonGuide: { bookingGuide: string | null; refundGuide: string | null } | null;
   seller: {
@@ -105,7 +105,7 @@ export type Zone = {
   name: string;
   floor: string;
   grade: string | null;
-  color: string | null;
+  color?: string | null;
   price: number | null;
   remaining: number;
   total: number;
@@ -320,7 +320,7 @@ export type PerformanceForm = {
   images: { url: string; sortOrder: number }[];
 };
 
-export type Grade = { gradeId: number; name: string; price: number; color: string };
+export type Grade = { gradeId: number; name: string; price: number };
 
 export type ZoneAssignmentStatus = "ASSIGNED" | "INTENTIONALLY_UNSOLD" | "UNSET";
 
@@ -349,15 +349,22 @@ export type SalesSchedule = {
   blockedSeats: number | null;
 };
 
+// 등급·가격별로 묶은 표. 금액은 수수료를 뺀 표값이고 예매할 때 저장한 값이다. (SLR-18)
+export type TicketGroup = { gradeName: string; price: number; count: number; amount: number };
+
 export type ScheduleBooking = {
   bookingId: number;
   bookingNo: string;
   status: BookingStatus;
   ordererName: string;
   ordererPhone: string;
-  seatCount: number;
-  totalAmount: number;
   receiveType: "ONSITE" | "DELIVERY";
+  delivery: { recipientName: string; recipientPhone: string; recipientAddress: string } | null;
+  tickets: TicketGroup[];
+  canceledTickets: TicketGroup[];
+  seatCount: number;
+  canceledSeatCount: number;
+  ticketAmount: number;
   createdAt: string;
 };
 
@@ -408,4 +415,12 @@ export type VenueForm = {
   region: string;
   layoutKey: string;
   zones: { name: string; floor: string; rows: VenueRow[] }[];
+};
+
+// 회차 대기열. 입장(ADMITTED)해야 구역·좌석 조회와 좌석 점유를 할 수 있다. (doc/queue-design.md)
+export type QueueStatus = {
+  status: "WAITING" | "ADMITTED" | "NONE";
+  position: number | null;
+  waitingCount: number | null;
+  expiresAt: string | null;
 };
