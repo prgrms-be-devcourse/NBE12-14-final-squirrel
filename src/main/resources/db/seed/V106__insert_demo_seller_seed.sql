@@ -14,9 +14,9 @@ SELECT '(주)가상기획 (시연)', '김대표', '0000000002', '01000000000', '
        NOW(), 'APPROVED', NULL, NOW(), NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM seller_business WHERE business_number = '0000000002');
 
-INSERT INTO seller_member (business_id, email, password, name, phone, role, ci_hash, status, created_at, updated_at)
+INSERT INTO seller_member (business_id, email, password, name, phone, role, status, created_at, updated_at)
 SELECT b.id, 'demo-seller@tickting.invalid', '$2a$10$/RSGBH6XU3Y8XHBBUz9H4.arNaAFAtGfklyZTaG.fI6RdOzQjV46e', '시연 판매자', '01000000000', 'OWNER',
-       encode(sha256('demo-seller-ci'::bytea), 'hex'), 'ACTIVE', NOW(), NOW()
+       'ACTIVE', NOW(), NOW()
 FROM seller_business b
 WHERE b.business_number = '0000000002'
   AND NOT EXISTS (SELECT 1 FROM seller_member WHERE email = 'demo-seller@tickting.invalid');
