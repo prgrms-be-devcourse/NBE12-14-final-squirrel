@@ -45,6 +45,7 @@ public class UserBookingService {
 
 	private final UserBookingRepository userBookingRepository;
 	private final ObjectMapper objectMapper;
+	private final CancelPolicyCalculator cancelPolicyCalculator;
 
 	/**
 	 * 한 예매자의 예매 목록. 상태를 주지 않으면(null) 내 예매에 보이는 상태가 모두 나온다.
@@ -68,7 +69,8 @@ public class UserBookingService {
 	public UserBookingResponse.Detail getMyBooking(Long userId, Long bookingId) {
 		Booking booking = userBookingRepository.findByIdAndUserId(bookingId, userId)
 			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
-		return UserBookingResponse.Detail.from(booking, readCancelPolicy(booking));
+		CancelPolicyCalculator.Quote quote = cancelPolicyCalculator.quote(booking, LocalDateTime.now());
+		return UserBookingResponse.Detail.from(booking, readCancelPolicy(booking), quote.cancelable(), quote.feeRate());
 	}
 
 	/** 탈퇴를 막아야 하는 진행 중인 예매(결제 대기, 공연이 시작하지 않은 결제 완료)가 있는지. */

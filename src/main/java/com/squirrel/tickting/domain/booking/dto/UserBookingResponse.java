@@ -5,7 +5,9 @@ import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.domain.payment.infra.entity.Payment;
+import com.squirrel.tickting.domain.payment.infra.entity.Refund;
 import com.squirrel.tickting.domain.payment.type.PaymentStatus;
+import com.squirrel.tickting.domain.payment.type.RefundStatus;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
@@ -66,7 +68,7 @@ public class UserBookingResponse {
 
 	/**
 	 * 내 예매 상세. (API 명세 BKG-05) 결제 화면도 결제 대기 예매를 이 응답으로 그린다.
-	 * 환불 금액·취소 가능 여부·지금 수수료율은 예매 취소(BKG-06)와 같은 기준으로 계산해야 해서, 그 기능이 들어올 때까지 null 이다.
+	 * 취소 가능 여부·지금 수수료율은 예매 취소(BKG-06)와 같은 계산기에서 받아, 화면에 보인 수수료와 실제 환불이 어긋나지 않는다.
 	 */
 	@Builder
 	@Schema(name = "UserBookingDetail", description = "내 예매 상세")
@@ -95,15 +97,15 @@ public class UserBookingResponse {
 		Integer bookingFeeAmount,
 		@Schema(description = "처음 결제 금액 (취소해도 바뀌지 않음)", example = "312000")
 		Integer totalAmount,
-		@Schema(description = "환불된 금액. 예매 취소(BKG-06)가 들어올 때까지 null")
+		@Schema(description = "환불된 금액. 완료된 환불만 더하고 취소한 적이 없으면 0", example = "0")
 		Integer refundedAmount,
 		@Schema(description = "승인된 결제. 결제 대기·만료된 예매는 null")
 		PaymentInfo payment,
 		@Schema(description = "예매 당시 취소 규정 구간. 공연에서 먼 구간부터")
 		List<CancelRule> cancelPolicy,
-		@Schema(description = "지금 취소할 수 있는지. 예매 취소(BKG-06)가 들어올 때까지 null")
+		@Schema(description = "지금 취소할 수 있는지. 결제 완료·일부 취소이고 취소 규정상 가능한 기간일 때만 true")
 		Boolean cancelable,
-		@Schema(description = "지금 취소하면 적용되는 수수료율(%). 예매 취소(BKG-06)가 들어올 때까지 null")
+		@Schema(description = "지금 취소하면 적용되는 수수료율(%). 취소할 수 없으면 null", example = "10")
 		Integer currentFeeRate,
 		@Schema(description = "결제 제한 시각. 결제 대기(PENDING)일 때만 있고 나머지는 null")
 		LocalDateTime expiresAt,
@@ -113,8 +115,14 @@ public class UserBookingResponse {
 		LocalDateTime canceledAt
 	) {
 
-		/** 공연·회차·좌석·결제는 예매의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
-		public static Detail from(Booking booking, List<CancelRule> cancelPolicy) {
+		/**
+		 * 공연·회차·좌석·결제·환불은 예매의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다.
+		 *
+		 * @param cancelable     지금 취소할 수 있는지. 예매 취소(BKG-06)와 같은 계산기에서 받는다
+		 * @param currentFeeRate 지금 취소하면 적용되는 수수료율. 취소할 수 없으면 null
+		 */
+		public static Detail from(Booking booking, List<CancelRule> cancelPolicy, boolean cancelable,
+			Integer currentFeeRate) {
 			return Detail.builder()
 				.bookingId(booking.getId())
 				.bookingNo(booking.getBookingNo())
@@ -128,12 +136,26 @@ public class UserBookingResponse {
 				.ticketAmount(booking.getTicketAmount())
 				.bookingFeeAmount(booking.getBookingFeeAmount())
 				.totalAmount(booking.getTotalAmount())
+				.refundedAmount(refundedAmount(booking))
 				.payment(approvedPayment(booking))
 				.cancelPolicy(cancelPolicy)
+				.cancelable(cancelable)
+				.currentFeeRate(currentFeeRate)
 				.expiresAt(booking.getStatus() == BookingStatus.PENDING ? booking.getExpiresAt() : null)
 				.createdAt(booking.getCreatedAt())
 				.canceledAt(booking.getCanceledAt())
 				.build();
+		}
+
+		/**
+		 * 실제로 돌려준 금액. 완료(DONE)된 환불만 더한다. 요청 중·실패한 환불은 아직 돈이 돌아가지 않았다.
+		 * 취소한 적이 없으면 0 이다.
+		 */
+		private static int refundedAmount(Booking booking) {
+			return booking.getRefunds().stream()
+				.filter(refund -> refund.getStatus() == RefundStatus.DONE)
+				.mapToInt(Refund::getAmount)
+				.sum();
 		}
 
 		/** 승인된 결제 중 가장 최근 것. 결제 대기·만료된 예매처럼 승인된 결제가 없으면 null 이다. */

@@ -32,6 +32,8 @@ import lombok.NoArgsConstructor;
 @Builder
 public class Refund {
 
+	private static final int FAIL_REASON_MAX_LENGTH = 500;
+
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
@@ -40,8 +42,8 @@ public class Refund {
 	@JoinColumn(name = "payment_id", nullable = false)
 	private Payment payment;
 
-	/** 예매 번호 (booking) */
-	@Column(nullable = false)
+	/** 예매 번호 (booking). 예매의 읽기 전용 연관(Booking.refunds)이 같은 컬럼을 써서 이름을 적어 둔다. */
+	@Column(name = "booking_id", nullable = false)
 	private Long bookingId;
 
 	/** 이번 환불로 돌려주는 금액 */
@@ -76,4 +78,30 @@ public class Refund {
 
 	@Column
 	private LocalDateTime completedAt;
+
+	/** 토스가 환불을 마쳤을 때. */
+	public void complete(LocalDateTime now) {
+		requireStatus(RefundStatus.PROCESSING);
+		this.status = RefundStatus.DONE;
+		this.failReason = null;
+		this.completedAt = now;
+	}
+
+	/**
+	 * 토스가 환불을 거절했거나 결과를 알 수 없을 때. 같은 멱등키로 다시 보내면 이중 환불 없이 이어서 처리할 수 있어서
+	 * 결과를 모르는 경우도 실패로 두고 재시도 대상으로 남긴다. 사유는 컬럼 길이에 맞게 자른다.
+	 */
+	public void fail(String reason) {
+		requireStatus(RefundStatus.PROCESSING);
+		this.status = RefundStatus.FAILED;
+		this.failReason = reason != null && reason.length() > FAIL_REASON_MAX_LENGTH
+			? reason.substring(0, FAIL_REASON_MAX_LENGTH)
+			: reason;
+	}
+
+	private void requireStatus(RefundStatus expected) {
+		if (this.status != expected) {
+			throw new IllegalStateException("환불 상태가 " + expected + " 여야 한다. 현재: " + this.status);
+		}
+	}
 }

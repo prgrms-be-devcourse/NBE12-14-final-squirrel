@@ -80,6 +80,20 @@ public class ScheduleSeatService {
 	}
 
 	/**
+	 * 취소된 예매의 판매 완료 좌석을 다시 판매 가능(AVAILABLE)으로 되돌린다. 예매 좌석을 취소(active=false)하는 것과
+	 * 같은 트랜잭션에서 불러야 한다. (좌석만 풀리고 예매 좌석이 활성으로 남으면 새 점유가 UNIQUE 인덱스와 부딪힌다)
+	 *
+	 * @return 실제로 되돌린 좌석 수. SOLD 가 아닌 좌석은 빠지므로 요청 수보다 적을 수 있다
+	 */
+	@Transactional
+	public int releaseSold(Collection<Long> seatIds, LocalDateTime now) {
+		if (seatIds.isEmpty()) {
+			return 0;
+		}
+		return scheduleSeatRepository.releaseSold(seatIds, now);
+	}
+
+	/**
 	 * 결제 승인을 시작할 때 좌석의 점유 만료 시각을 늘린다. 예매의 결제 제한 시각을 늘리는 것과 같은 트랜잭션에서 불러야 한다.
 	 * 두 값이 어긋나면 한쪽만 먼저 만료되어 스케줄러가 점유 중인 좌석을 풀 수 있다.
 	 */

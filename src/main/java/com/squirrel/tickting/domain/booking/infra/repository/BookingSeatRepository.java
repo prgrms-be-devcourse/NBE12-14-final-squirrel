@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.booking.infra.repository;
 
 import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -46,4 +47,22 @@ public interface BookingSeatRepository extends JpaRepository<BookingSeat, Long> 
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("UPDATE BookingSeat bs SET bs.active = false WHERE bs.bookingId IN :bookingIds AND bs.active = true")
 	int deactivateByBookingIds(@Param("bookingIds") Collection<Long> bookingIds);
+
+	/**
+	 * 좌석 한 장을 취소한다. 그 예매의 활성 좌석일 때만 바꾸고 바뀐 행 수를 돌려준다.
+	 * 예매 단위 락이 같은 좌석의 동시 취소를 막지만, 락이 뚫려도 active 조건 때문에 한 번만 취소되어 이중 환불이 생기지 않는다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE BookingSeat bs
+		   SET bs.active = false,
+		       bs.canceledAt = :now,
+		       bs.cancelFee = :cancelFee,
+		       bs.refundId = :refundId
+		 WHERE bs.id = :id
+		   AND bs.bookingId = :bookingId
+		   AND bs.active = true
+		""")
+	int cancel(@Param("id") Long id, @Param("bookingId") Long bookingId, @Param("cancelFee") int cancelFee,
+		@Param("refundId") Long refundId, @Param("now") LocalDateTime now);
 }

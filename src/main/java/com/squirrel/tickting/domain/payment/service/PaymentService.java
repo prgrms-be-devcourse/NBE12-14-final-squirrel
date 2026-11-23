@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.payment.type.PaymentStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentService {
 
 	private static final String ORDER_ID_PREFIX = "BK";
+	private static final List<PaymentStatus> REFUNDABLE_STATUSES =
+		List.of(PaymentStatus.DONE, PaymentStatus.PARTIAL_CANCELED);
 
 	private final PaymentRepository paymentRepository;
 
@@ -79,6 +82,22 @@ public class PaymentService {
 	@Transactional
 	public void fail(Long paymentId, String reason) {
 		paymentRepository.findById(paymentId).orElseThrow().fail(reason);
+	}
+
+	/**
+	 * 예매의 환불할 결제. 승인된 뒤 아직 전액 환불되지 않은 결제(DONE·PARTIAL_CANCELED)다.
+	 * 결제 완료된 예매라면 반드시 있어야 해서, 없으면 예매와 결제가 어긋난 것이라 IllegalStateException 이다.
+	 */
+	@Transactional(readOnly = true)
+	public Payment getRefundable(Long bookingId) {
+		return paymentRepository.findFirstByBookingIdAndStatusInOrderByIdDesc(bookingId, REFUNDABLE_STATUSES)
+			.orElseThrow(() -> new IllegalStateException("환불할 결제가 없다. 예매 번호: " + bookingId));
+	}
+
+	/** 환불을 반영한다. 남은 좌석이 없으면 전액 환불, 있으면 일부 환불 상태가 된다. 호출한 쪽의 트랜잭션에 참여한다. */
+	@Transactional
+	public void applyCancel(Payment payment, boolean fullyCanceled) {
+		payment.applyCancel(fullyCanceled);
 	}
 
 	/** 예: BK20261125KCZB03R-01. 토스 주문 ID 규칙(6~64자, 영문·숫자·-·_)에 맞는다. */

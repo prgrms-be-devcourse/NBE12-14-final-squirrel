@@ -150,4 +150,42 @@ class TossPaymentGatewayTest {
 		assertThatThrownBy(() -> gateway.confirm("pay_key_1", ORDER_ID, 312000))
 			.isInstanceOf(GatewayUnavailableException.class);
 	}
+
+	// ---------------------------------------------------------------- 환불(결제 취소)
+
+	private static final String CANCEL_URL = BASE_URL + "/v1/payments/pay_key_1/cancel";
+	private static final String REFUND_KEY = "3f2c8a1e-6b1d-4c3e-9f0a-1b2c3d4e5f60";
+
+	@Test
+	@DisplayName("환불 요청은 결제 키의 취소 주소로, 환불 행의 멱등키를 달고 취소 사유와 부분 취소 금액을 보낸다")
+	void sendsCancelRequest() {
+		server.expect(requestTo(CANCEL_URL))
+			.andExpect(method(HttpMethod.POST))
+			.andExpect(header("Idempotency-Key", REFUND_KEY))
+			.andExpect(jsonPath("$.cancelReason").value("고객 요청 취소"))
+			.andExpect(jsonPath("$.cancelAmount").value(140600))
+			.andRespond(withSuccess("""
+				{"paymentKey":"pay_key_1","status":"PARTIAL_CANCELED","cancels":[{"cancelAmount":140600}]}
+				""", MediaType.APPLICATION_JSON));
+
+		gateway.cancel("pay_key_1", 140600, "고객 요청 취소", REFUND_KEY);
+
+		server.verify();
+	}
+
+	@Test
+	@DisplayName("토스가 환불을 4xx 로 거절하면 거절 예외, 5xx 면 결과를 알 수 없음 예외다")
+	void cancelFailures() {
+		server.expect(requestTo(CANCEL_URL))
+			.andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+				.body(errorBody("NOT_CANCELABLE_AMOUNT", "취소할 수 없는 금액입니다.")));
+		server.expect(requestTo(CANCEL_URL))
+			.andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+		assertThatThrownBy(() -> gateway.cancel("pay_key_1", 140600, "고객 요청 취소", REFUND_KEY))
+			.isInstanceOfSatisfying(GatewayRejectedException.class,
+				e -> assertThat(e.getCode()).isEqualTo("NOT_CANCELABLE_AMOUNT"));
+		assertThatThrownBy(() -> gateway.cancel("pay_key_1", 140600, "고객 요청 취소", REFUND_KEY))
+			.isInstanceOf(GatewayUnavailableException.class);
+	}
 }
