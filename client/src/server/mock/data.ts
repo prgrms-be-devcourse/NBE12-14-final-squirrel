@@ -60,6 +60,8 @@ const VENUES = {
   hall: { venueId: 2, name: "가상 아트홀 (샘플)", address: "서울 서초구 남부순환로 2406 (가상)", region: "서울" },
   theater: { venueId: 3, name: "가상 대극장 (샘플)", address: "부산 해운대구 센텀남대로 35 (가상)", region: "부산" },
   small: { venueId: 4, name: "가상 소극장 (샘플)", address: "경기 성남시 분당구 판교역로 235 (가상)", region: "경기" },
+  // 시드 V105 의 공연장. 구역 44개가 도면(concert-arena-44)으로 그려진다.
+  concert: { venueId: 5, name: "인스파이어 아레나", address: "인천광역시 중구 공항문화로 127", region: "인천" },
 };
 
 const SEEDS: MockSeed[] = [
@@ -182,6 +184,28 @@ const SEEDS: MockSeed[] = [
     bookingFee: 1000,
     receiveType: "ONSITE",
     notice: "종료된 공연입니다.",
+  },
+  {
+    id: 107,
+    title: "가상 월드투어 콘서트 (샘플)",
+    genre: "CONCERT",
+    ageLimit: 12,
+    runningTime: 150,
+    castInfo: "가상 밴드",
+    venue: VENUES.concert,
+    firstDay: 8,
+    scheduleCount: 2,
+    saleOpenDay: -1,
+    grades: [
+      { name: "VIP", price: 165000 },
+      { name: "R", price: 154000 },
+      { name: "S", price: 132000 },
+      { name: "A", price: 99000 },
+    ],
+    maxPerPerson: 4,
+    bookingFee: 2000,
+    receiveType: "BOTH",
+    notice: "공연 시작 30분 전부터 입장할 수 있습니다.",
   },
 ];
 

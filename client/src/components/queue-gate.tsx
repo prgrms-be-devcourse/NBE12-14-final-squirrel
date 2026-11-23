@@ -4,8 +4,10 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { CAPTCHA_HEADER, getCaptchaToken } from "@/lib/captcha";
 import { useBookingWindow } from "@/lib/popup";
 import type { QueueStatus } from "@/lib/types";
+import { EmailVerification } from "@/components/email-verification";
 import { Loading } from "@/components/ui";
 
 // 대기열 입구. 서버는 회차마다 정원만큼만 들여보내고, 입장하지 않으면 구역·좌석 조회와 좌석 점유가 403(QUEUE000)이다.
@@ -17,6 +19,8 @@ type Phase =
   | { kind: "entering" }
   | { kind: "waiting"; position: number; waitingCount: number }
   | { kind: "admitted" }
+  // 이메일 인증을 하지 않은 예매자(403 AUTH307). 인증하면 다시 입장한다.
+  | { kind: "verify" }
   | { kind: "error"; message: string; retryable: boolean };
 
 export function QueueGate({
@@ -69,16 +73,34 @@ export function QueueGate({
         toLogin();
         return;
       }
+      if (error instanceof ApiError && error.code === "AUTH307") {
+        setPhase({ kind: "verify" });
+        return;
+      }
       setPhase({
         kind: "error",
         message: error instanceof ApiError ? error.message : "대기열에 연결하지 못했습니다",
-        retryable: !(error instanceof ApiError) || error.status >= 500 || error.status === 409 || error.status === 429,
+        retryable:
+          !(error instanceof ApiError) ||
+          error.status >= 500 ||
+          error.status === 409 ||
+          error.status === 429 ||
+          error.code === "CAPTCHA000" ||
+          error.code === "CLIENT",
       });
     }
 
     async function enter() {
       try {
-        apply(await api<QueueStatus>(path, { method: "POST" }), true);
+        // 줄을 서기 전에 캡챠 토큰을 확인한다. 토큰은 한 번만 쓸 수 있어서 입장할 때마다 새로 받는다.
+        let token: string;
+        try {
+          token = await getCaptchaToken("queue_enter");
+        } catch {
+          fail(new ApiError(0, "CLIENT", "자동 입력 방지 확인을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요"));
+          return;
+        }
+        apply(await api<QueueStatus>(path, { method: "POST", headers: { [CAPTCHA_HEADER]: token } }), true);
       } catch (error) {
         fail(error);
       }
@@ -113,6 +135,17 @@ export function QueueGate({
 
   if (phase.kind === "admitted") return <>{children(reenter)}</>;
   if (phase.kind === "entering") return <Loading label="대기열에 입장하는 중" />;
+
+  if (phase.kind === "verify") {
+    return (
+      <div className="mx-auto max-w-md py-12">
+        <div className="card space-y-4 p-8">
+          <h1 className="text-xl font-semibold">이메일 인증이 필요합니다</h1>
+          <EmailVerification onVerified={reenter} onCancel={() => (inPopup ? close() : goTo(backHref))} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-md py-12">
