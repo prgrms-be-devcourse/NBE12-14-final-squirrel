@@ -39,7 +39,10 @@ spring:
         default_batch_fetch_size: 100
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    # 스키마(db/migration)와 시드(db/seed: 공연장·좌석, 약관, 관리자)를 모든 환경에 적용한다.
+    # 판매자·공연·시연 예매(db/seed-demo)는 로컬에서만 적용한다. (application-local.yaml) 운영은 판매자 가입 → 승인 → 공연 신청을 직접 시험한다.
+    # 개발용 공연장은 시드에 없고 테스트 전용 시드(src/test/resources/db/test-seed)에만 있다.
+    locations: classpath:db/migration,classpath:db/seed
   data:
     web:
       pageable:
