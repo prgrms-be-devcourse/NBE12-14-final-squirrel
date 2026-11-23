@@ -79,7 +79,7 @@ public class AuthRequest {
 		String passwordConfirm,
 
 		@NotBlank @Size(max = 50)
-		@Schema(description = "대표자 계정 이름", example = "김대표")
+		@Schema(description = "가입하는 대표자 본인의 이름 (계정 이름). 사업자등록증의 대표자명은 representativeName 으로 따로 받는다", example = "김대표")
 		String name,
 
 		@NotBlank @ValidPhone

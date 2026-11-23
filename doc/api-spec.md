@@ -370,8 +370,8 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 | --- | --- |
 | `companyName` | 최대 100자 |
 | `passwordConfirm` | 필수, `password`와 같아야 함 (다르면 400 `COMMON000`) |
-| `name` | 대표 계정 이름. 최대 50자, 앞뒤 공백 제거 |
-| `phone` | 대표 계정 휴대폰. 하이픈 없는 숫자 |
+| `name` | 가입하는 사람(대표)의 이름. `seller_member.name`에 저장되고, 담당자 가입에서는 담당자 본인의 이름이 들어간다. 최대 50자, 앞뒤 공백 제거 |
+| `phone` | 가입하는 사람(대표)의 휴대폰. 하이픈 없는 숫자 |
 | `representativeName` | 사업자등록증의 대표자명. 최대 50자 (`name`과 같지 않아도 가입된다) |
 | `businessNumber` | 하이픈 없는 숫자 10자리 |
 | `termsAgreed` | `true`여야 함 |

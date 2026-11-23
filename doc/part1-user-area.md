@@ -248,7 +248,7 @@ seller_business (회사 1개)
 |---|---|---|---|---|---|
 | PK | 사업체 번호 | `id` | Long | NOT NULL |  |
 |  | 사업체명 | `company_name` | String | NOT NULL | 기획사(회사) 이름 |
-|  | 대표자명 | `representative_name` | String | NOT NULL | 사업자등록증의 대표자명. 대표 계정 이름(`seller_member.name`)과 따로 입력받는다 |
+|  | 대표자명 | `representative_name` | String | NOT NULL | 사업자등록증의 대표자명. 계정 사용자의 이름(`seller_member.name`, 담당자는 담당자 본인 이름)과 따로 입력받는다 |
 |  | 사업자등록번호 | `business_number` | String | NOT NULL | 중복 불가 (같은 사업자 중복 가입 방지) |
 |  | 연락처 | `contact_phone` | String | NOT NULL | 담당자 연락처 |
 |  | 연락 이메일 | `contact_email` | String | NOT NULL | 담당자 이메일 |
@@ -270,7 +270,7 @@ seller_business (회사 1개)
 | FK | 사업체 번호 | `business_id` | Long | NOT NULL | 소속 회사 (seller_business) |
 |  | 이메일 | `email` | String | NOT NULL | 로그인 아이디. 삭제되지 않은 판매자 계정끼리 중복 불가 |
 |  | 비밀번호 | `password` | String | NOT NULL | 암호화한 값을 저장 |
-|  | 이름 | `name` | String | NOT NULL |  |
+|  | 이름 | `name` | String | NOT NULL | 계정 사용자의 이름. 대표는 가입한 대표자 이름, 담당자는 담당자 본인 이름 |
 |  | 휴대폰 번호 | `phone` | String | NOT NULL |  |
 |  | 역할 | `role` | enum | NOT NULL | OWNER 대표자 / STAFF 담당자 |
 |  | 상태 | `status` | enum | NOT NULL | ACTIVE 사용 중 / INACTIVE 비활성 |
