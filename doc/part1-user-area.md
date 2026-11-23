@@ -147,7 +147,7 @@ erDiagram
 |  | 휴대폰 번호 | `phone` | String | NOT NULL |  |
 |  | 프로필 이미지 | `profile_img` | String | NULL | 이미지 주소 |
 |  | 상태 | `status` | enum | NOT NULL | ACTIVE 사용 중 / SUSPENDED 이용 제한 [확장] |
-|  | 이메일 인증일 | `email_verified_at` | LocalDateTime | NULL | 가입 이메일의 주인임을 인증한 시각. NULL이면 미인증이고 예매하기(대기열 입장)가 막힌다 (V11, API는 미구현) |
+|  | 이메일 인증일 | `email_verified_at` | LocalDateTime | NULL | 가입 이메일의 주인임을 인증한 시각. NULL이면 미인증이고 예매하기(대기열 입장)가 막힌다 (V11) |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
 |  | 삭제일 | `deleted_at` | LocalDateTime | NULL | 탈퇴 시각. 값이 있으면 탈퇴한 회원 |
