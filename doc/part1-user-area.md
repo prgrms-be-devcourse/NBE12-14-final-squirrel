@@ -147,7 +147,7 @@ erDiagram
 |  | 휴대폰 번호 | `phone` | String | NOT NULL |  |
 |  | 프로필 이미지 | `profile_img` | String | NULL | 이미지 주소 |
 |  | 상태 | `status` | enum | NOT NULL | ACTIVE 사용 중 / SUSPENDED 이용 제한 [확장] |
-|  | 이메일 인증일 | `email_verified_at` | LocalDateTime | NULL | 가입 이메일의 주인임을 인증한 시각. NULL이면 미인증이고 예매하기(대기열 입장)가 막힌다 (V11, API는 미구현) |
+|  | 이메일 인증일 | `email_verified_at` | LocalDateTime | NULL | 가입 이메일의 주인임을 인증한 시각. NULL이면 미인증이고 예매하기(대기열 입장)가 막힌다 (V11) |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
 |  | 삭제일 | `deleted_at` | LocalDateTime | NULL | 탈퇴 시각. 값이 있으면 탈퇴한 회원 |
@@ -369,7 +369,7 @@ seller_business (회사 1개)
 ## 1부 요약
 
 - 사용자는 예매자, 판매자, 관리자 3종류이고 **완전히 따로** 만든다. (서로 중복 검사 없음)
-- 로그인은 이메일로 한다. 이름·휴대폰은 가입할 때 직접 입력받는다. (본인인증은 유료라 쓰지 않는다. 계정 중복 가입은 이메일 인증으로 줄인다)
+- 로그인은 이메일로 한다. 이름·휴대폰은 가입할 때 직접 입력받는다. (본인인증은 유료라 쓰지 않는다. 이메일 인증은 가입 이메일의 주인을 확인할 뿐이라, 한 사람이 이메일을 바꿔 계정을 여러 개 만드는 것은 막지 못한다)
 - 판매자는 **회사(`seller_business`) + 계정(`seller_member`)** 구조다. 대표자는 회사당 1명, 담당자는 초대 링크로 들어온다.
 - 삭제하지 않는다. 회원 탈퇴는 `deleted_at`, 담당자 비활성화는 `status`로 처리한다. 탈퇴할 때는 개인정보를 비식별 처리한다.
 

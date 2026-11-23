@@ -10,6 +10,7 @@ import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.global.security.PasswordVerifier;
 import com.squirrel.tickting.global.util.EmailUtil;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -104,6 +105,43 @@ public class UserMemberService {
 	@Transactional
 	public void withdraw(Long userId) {
 		getMe(userId).withdraw();
+	}
+
+	/**
+	 * 이메일 인증번호를 받거나 확인할 수 있는 회원을 읽는다. 탈퇴했으면 USER_NOT_FOUND, 정지(비활성)면 ACCOUNT_DISABLED,
+	 * 이미 인증했으면 EMAIL_ALREADY_VERIFIED. 이 순서로 확인한다.
+	 */
+	@Transactional(readOnly = true)
+	public UserMember getEmailVerificationTarget(Long userId) {
+		UserMember user = getMe(userId);
+		requireActive(user);
+		if (user.isEmailVerified()) {
+			throw new BusinessException(AuthExceptionCode.EMAIL_ALREADY_VERIFIED);
+		}
+		return user;
+	}
+
+	/**
+	 * 이메일 인증 시각을 남긴다. 아직 인증하지 않은 회원만 바꾸는 조건부 UPDATE 라서 겹쳐 불러도 한 번만 반영되고,
+	 * 이미 인증했거나 그 사이 탈퇴해서 바뀐 행이 없으면 EMAIL_ALREADY_VERIFIED 다.
+	 */
+	@Transactional
+	public void markEmailVerified(Long userId, LocalDateTime now) {
+		if (userMemberRepository.markEmailVerified(userId, now) == 0) {
+			throw new BusinessException(AuthExceptionCode.EMAIL_ALREADY_VERIFIED);
+		}
+	}
+
+	/**
+	 * 예매하기(대기열 입장) 전에 이메일 인증을 마쳤는지 확인한다. 안 했으면 EMAIL_NOT_VERIFIED.
+	 * 인증 상태는 세션이 아니라 DB 에서 읽는다. 세션에 두면 인증을 마친 뒤에도 다시 로그인해야 풀리기 때문이다.
+	 * 탈퇴한 회원은 인증한 것으로 보지 않아 같은 에러가 난다. (토큰이 남아 있어도 예매할 수 없다)
+	 */
+	@Transactional(readOnly = true)
+	public void requireEmailVerified(Long userId) {
+		if (!userMemberRepository.existsByIdAndEmailVerifiedAtIsNotNullAndDeletedAtIsNull(userId)) {
+			throw new BusinessException(AuthExceptionCode.EMAIL_NOT_VERIFIED);
+		}
 	}
 
 	public CustomUserDetails toAccount(UserMember user) {

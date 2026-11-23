@@ -24,6 +24,21 @@ public enum AuthExceptionCode implements ExceptionCode {
 	/** 가입할 때 비밀번호와 비밀번호 확인이 다름 (예매자·판매자 가입 공통) */
 	PASSWORD_CONFIRM_MISMATCH("AUTH005", HttpStatus.BAD_REQUEST, "비밀번호와 비밀번호 확인이 일치하지 않습니다."),
 
+	/** 이미 인증한 회원이 이메일 인증번호 발송·확인을 부름. 다른 창·기기에서 이미 인증한 경우 등이라 화면은 에러로 보이지 않고 이어 간다 */
+	EMAIL_ALREADY_VERIFIED("AUTH301", HttpStatus.CONFLICT, "이미 이메일 인증을 마쳤습니다."),
+	/** 재발송 간격(60초) 안에 인증번호를 다시 요청함 (app.auth.email-verification.resend-interval) */
+	EMAIL_VERIFICATION_TOO_SOON("AUTH302", HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 보낼 수 있습니다."),
+	/** 하루 발송 한도 초과. 한국 시간 자정에 초기화된다 (app.auth.email-verification.daily-limit) */
+	EMAIL_VERIFICATION_DAILY_LIMIT("AUTH303", HttpStatus.TOO_MANY_REQUESTS, "오늘은 더 보낼 수 없습니다. 내일 다시 시도해 주세요."),
+	/** 발송 대기가 가득 차서 접수하지 못함. 오픈 직후처럼 요청이 몰릴 때만 난다. 재발송 간격·하루 횟수에 넣지 않는다 */
+	EMAIL_SEND_QUEUE_FULL("AUTH304", HttpStatus.SERVICE_UNAVAILABLE, "요청이 많습니다. 잠시 후 다시 시도해 주세요."),
+	/** 인증번호가 틀림 (기회가 남은 경우). 메시지에 남은 횟수를 넣어 던진다 */
+	EMAIL_VERIFICATION_CODE_MISMATCH("AUTH305", HttpStatus.BAD_REQUEST, "인증번호가 올바르지 않습니다."),
+	/** 유효한 인증번호가 없음: 만료, 틀린 횟수 초과로 폐기, 받은 적 없음. 사용자가 할 일은 "다시 받기" 하나라 한 코드로 묶었다 */
+	EMAIL_VERIFICATION_CODE_INVALID("AUTH306", HttpStatus.BAD_REQUEST, "인증번호가 만료되었거나 없습니다. 다시 받아 주세요."),
+	/** 이메일 인증을 하지 않은 예매자가 예매하기(대기열 입장)를 함. 화면은 인증 모달을 띄운다 */
+	EMAIL_NOT_VERIFIED("AUTH307", HttpStatus.FORBIDDEN, "예매하려면 이메일 인증이 필요합니다."),
+
 	/** 로그인은 됐으나 권한 부족 (예: 예매자가 관리자 API 호출, 403) */
 	ACCESS_DENIED("AUTH100", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 
