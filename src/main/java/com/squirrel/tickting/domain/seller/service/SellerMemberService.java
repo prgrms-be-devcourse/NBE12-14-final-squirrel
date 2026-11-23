@@ -1,6 +1,5 @@
 package com.squirrel.tickting.domain.seller.service;
 
-import com.squirrel.tickting.domain.auth.identity.CiHasher;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerMember;
 import com.squirrel.tickting.domain.seller.infra.repository.SellerBusinessRepository;
@@ -39,8 +38,9 @@ public class SellerMemberService {
 	 */
 	@Transactional
 	public SellerBusiness signup(SellerSignupCommand command) {
-		if (!command.identity().name().equals(command.representativeName().trim())) {
-			throw new BusinessException(SellerExceptionCode.REPRESENTATIVE_NAME_MISMATCH);
+		// DB 조회가 필요 없는 검사라 중복 확인보다 먼저 한다
+		if (!command.password().equals(command.passwordConfirm())) {
+			throw new BusinessException(AuthExceptionCode.PASSWORD_CONFIRM_MISMATCH);
 		}
 		String email = EmailUtil.normalize(command.email());
 
@@ -65,10 +65,9 @@ public class SellerMemberService {
 			.business(business)
 			.email(email)
 			.password(passwordEncoder.encode(command.password()))
-			.name(command.identity().name())
-			.phone(command.identity().phone())
+			.name(command.name())
+			.phone(command.phone())
 			.role(SellerRole.OWNER)
-			.ciHash(CiHasher.hash(command.identity().ci()))
 			.status(SellerMemberStatus.ACTIVE)
 			.build());
 		return business;

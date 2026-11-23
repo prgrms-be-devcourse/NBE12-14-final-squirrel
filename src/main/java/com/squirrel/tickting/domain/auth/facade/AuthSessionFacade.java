@@ -3,8 +3,6 @@ package com.squirrel.tickting.domain.auth.facade;
 import com.squirrel.tickting.domain.admin.service.AdminMemberService;
 import com.squirrel.tickting.domain.auth.dto.AuthRequest;
 import com.squirrel.tickting.domain.auth.dto.AuthResponse;
-import com.squirrel.tickting.domain.auth.identity.IdentityVerifier;
-import com.squirrel.tickting.domain.auth.identity.VerifiedIdentity;
 import com.squirrel.tickting.domain.seller.service.SellerMemberService;
 import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.service.TermsService;
@@ -30,7 +28,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class AuthSessionFacade {
 
-	private final IdentityVerifier identityVerifier;
 	private final UserMemberService userMemberService;
 	private final SellerMemberService sellerMemberService;
 	private final AdminMemberService adminMemberService;
@@ -42,12 +39,10 @@ public class AuthSessionFacade {
 	/** 예매자 가입. 약관 확인, 회원 저장, 약관 동의 기록이 한 트랜잭션이고, 가입하면 바로 로그인(세션 생성)된다. */
 	public AuthResponse.Session userSignup(AuthRequest.UserSignup request, HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse) {
-		VerifiedIdentity identity = identityVerifier.verify(request.identityToken());
-
 		CustomUserDetails account = transactionTemplate.execute(status -> {
 			List<Terms> agreedTerms = termsService.validateAgreement(request.agreedTermIds());
-			UserMember user = userMemberService.create(request.email(), request.password(),
-				request.nickname(), identity);
+			UserMember user = userMemberService.create(request.email(), request.password(), request.passwordConfirm(),
+				request.nickname(), request.name(), request.phone());
 			termsService.recordAgreements(user.getId(), agreedTerms);
 			return userMemberService.toAccount(user);
 		});

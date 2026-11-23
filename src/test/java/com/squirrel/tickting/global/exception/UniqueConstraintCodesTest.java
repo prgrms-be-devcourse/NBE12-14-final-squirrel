@@ -2,6 +2,7 @@ package com.squirrel.tickting.global.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.exception.code.SellerExceptionCode;
 import com.squirrel.tickting.global.exception.code.UserExceptionCode;
 import java.sql.SQLException;
@@ -22,12 +23,14 @@ class UniqueConstraintCodesTest {
 	void findRegisteredConstraint() {
 		assertThat(UniqueConstraintCodes.find(violation("uq_user_email")))
 			.contains(UserExceptionCode.EMAIL_DUPLICATED);
-		assertThat(UniqueConstraintCodes.find(violation("UQ_USER_CI")))
-			.contains(UserExceptionCode.ALREADY_REGISTERED);
 		assertThat(UniqueConstraintCodes.find(violation("uq_seller_email")))
 			.contains(SellerExceptionCode.EMAIL_DUPLICATED);
 		assertThat(UniqueConstraintCodes.find(violation("uq_seller_business_number")))
 			.contains(SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED);
+		assertThat(UniqueConstraintCodes.find(violation("uq_seat_grade_performance_name")))
+			.contains(PerformanceExceptionCode.GRADE_NAME_DUPLICATED);
+		assertThat(UniqueConstraintCodes.find(violation("uq_cancel_policy_business_name")))
+			.contains(PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED);
 	}
 
 	@Test

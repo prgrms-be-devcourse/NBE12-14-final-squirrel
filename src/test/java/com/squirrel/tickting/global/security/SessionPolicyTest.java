@@ -43,7 +43,7 @@ class SessionPolicyTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("JWT 로 호출하거나 로그인 없이 호출해도 세션이 만들어지지 않고, v1 JWT 인증은 그대로 동작한다")
 	void noSessionWithoutSessionLogin() throws Exception {
-		MvcResult signup = postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com", "ci-001"))
+		MvcResult signup = postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com"))
 			.andExpect(status().isCreated())
 			.andReturn();
 

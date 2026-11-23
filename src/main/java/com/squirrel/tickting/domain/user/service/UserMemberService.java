@@ -1,7 +1,5 @@
 package com.squirrel.tickting.domain.user.service;
 
-import com.squirrel.tickting.domain.auth.identity.CiHasher;
-import com.squirrel.tickting.domain.auth.identity.VerifiedIdentity;
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
 import com.squirrel.tickting.domain.user.infra.repository.UserMemberRepository;
 import com.squirrel.tickting.domain.user.type.UserStatus;
@@ -29,29 +27,28 @@ public class UserMemberService {
 	private final PasswordVerifier passwordVerifier;
 
 	/**
-	 * 예매자를 만든다. 이메일·본인인증(CI) 중복이면 BusinessException. 호출한 쪽의 트랜잭션에 참여한다.
+	 * 예매자를 만든다. 이메일 중복이면 BusinessException. 호출한 쪽의 트랜잭션에 참여한다.
 	 * 동시 요청이 이 확인을 함께 통과하면 DB 의 UNIQUE 인덱스가 막고, GlobalExceptionHandler 가 같은 에러로 바꿔 준다.
 	 */
 	@Transactional
-	public UserMember create(String rawEmail, String rawPassword, String nickname, VerifiedIdentity identity) {
+	public UserMember create(String rawEmail, String rawPassword, String passwordConfirm, String nickname, String name,
+		String phone) {
+		// DB 조회가 필요 없는 검사라 이메일 중복 확인보다 먼저 한다
+		if (!rawPassword.equals(passwordConfirm)) {
+			throw new BusinessException(AuthExceptionCode.PASSWORD_CONFIRM_MISMATCH);
+		}
 		String email = EmailUtil.normalize(rawEmail);
-		String ciHash = CiHasher.hash(identity.ci());
 
 		if (userMemberRepository.existsByEmailAndDeletedAtIsNull(email)) {
 			throw new BusinessException(UserExceptionCode.EMAIL_DUPLICATED);
-		}
-		if (userMemberRepository.existsByCiHashAndDeletedAtIsNull(ciHash)) {
-			throw new BusinessException(UserExceptionCode.ALREADY_REGISTERED);
 		}
 
 		return userMemberRepository.save(UserMember.builder()
 			.email(email)
 			.password(passwordEncoder.encode(rawPassword))
-			.name(identity.name())
+			.name(name)
 			.nickname(nickname.trim())
-			.phone(identity.phone())
-			.ciHash(ciHash)
-			.birthDate(identity.birthDate())
+			.phone(phone)
 			.status(UserStatus.ACTIVE)
 			.build());
 	}

@@ -11,6 +11,4 @@ public interface UserMemberRepository extends JpaRepository<UserMember, Long> {
 	Optional<UserMember> findByIdAndDeletedAtIsNull(Long id);
 
 	boolean existsByEmailAndDeletedAtIsNull(String email);
-
-	boolean existsByCiHashAndDeletedAtIsNull(String ciHash);
 }

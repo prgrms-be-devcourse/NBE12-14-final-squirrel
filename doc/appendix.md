@@ -52,7 +52,7 @@
 | 기능 | 쓰는 테이블 | 부 |
 |---|---|---|
 | 약관 조회 | `terms` | 1 |
-| 회원가입 (본인인증, 약관 동의) | `user_member`, `user_terms_agreement`, `terms` | 1 |
+| 회원가입 (이름·휴대폰 입력, 약관 동의) | `user_member`, `user_terms_agreement`, `terms` | 1 |
 | 로그인·로그아웃 | `user_member` (+ Redis) | 1 |
 | 내 정보 조회·수정, 탈퇴 | `user_member` | 1 |
 | 공연 목록·검색 | `performance`, `performance_schedule`, `venue` | 3 |
@@ -126,7 +126,7 @@
 | 6 | `booking`, `booking_seat`, `payment`, `refund` | 예매·결제 |
 | 7 | `schedule_postponement`, `common_guide`, `venue_request`, `audit_log` | 곁가지 (언제든 추가 가능) |
 
-**테이블은 Flyway SQL 마이그레이션으로 만듭니다.** (`ddl-auto`는 `none`이나 `validate`로 둡니다.) 부분 UNIQUE 인덱스(`booking_seat`, 계정 이메일, `ci_hash`), `jsonb`, `fillfactor` 같은 PostgreSQL 기능은 JPA 자동 생성으로 만들 수 없어서 SQL이 필요합니다. 이 부분은 C님이 맡는 것을 추천합니다.
+**테이블은 Flyway SQL 마이그레이션으로 만듭니다.** (`ddl-auto`는 `none`이나 `validate`로 둡니다.) 부분 UNIQUE 인덱스(`booking_seat`, 계정 이메일), `jsonb`, `fillfactor` 같은 PostgreSQL 기능은 JPA 자동 생성으로 만들 수 없어서 SQL이 필요합니다. 이 부분은 C님이 맡는 것을 추천합니다.
 
 **FK는 대부분 논리 FK입니다.** 문서의 FK 표시는 "이 컬럼이 저 테이블의 번호를 가리킨다"는 뜻이고, DB 제약은 걸지 않습니다. 엔티티에는 `Long userId`처럼 번호만 저장하고, 자주 조회하는 컬럼은 인덱스를 직접 만듭니다. (PostgreSQL은 FK를 걸어도 컬럼에 인덱스를 자동으로 만들지 않습니다.) 존재하지 않는 번호를 막는 일은 서비스 코드가 책임지고, DB 제약은 꼭 필요한 곳(부분 UNIQUE 등)에만 SQL로 겁니다.
 
@@ -260,7 +260,7 @@
 | 취소 규정 | 예매가 규정을 참조 | 예매에 JSON(`jsonb`)으로 복사 |
 | `schedule_seat` | 영구 보관 | 끝난 회차는 일정 기간 뒤 삭제 |
 | `schedule_seat.zone_id` | 없음 | 추가 |
-| `seller_member.last_login_at`, `ci_hash` | 대표만 `ci_hash` | `last_login_at` 제거, 담당자도 본인인증 |
+| `seller_member.last_login_at`, `ci_hash` | 대표만 `ci_hash` | `last_login_at` 제거, 담당자도 본인인증 → 2026-11-23 본인인증이 유료라 `ci_hash`를 모두 제거 (V12) |
 | 삭제 방식 | 일부만 | 계정 테이블은 `deleted_at`(소프트 삭제), 공연장은 `status` |
 
 다른 문서(`erd-ticketing.md`, `table-guide-for-team.md`)를 팀에 공유하지 않도록 주의해 주세요. 이 값들이 서로 달라서 헷갈릴 수 있습니다.
@@ -274,7 +274,7 @@
 | 판매 좌석 생성 시점 | 회차 추가 때 → **판매 오픈 24시간 전** (스케줄러). `performance_schedule.seats_generated_at` 추가 | 3부 3-5, 5부 |
 | 등급·가격 수정 가능 시점 | 예매가 생기기 전까지 → **좌석 생성 전까지** (회차 일시는 예매가 생긴 뒤 수정 불가) | 3부 3-5 |
 | 판매자 보류석 지정 | 좌석이 만들어진 뒤에만 가능 (앞당겨 생성 가능) | 3부 |
-| 예매자 `ci_hash` | 탈퇴 제외 부분 UNIQUE, NULL 허용. 탈퇴 시 개인정보 비식별 처리 | 1부 |
+| 예매자 `ci_hash` | (2026-11-23 제거, V12) 탈퇴 제외 부분 UNIQUE였음. 탈퇴 시 개인정보 비식별 처리는 유지 | 1부 |
 | `booking.performance_id` | 추가 (공연 단위 매수 검사·조회) | 4부 |
 | 좌석 점유와 예매 생성 | **한 트랜잭션**으로 합침 (점유 시점에 PENDING 예매 생성) | 4부 4-6 |
 | 1인 최대 매수 | 사용자·공연 단위 잠금 + `booking_seat` 활성 수 집계. 취소분 제외, 한도는 예매 뒤 늘리기만 가능 (임시) | 3부, 4부 4-7 |

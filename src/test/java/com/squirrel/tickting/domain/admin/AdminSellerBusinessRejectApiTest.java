@@ -35,13 +35,15 @@ class AdminSellerBusinessRejectApiTest extends IntegrationTestSupport {
 	}
 
 	private long insertBusiness(String status, String businessNumber) {
+		// 반려 상태에는 사유가 있어야 해서(반려 API는 사유가 필수) 반려일 때만 사유를 넣는다
 		Timestamp time = Timestamp.valueOf(LocalDateTime.of(2026, 11, 1, 10, 0));
 		return jdbc.queryForObject("""
 			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone,
-			                             contact_email, terms_agreed_at, status, created_at, updated_at)
-			VALUES ('가상기획', '김대표', ?, '0212345678', 'contact@company.com', ?, ?, ?, ?)
+			                             contact_email, terms_agreed_at, status, reject_reason, created_at, updated_at)
+			VALUES ('가상기획', '김대표', ?, '0212345678', 'contact@company.com', ?, ?,
+			        CASE WHEN ? = 'REJECTED' THEN '기존 반려 사유' END, ?, ?)
 			RETURNING id
-			""", Long.class, businessNumber, time, status, time, time);
+			""", Long.class, businessNumber, time, status, status, time, time);
 	}
 
 	private String statusOf(long businessId) {
@@ -112,8 +114,9 @@ class AdminSellerBusinessRejectApiTest extends IntegrationTestSupport {
 				.andExpect(jsonPath("$.code").value("SELLER007"));
 
 			assertThat(statusOf(businessId)).isEqualTo(reviewed);
+			String expectedReason = reviewed.equals("REJECTED") ? "기존 반려 사유" : null;
 			assertThat(jdbc.queryForObject("SELECT reject_reason FROM seller_business WHERE id = ?", String.class,
-				businessId)).isNull();
+				businessId)).isEqualTo(expectedReason);
 		}
 		assertThat(auditCount()).isZero();
 	}

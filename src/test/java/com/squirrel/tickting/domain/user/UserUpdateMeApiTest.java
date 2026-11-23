@@ -25,7 +25,7 @@ class UserUpdateMeApiTest extends IntegrationTestSupport {
 	private static final String IMG = "https://cdn.example.com/profiles/5.png";
 
 	private String signupAndGetBearer() throws Exception {
-		MvcResult result = postJson(SIGNUP, userSignupBody("user@example.com", "ci-001"))
+		MvcResult result = postJson(SIGNUP, userSignupBody("user@example.com"))
 			.andExpect(status().isCreated())
 			.andReturn();
 		return "Bearer " + accessToken(result);

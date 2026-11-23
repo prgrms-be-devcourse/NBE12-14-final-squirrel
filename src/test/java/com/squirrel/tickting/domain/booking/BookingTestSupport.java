@@ -114,7 +114,7 @@ public abstract class BookingTestSupport extends IntegrationTestSupport {
 	/** 실제 가입 API 로 예매자를 만들고 액세스 토큰을 받는다. 이름은 본인인증 값(홍길동)으로 들어간다. */
 	protected User signup(String name) throws Exception {
 		String email = name + "@example.com";
-		MvcResult result = postJson(SIGNUP, userSignupBody(email, "ci-" + name))
+		MvcResult result = postJson(SIGNUP, userSignupBody(email))
 			.andExpect(status().isCreated())
 			.andReturn();
 		Long id = jdbc.queryForObject("SELECT id FROM user_member WHERE email = ?", Long.class, email);

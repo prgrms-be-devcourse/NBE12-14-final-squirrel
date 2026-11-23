@@ -1,6 +1,7 @@
 package com.squirrel.tickting.global.exception;
 
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
+import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.exception.code.SellerExceptionCode;
 import com.squirrel.tickting.global.exception.code.UserExceptionCode;
 import java.util.Arrays;
@@ -19,6 +20,7 @@ import org.hibernate.exception.ConstraintViolationException;
  *
  * 새 UNIQUE 인덱스를 만들고 사용자에게 구체적으로 알려야 하면 아래 Constraint 에 한 줄(인덱스 이름, 에러 코드) 추가한다.
  * (인덱스 이름은 db/migration 의 이름과 같아야 한다. 틀리면 일반 충돌 에러 COMMON003 으로 나간다)
+ * uq_cancel_policy_rule_days_from 은 일부러 등록하지 않는다. 분산락이 뚫린 동시 수정에서만 걸려서 일반 충돌이면 충분하다.
  */
 public final class UniqueConstraintCodes {
 
@@ -26,10 +28,10 @@ public final class UniqueConstraintCodes {
 	private enum Constraint {
 
 		USER_EMAIL("uq_user_email", UserExceptionCode.EMAIL_DUPLICATED),
-		USER_CI("uq_user_ci", UserExceptionCode.ALREADY_REGISTERED),
 		SELLER_EMAIL("uq_seller_email", SellerExceptionCode.EMAIL_DUPLICATED),
 		SELLER_BUSINESS_NUMBER("uq_seller_business_number", SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED),
-		// 락이 뚫려 같은 좌석이 두 번 예매되려 할 때 DB 가 마지막으로 막는다. 사용자에게는 "이미 선택된 좌석"으로 알린다.
+		SEAT_GRADE_NAME("uq_seat_grade_performance_name", PerformanceExceptionCode.GRADE_NAME_DUPLICATED),
+		CANCEL_POLICY_NAME("uq_cancel_policy_business_name", PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED),		// 락이 뚫려 같은 좌석이 두 번 예매되려 할 때 DB 가 마지막으로 막는다. 사용자에게는 "이미 선택된 좌석"으로 알린다.
 		BOOKING_SEAT_ACTIVE("uq_booking_seat_active", BookingExceptionCode.SEAT_ALREADY_TAKEN);
 
 		private final String indexName;

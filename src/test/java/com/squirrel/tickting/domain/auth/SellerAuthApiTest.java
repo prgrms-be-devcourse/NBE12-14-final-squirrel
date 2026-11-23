@@ -23,8 +23,8 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	private static final String EMAIL = "owner@company.com";
 	private static final String BUSINESS_NUMBER = "1234567890";
 
-	private MvcResult signup(String email, String ci, String businessNumber) throws Exception {
-		return postJson(SIGNUP, sellerSignupBody(email, ci, businessNumber))
+	private MvcResult signup(String email, String businessNumber) throws Exception {
+		return postJson(SIGNUP, sellerSignupBody(email, businessNumber))
 			.andExpect(status().isCreated()).andReturn();
 	}
 
@@ -34,11 +34,16 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 
 	/** 승인·반려·정지 상태를 빠르게 만들려고 승인 API 를 거치지 않고 DB 의 사업체 상태를 직접 바꾼다. */
 	private void setBusinessStatus(String businessNumber, String status) {
-		jdbc.update("UPDATE seller_business SET status = ? WHERE business_number = ?", status, businessNumber);
+		// 반려 상태에는 사유가 있어야 해서(반려 API는 사유가 필수) 반려일 때만 사유를 넣는다
+		jdbc.update("""
+			UPDATE seller_business
+			SET status = ?, reject_reason = CASE WHEN ? = 'REJECTED' THEN '테스트 반려 사유' END
+			WHERE business_number = ?
+			""", status, status, businessNumber);
 	}
 
 	private MvcResult signupAndApprove() throws Exception {
-		signup(EMAIL, "ci-owner", BUSINESS_NUMBER);
+		signup(EMAIL, BUSINESS_NUMBER);
 		setBusinessStatus(BUSINESS_NUMBER, "APPROVED");
 		return postJson(LOGIN, loginBody(EMAIL, PASSWORD)).andExpect(status().isOk()).andReturn();
 	}
@@ -48,7 +53,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("가입 신청하면 사업체(승인 대기)와 대표자 계정이 함께 만들어지고, 토큰은 주지 않는다")
 	void signupCreatesPendingBusinessAndOwner() throws Exception {
-		MvcResult result = postJson(SIGNUP, sellerSignupBody("Owner@Company.com", "ci-owner", BUSINESS_NUMBER))
+		MvcResult result = postJson(SIGNUP, sellerSignupBody("Owner@Company.com", BUSINESS_NUMBER))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.data.status").value("PENDING"))
 			.andExpect(jsonPath("$.data.businessId").isNumber())
@@ -68,15 +73,16 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 		assertThat(member.get("status")).isEqualTo("ACTIVE");
 		assertThat(member.get("email")).isEqualTo(EMAIL);
 		assertThat((String) member.get("password")).startsWith("$2").isNotEqualTo(PASSWORD);
-		assertThat((String) member.get("ci_hash")).hasSize(64);
+		assertThat(member.get("name")).isEqualTo("김대표");
+		assertThat(member.get("phone")).isEqualTo("01099998888");
 	}
 
 	@Test
 	@DisplayName("사업자번호가 이미 있으면 409 이고 사업체·계정이 더 생기지 않는다")
 	void businessNumberDuplicate() throws Exception {
-		signup(EMAIL, "ci-owner", BUSINESS_NUMBER);
+		signup(EMAIL, BUSINESS_NUMBER);
 
-		postJson(SIGNUP, sellerSignupBody("other@company.com", "ci-other", BUSINESS_NUMBER))
+		postJson(SIGNUP, sellerSignupBody("other@company.com", BUSINESS_NUMBER))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("SELLER001"));
 
@@ -87,9 +93,9 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("이메일이 이미 있으면 409 이고, 사업체만 따로 남지 않는다 (둘은 한 묶음이다)")
 	void emailDuplicateLeavesNoOrphanBusiness() throws Exception {
-		signup(EMAIL, "ci-owner", BUSINESS_NUMBER);
+		signup(EMAIL, BUSINESS_NUMBER);
 
-		postJson(SIGNUP, sellerSignupBody(" OWNER@company.com ", "ci-other", "9876543210"))
+		postJson(SIGNUP, sellerSignupBody(" OWNER@company.com ", "9876543210"))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("SELLER000"));
 
@@ -102,7 +108,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("승인 전에는 비밀번호가 맞아도 403 SELLER003 이다")
 	void pendingBusinessCannotLogin() throws Exception {
-		signup(EMAIL, "ci-owner", BUSINESS_NUMBER);
+		signup(EMAIL, BUSINESS_NUMBER);
 
 		MvcResult result = login(EMAIL, PASSWORD);
 
@@ -114,7 +120,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("반려·정지된 사업체와 비활성화된 계정은 로그인할 수 없다")
 	void rejectedSuspendedAndInactive() throws Exception {
-		signup(EMAIL, "ci-owner", BUSINESS_NUMBER);
+		signup(EMAIL, BUSINESS_NUMBER);
 
 		setBusinessStatus(BUSINESS_NUMBER, "REJECTED");
 		assertThat(read(login(EMAIL, PASSWORD), "$.code")).isEqualTo("SELLER004");
@@ -157,7 +163,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	@DisplayName("같은 이메일로 동시에 가입 신청하면 한 건만 만들어지고, 사업체만 남는 일이 없다")
 	void concurrentSignupSameEmail() throws Exception {
 		List<MvcResult> results = runConcurrently(8, i -> () ->
-			postJson(SIGNUP, sellerSignupBody(EMAIL, "ci-race-" + i, "10000000" + String.format("%02d", i)))
+			postJson(SIGNUP, sellerSignupBody(EMAIL, "10000000" + String.format("%02d", i)))
 				.andReturn());
 
 		assertThat(results.stream().filter(r -> r.getResponse().getStatus() == 201)).hasSize(1);
@@ -175,7 +181,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 	@DisplayName("같은 사업자번호로 동시에 가입 신청하면 한 건만 만들어진다")
 	void concurrentSignupSameBusinessNumber() throws Exception {
 		List<MvcResult> results = runConcurrently(8, i -> () ->
-			postJson(SIGNUP, sellerSignupBody("owner" + i + "@company.com", "ci-race-" + i, BUSINESS_NUMBER))
+			postJson(SIGNUP, sellerSignupBody("owner" + i + "@company.com", BUSINESS_NUMBER))
 				.andReturn());
 
 		assertThat(results.stream().filter(r -> r.getResponse().getStatus() == 201)).hasSize(1);

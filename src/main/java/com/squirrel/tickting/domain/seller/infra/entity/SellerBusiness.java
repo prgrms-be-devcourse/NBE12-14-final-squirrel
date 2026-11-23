@@ -33,7 +33,7 @@ public class SellerBusiness extends BaseTimeEntity {
 	@Column(nullable = false, length = 100)
 	private String companyName;
 
-	/** 본인인증으로 확인된 이름과 같아야 한다. */
+	/** 사업자등록증의 대표자명. 계정 사용자의 이름(seller_member.name, 담당자는 담당자 본인 이름)과 따로 입력받는다. */
 	@Column(nullable = false, length = 50)
 	private String representativeName;
 
