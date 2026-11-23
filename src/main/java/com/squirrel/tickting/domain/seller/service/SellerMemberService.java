@@ -38,6 +38,10 @@ public class SellerMemberService {
 	 */
 	@Transactional
 	public SellerBusiness signup(SellerSignupCommand command) {
+		// DB 조회가 필요 없는 검사라 중복 확인보다 먼저 한다
+		if (!command.password().equals(command.passwordConfirm())) {
+			throw new BusinessException(AuthExceptionCode.PASSWORD_CONFIRM_MISMATCH);
+		}
 		String email = EmailUtil.normalize(command.email());
 
 		if (sellerBusinessRepository.existsByBusinessNumber(command.businessNumber())) {

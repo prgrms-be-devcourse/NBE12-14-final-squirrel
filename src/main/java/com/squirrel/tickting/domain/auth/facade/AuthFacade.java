@@ -50,7 +50,7 @@ public class AuthFacade {
 	public AuthResponse.Token userSignup(AuthRequest.UserSignup request, HttpServletResponse response) {
 		CustomUserDetails account = transactionTemplate.execute(status -> {
 			List<Terms> agreedTerms = termsService.validateAgreement(request.agreedTermIds());
-			UserMember user = userMemberService.create(request.email(), request.password(),
+			UserMember user = userMemberService.create(request.email(), request.password(), request.passwordConfirm(),
 				request.nickname(), request.name(), request.phone());
 			termsService.recordAgreements(user.getId(), agreedTerms);
 			return userMemberService.toAccount(user);
@@ -67,7 +67,8 @@ public class AuthFacade {
 	/** 판매자는 관리자 승인 전에는 로그인할 수 없으므로 토큰을 주지 않고 신청 결과만 돌려준다. */
 	public AuthResponse.SellerSignup sellerSignup(AuthRequest.SellerSignup request) {
 		SellerBusiness business = sellerMemberService.signup(new SellerSignupCommand(
-			request.email(), request.password(), request.name(), request.phone(), request.companyName(),
+			request.email(), request.password(), request.passwordConfirm(), request.name(), request.phone(),
+			request.companyName(),
 			request.representativeName(), request.businessNumber(), request.contactPhone(),
 			request.contactEmail()));
 		return new AuthResponse.SellerSignup(business.getId(), business.getStatus().name());

@@ -41,7 +41,7 @@ public class AuthSessionFacade {
 		HttpServletResponse httpResponse) {
 		CustomUserDetails account = transactionTemplate.execute(status -> {
 			List<Terms> agreedTerms = termsService.validateAgreement(request.agreedTermIds());
-			UserMember user = userMemberService.create(request.email(), request.password(),
+			UserMember user = userMemberService.create(request.email(), request.password(), request.passwordConfirm(),
 				request.nickname(), request.name(), request.phone());
 			termsService.recordAgreements(user.getId(), agreedTerms);
 			return userMemberService.toAccount(user);

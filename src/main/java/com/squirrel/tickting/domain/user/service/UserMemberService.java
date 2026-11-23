@@ -31,7 +31,12 @@ public class UserMemberService {
 	 * 동시 요청이 이 확인을 함께 통과하면 DB 의 UNIQUE 인덱스가 막고, GlobalExceptionHandler 가 같은 에러로 바꿔 준다.
 	 */
 	@Transactional
-	public UserMember create(String rawEmail, String rawPassword, String nickname, String name, String phone) {
+	public UserMember create(String rawEmail, String rawPassword, String passwordConfirm, String nickname, String name,
+		String phone) {
+		// DB 조회가 필요 없는 검사라 이메일 중복 확인보다 먼저 한다
+		if (!rawPassword.equals(passwordConfirm)) {
+			throw new BusinessException(AuthExceptionCode.PASSWORD_CONFIRM_MISMATCH);
+		}
 		String email = EmailUtil.normalize(rawEmail);
 
 		if (userMemberRepository.existsByEmailAndDeletedAtIsNull(email)) {

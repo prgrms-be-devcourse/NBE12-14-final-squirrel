@@ -4,6 +4,7 @@ package com.squirrel.tickting.domain.seller.service;
 public record SellerSignupCommand(
 	String email,
 	String password,
+	String passwordConfirm,
 	String name,
 	String phone,
 	String companyName,

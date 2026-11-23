@@ -52,32 +52,4 @@ class AccountSchemaTest extends IntegrationTestSupport {
 		insertSeller(2L, "gone@x.com", "OWNER", false);
 		assertThat(count("seller_member")).isEqualTo(3);
 	}
-
-	@Test
-	@DisplayName("소문자가 아닌 이메일은 저장되지 않아서, 대소문자만 다른 이메일이 이메일 UNIQUE 를 비켜 가지 못한다")
-	void emailMustBeLowercase() {
-		insertUser("a@example.com", false);
-		insertSeller(1L, "a@x.com", "OWNER", false);
-
-		assertThatThrownBy(() -> insertUser("A@example.com", false))
-			.isInstanceOf(DataIntegrityViolationException.class)
-			.hasMessageContaining("ck_user_email_lowercase");
-		assertThatThrownBy(() -> insertSeller(2L, "A@x.com", "OWNER", false))
-			.isInstanceOf(DataIntegrityViolationException.class)
-			.hasMessageContaining("ck_seller_email_lowercase");
-		assertThat(count("user_member")).isEqualTo(1);
-		assertThat(count("seller_member")).isEqualTo(1);
-	}
-
-	@Test
-	@DisplayName("반려(REJECTED)된 사업체는 반려 사유 없이 저장되지 않는다")
-	void rejectedBusinessNeedsReason() {
-		assertThatThrownBy(() -> jdbc.update("""
-			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone,
-			                             contact_email, terms_agreed_at, status, created_at, updated_at)
-			VALUES ('회사', '대표', '9999999999', '01012345678', 'c@x.com', now(), 'REJECTED', now(), now())
-			"""))
-			.isInstanceOf(DataIntegrityViolationException.class)
-			.hasMessageContaining("ck_seller_business_reject_reason");
-	}
 }

@@ -119,7 +119,7 @@ class AdminSellerBusinessApproveApiTest extends IntegrationTestSupport {
 	// ---------------------------------------------------------------- 권한
 
 	private long insertBusinessWithNumber(String status, String businessNumber) {
-		// 반려 상태는 사유 없이 저장되지 않아서(ck_seller_business_reject_reason) 반려일 때만 사유를 넣는다
+		// 반려 상태에는 사유가 있어야 해서(반려 API는 사유가 필수) 반려일 때만 사유를 넣는다
 		Timestamp time = Timestamp.valueOf(LocalDateTime.of(2026, 11, 1, 10, 0));
 		return jdbc.queryForObject("""
 			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone,

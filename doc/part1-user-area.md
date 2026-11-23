@@ -188,7 +188,7 @@ erDiagram
 > CREATE UNIQUE INDEX uq_user_email ON user_member (email) WHERE deleted_at IS NULL;
 > ```
 >
-> 이메일은 소문자로 맞춰 저장하고, 소문자가 아닌 값은 DB가 거절합니다(`ck_user_email_lowercase`, 판매자는 `ck_seller_email_lowercase`, V13). 그래서 대소문자만 다른 이메일도 위 UNIQUE에 걸립니다.
+> 이메일은 서비스가 소문자로 맞춰 저장합니다(`EmailUtil.normalize`). 그래서 대소문자만 다른 이메일도 위 UNIQUE에 걸립니다. DB CHECK로 소문자를 강제하지는 않으므로, 서비스를 거치지 않고 저장하는 경로를 새로 만들 때는 같은 변환을 직접 해야 합니다.
 >
 > ⚠️ **JPA 소프트 삭제 필터**: `@SQLRestriction("deleted_at is null")`을 엔티티 전체에 걸면 탈퇴한 회원이 조회되지 않습니다. 그러면 예매 내역에서 회원을 가져올 때 값이 비어 오류가 날 수 있습니다. 전역 필터로 걸지 말고 필요한 조회에만 조건을 씁니다.
 

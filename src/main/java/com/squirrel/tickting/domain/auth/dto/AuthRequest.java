@@ -1,6 +1,5 @@
 package com.squirrel.tickting.domain.auth.dto;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.squirrel.tickting.global.validation.ValidPassword;
 import com.squirrel.tickting.global.validation.ValidPhone;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -29,7 +28,7 @@ public class AuthRequest {
 		String password,
 
 		@NotBlank
-		@Schema(description = "비밀번호 확인. 비밀번호와 같아야 한다", example = "password1!")
+		@Schema(description = "비밀번호 확인. 비밀번호와 같아야 한다 (서비스에서 확인, 다르면 400 AUTH005)", example = "password1!")
 		String passwordConfirm,
 
 		@NotBlank @Size(min = 2, max = 20, message = "닉네임은 2글자 이상 20글자 이하로 입력해 주세요.")
@@ -49,14 +48,6 @@ public class AuthRequest {
 		List<Long> agreedTermIds
 	) {
 
-		/** 비밀번호를 비워 보낸 경우는 @NotBlank 가 먼저 알려 주므로, 여기서는 둘 다 값이 있을 때만 비교한다. */
-		@JsonIgnore
-		@Schema(hidden = true)
-		@AssertTrue(message = "비밀번호와 비밀번호 확인이 일치하지 않습니다.")
-		public boolean isPasswordConfirmed() {
-			return password == null || password.equals(passwordConfirm);
-		}
-
 		public UserSignup {
 			email = trim(email);
 			name = trim(name);
@@ -75,7 +66,7 @@ public class AuthRequest {
 		String password,
 
 		@NotBlank
-		@Schema(description = "비밀번호 확인. 비밀번호와 같아야 한다", example = "password1!")
+		@Schema(description = "비밀번호 확인. 비밀번호와 같아야 한다 (서비스에서 확인, 다르면 400 AUTH005)", example = "password1!")
 		String passwordConfirm,
 
 		@NotBlank @Size(max = 50)
@@ -110,14 +101,6 @@ public class AuthRequest {
 		@Schema(description = "판매자 약관 동의 여부", example = "true")
 		boolean termsAgreed
 	) {
-
-		/** 비밀번호를 비워 보낸 경우는 @NotBlank 가 먼저 알려 주므로, 여기서는 둘 다 값이 있을 때만 비교한다. */
-		@JsonIgnore
-		@Schema(hidden = true)
-		@AssertTrue(message = "비밀번호와 비밀번호 확인이 일치하지 않습니다.")
-		public boolean isPasswordConfirmed() {
-			return password == null || password.equals(passwordConfirm);
-		}
 
 		public SellerSignup {
 			email = trim(email);
