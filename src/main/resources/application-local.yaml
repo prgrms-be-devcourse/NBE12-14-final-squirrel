@@ -21,8 +21,9 @@ spring:
       # Mailpit 은 로그인 기능이 없다. 켜 두면 사용자·비밀번호가 빈 값이어도 로그인에 실패해서 메일이 안 나간다.
       mail.smtp.auth: false
   flyway:
-    # 스키마(db/migration)와 시드(db/seed)의 위치는 application.yaml 과 같다. 버전 번호는 두 폴더가 같은 순번을 공유한다.
+    # 공통 위치(db/migration, db/seed)에 로컬 전용 시연 시드(db/seed-demo: 판매자, 공연, 시연 유저·예매)를 더한다. 버전 번호는 세 폴더가 같은 순번을 공유한다.
     # 시드는 V100 번대를 쓰고, 마이그레이션은 V12 부터 이어서 추가한다.
+    locations: classpath:db/migration,classpath:db/seed,classpath:db/seed-demo
     # 시드 파일을 새 번호로 바꿔 넣는 동안 이미 적용한 로컬 DB 에도, 새로 받은 마이그레이션을 적용할 수 있게 한다.
     out-of-order: true
     # 예전 로컬 시드(V100~V103, V2)를 지웠다. 그 시드를 이미 적용한 로컬 DB 가 "적용한 마이그레이션 파일이 없다"며 뜨지 않는 일이 없게 한다.

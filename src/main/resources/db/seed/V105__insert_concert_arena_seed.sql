@@ -1,4 +1,4 @@
--- 공연장 시드(모든 환경, 시연용): 인스파이어 아레나. 구역 44개, 좌석 10,813석, layout_key = concert-arena-44.
+-- 공연장 시드(모든 환경): 인스파이어 아레나. 구역 44개, 좌석 10,813석, layout_key = concert-arena-44.
 -- 이 파일은 doc/venue-seed-concert-arena-44.json 에서 doc/gen-venue-seed.mjs 로 만들었다. 손으로 고치지 말고 JSON 을 고친 뒤 다시 만든다.
 --
 -- 지켜야 할 것: 이 공연장은 프론트가 구역 모양을 직접 그려서 보여 준다. 아래를 어기면 도면이 깨진다.
