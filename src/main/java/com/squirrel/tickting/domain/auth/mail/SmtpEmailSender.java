@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.auth.mail;
 
 import com.squirrel.tickting.domain.auth.service.EmailVerificationProperties;
+import com.squirrel.tickting.global.security.AccountType;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import java.io.UnsupportedEncodingException;
@@ -40,5 +41,48 @@ public class SmtpEmailSender implements EmailSender {
 		} catch (MessagingException | UnsupportedEncodingException e) {
 			throw new IllegalStateException("인증번호 메일을 만들지 못했습니다.", e);
 		}
+	}
+
+	/** 재설정 메일은 버튼(HTML)과 같은 링크를 글자로도 넣고, HTML 을 못 보는 메일 앱을 위해 텍스트 본문도 함께 담는다. 본문 모양은 PasswordResetMailTemplate 이 만든다. */
+	@Override
+	public void sendPasswordReset(String to, AccountType type, String link, Duration validFor) {
+		String account = accountLabel(type);
+		send(to, "[" + properties.senderName() + "] " + account + " 계정 비밀번호 재설정 안내",
+			PasswordResetMailTemplate.resetText(account, validFor.toMinutes(), link),
+			PasswordResetMailTemplate.resetHtml(properties.senderName(), account, validFor.toMinutes(), link));
+	}
+
+	@Override
+	public void sendPasswordChanged(String to, AccountType type) {
+		String account = accountLabel(type);
+		send(to, "[" + properties.senderName() + "] " + account + " 계정 비밀번호가 변경되었습니다",
+			PasswordResetMailTemplate.changedText(account),
+			PasswordResetMailTemplate.changedHtml(properties.senderName(), account));
+	}
+
+	private void send(String to, String subject, String text, String html) {
+		try {
+			MimeMessage message = mailSender.createMimeMessage();
+			MimeMessageHelper helper = new MimeMessageHelper(message, html != null, "UTF-8");
+			helper.setFrom(properties.fromAddress(), properties.senderName());
+			helper.setTo(to);
+			helper.setSubject(subject);
+			if (html == null) {
+				helper.setText(text, false);
+			} else {
+				helper.setText(text, html);
+			}
+			mailSender.send(message);
+		} catch (MessagingException | UnsupportedEncodingException e) {
+			throw new IllegalStateException("메일을 만들지 못했습니다.", e);
+		}
+	}
+
+	private static String accountLabel(AccountType type) {
+		return switch (type) {
+			case USER -> "예매자";
+			case SELLER -> "판매자";
+			case ADMIN -> throw new IllegalArgumentException("관리자는 비밀번호 재설정 대상이 아닙니다.");
+		};
 	}
 }

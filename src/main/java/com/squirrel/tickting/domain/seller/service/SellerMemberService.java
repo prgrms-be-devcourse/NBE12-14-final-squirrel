@@ -116,4 +116,28 @@ public class SellerMemberService {
 		return new CustomUserDetails(member.getId(), AccountType.SELLER, member.getRole().name(),
 			member.getBusiness().getId());
 	}
+
+	/**
+	 * 비밀번호 재설정 메일을 받을 수 있는 판매자 계정(대표·담당자)을 읽는다. 삭제됐거나 없으면 PASSWORD_RESET_EMAIL_NOT_FOUND.
+	 * 계정·사업체 상태와 무관하게 허용한다. 승인 대기 중인 대표가 비밀번호를 잊어도 방법이 있어야 하고, 로그인 차단은 로그인이 그대로 맡는다.
+	 */
+	@Transactional(readOnly = true)
+	public SellerMember getPasswordResetTarget(String rawEmail) {
+		return sellerMemberRepository.findByEmailAndDeletedAtIsNull(EmailUtil.normalize(rawEmail))
+			.orElseThrow(() -> new BusinessException(AuthExceptionCode.PASSWORD_RESET_EMAIL_NOT_FOUND,
+				"판매자 계정으로 가입된 이메일이 아닙니다."));
+	}
+
+	/**
+	 * 비밀번호를 새로 정하고, 알림 메일을 보낼 로그인 이메일을 돌려준다. 그 사이 삭제됐으면 PASSWORD_RESET_TOKEN_INVALID.
+	 * 트랜잭션을 열지 않는다. 해시 계산(BCrypt)이 오래 걸려서, 열면 그동안 DB 연결을 쥐고 있게 된다. UPDATE 하나만 짧게 트랜잭션이다.
+	 */
+	public String resetPassword(Long memberId, String rawPassword, LocalDateTime now) {
+		SellerMember member = sellerMemberRepository.findByIdAndDeletedAtIsNull(memberId)
+			.orElseThrow(() -> new BusinessException(AuthExceptionCode.PASSWORD_RESET_TOKEN_INVALID));
+		if (sellerMemberRepository.updatePassword(memberId, passwordEncoder.encode(rawPassword), now) == 0) {
+			throw new BusinessException(AuthExceptionCode.PASSWORD_RESET_TOKEN_INVALID);
+		}
+		return member.getEmail();
+	}
 }
