@@ -109,6 +109,20 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 	int releaseHeld(@Param("seatIds") Collection<Long> seatIds, @Param("now") LocalDateTime now);
 
 	/**
+	 * 판매 완료(SOLD)된 좌석만 AVAILABLE 로 되돌리고 되돌린 행 수를 돌려준다. 예매 취소로 좌석을 다시 팔 때 쓴다.
+	 * 상태 조건이 있어서 그 사이 다른 상태가 된 좌석(판매자 보류 등)은 건드리지 않는다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE ScheduleSeat s
+		   SET s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE,
+		       s.updatedAt = :now
+		 WHERE s.id IN :seatIds
+		   AND s.status = com.squirrel.tickting.domain.performance.type.SeatStatus.SOLD
+		""")
+	int releaseSold(@Param("seatIds") Collection<Long> seatIds, @Param("now") LocalDateTime now);
+
+	/**
 	 * 회차별로 판매 좌석을 상태별로 센다. 판매자 판매 현황(SLR-17)이 쓴다.
 	 * 만료됐지만 아직 정리되지 않은 HELD 도 그대로 센다. 예매자도 그 좌석을 고를 수 없어서, 판매 가능 수가 예매자가 고를 수 있는 좌석과 같아진다.
 	 * 좌석이 없는 회차나 개수가 0인 상태는 행이 나오지 않는다.

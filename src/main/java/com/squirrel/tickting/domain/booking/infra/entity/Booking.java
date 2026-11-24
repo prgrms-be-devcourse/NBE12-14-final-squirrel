@@ -3,6 +3,7 @@ package com.squirrel.tickting.domain.booking.infra.entity;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.domain.payment.infra.entity.Payment;
+import com.squirrel.tickting.domain.payment.infra.entity.Refund;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.global.entity.BaseTimeEntity;
@@ -92,6 +93,13 @@ public class Booking extends BaseTimeEntity {
 	@JoinColumn(name = "booking_id", insertable = false, updatable = false,
 		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
 	private List<Payment> payments;
+
+	/** 환불(읽기 전용). 요청 중·실패한 건도 들어 있어서 돌려준 금액을 셀 때는 완료(DONE)만 더한다. */
+	@OneToMany
+	@OrderBy("id")
+	@JoinColumn(name = "booking_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private List<Refund> refunds;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)

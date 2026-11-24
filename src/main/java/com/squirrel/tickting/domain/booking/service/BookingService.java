@@ -10,8 +10,11 @@ import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +31,7 @@ public class BookingService {
 	private final BookingRepository bookingRepository;
 	private final BookingSeatRepository bookingSeatRepository;
 	private final ObjectMapper objectMapper;
+	private final CancelPolicyCalculator cancelPolicyCalculator;
 
 	/**
 	 * 한 사람이 한 공연에서 이미 가진 활성 좌석 수. 결제 대기 좌석도 포함한다.
@@ -123,6 +127,81 @@ public class BookingService {
 		List<Long> scheduleSeatIds = bookingSeatRepository.findActiveScheduleSeatIds(bookingIds);
 		bookingSeatRepository.deactivateByBookingIds(bookingIds);
 		return scheduleSeatIds;
+	}
+
+	/**
+	 * 예매 취소에서 취소할 좌석과 금액을 계산한다. 아무것도 바꾸지 않는다. 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 불러야
+	 * 계산한 뒤 반영하기 전에 다른 취소가 끼어들지 않는다.
+	 *
+	 * 판정 순서: 없거나 남의 예매 404 → 결제 완료·일부 취소가 아님 409 → 취소 불가 기간 400 → 취소할 수 없는 좌석 400
+	 *
+	 * @param bookingSeatIds 취소할 예매 좌석. 비어 있으면(null 포함) 남은 좌석 전부다. 같은 번호가 여러 번 와도 한 번으로 본다
+	 */
+	@Transactional
+	public BookingCancelPlan planCancel(Long userId, Long bookingId, List<Long> bookingSeatIds, LocalDateTime now) {
+		Booking booking = bookingRepository.findByIdAndUserId(bookingId, userId)
+			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
+		if (booking.getStatus() != BookingStatus.PAID && booking.getStatus() != BookingStatus.PARTIAL_CANCELED) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE);
+		}
+		CancelPolicyCalculator.Quote quote = cancelPolicyCalculator.quote(booking, now);
+		if (!quote.cancelable()) {
+			throw new BusinessException(BookingExceptionCode.CANCEL_PERIOD_OVER);
+		}
+
+		List<BookingSeat> activeSeats = booking.getBookingSeats().stream().filter(BookingSeat::isActive).toList();
+		List<BookingSeat> targets = selectTargets(activeSeats, bookingSeatIds);
+
+		int feeRate = quote.feeRate();
+		List<BookingCancelPlan.Line> lines = targets.stream()
+			.map(seat -> new BookingCancelPlan.Line(seat.getId(), seat.getScheduleSeatId(),
+				CancelPolicyCalculator.seatFee(seat.getPrice(), feeRate)))
+			.toList();
+		int cancelFeeTotal = lines.stream().mapToInt(BookingCancelPlan.Line::cancelFee).sum();
+		// 예매 수수료는 취소한 좌석 몫만 돌려준다. (좌석 1장당 붙는 수수료라서. 임시 정책)
+		int refundAmount = targets.stream().mapToInt(seat -> seat.getPrice() + seat.getBookingFee()).sum()
+			- cancelFeeTotal;
+		return new BookingCancelPlan(bookingId, feeRate, lines, cancelFeeTotal, refundAmount,
+			targets.size() == activeSeats.size());
+	}
+
+	/**
+	 * 계산한 취소를 반영한다. 좌석마다 취소 수수료와 환불 번호를 적고 예매 상태를 일부 취소·전체 취소로 바꾼다.
+	 * 상태 조건이 있는 UPDATE 라서 계산한 뒤 다른 요청이 먼저 취소했으면 바뀐 행 수가 모자라고, 예외로 트랜잭션 전체(환불 행 포함)를 되돌린다.
+	 * 좌석 도메인의 상태(SOLD)는 바꾸지 않고, 되돌릴 판매 좌석 번호만 돌려줘서 파사드가 같은 트랜잭션에서 되돌린다.
+	 *
+	 * @return 다시 팔 수 있게 되돌릴 판매 좌석 번호. 끝난 회차의 좌석을 지워 번호가 없는 좌석은 빠진다
+	 */
+	@Transactional
+	public List<Long> applyCancel(BookingCancelPlan plan, Long refundId, LocalDateTime now) {
+		for (BookingCancelPlan.Line line : plan.lines()) {
+			if (bookingSeatRepository.cancel(line.bookingSeatId(), plan.bookingId(), line.cancelFee(), refundId, now) != 1) {
+				throw new BusinessException(BookingExceptionCode.SEAT_NOT_CANCELABLE);
+			}
+		}
+		int changed = plan.fullyCanceled()
+			? bookingRepository.markCanceled(plan.bookingId(), now)
+			: bookingRepository.markPartiallyCanceled(plan.bookingId(), now);
+		if (changed != 1) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE);
+		}
+		return plan.lines().stream()
+			.map(BookingCancelPlan.Line::scheduleSeatId)
+			.filter(Objects::nonNull)
+			.toList();
+	}
+
+	/** 요청한 좌석이 모두 이 예매의 활성 좌석이어야 한다. 하나라도 아니면(이미 취소됨, 다른 예매의 좌석) 전체를 거절한다. */
+	private static List<BookingSeat> selectTargets(List<BookingSeat> activeSeats, List<Long> bookingSeatIds) {
+		if (bookingSeatIds == null || bookingSeatIds.isEmpty()) {
+			return activeSeats;
+		}
+		Set<Long> requested = new LinkedHashSet<>(bookingSeatIds);
+		List<BookingSeat> targets = activeSeats.stream().filter(seat -> requested.contains(seat.getId())).toList();
+		if (targets.size() != requested.size()) {
+			throw new BusinessException(BookingExceptionCode.SEAT_NOT_CANCELABLE);
+		}
+		return targets;
 	}
 
 	/**

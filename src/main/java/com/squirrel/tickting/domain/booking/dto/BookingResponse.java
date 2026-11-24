@@ -2,6 +2,8 @@ package com.squirrel.tickting.domain.booking.dto;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
+import com.squirrel.tickting.domain.booking.type.BookingStatus;
+import com.squirrel.tickting.domain.payment.type.RefundStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -33,6 +35,22 @@ public class BookingResponse {
 				booking.getBookingFeeAmount(),
 				booking.getTotalAmount());
 		}
+	}
+
+	/**
+	 * 예매 취소 결과. 좌석 취소는 끝났고, 환불은 status 가 FAILED 면 같은 멱등키로 다시 요청해 마무리한다.
+	 * 토스 환불이 실패해도 좌석은 이미 취소되어 있어서, 실패 응답을 주면 사용자가 다시 눌러 "이미 취소된 좌석" 에러를 보게 된다.
+	 */
+	public record Canceled(
+		Long bookingId,
+		BookingStatus bookingStatus,
+		List<Long> canceledSeatIds,
+		Integer cancelFeeTotal,
+		Refund refund
+	) {
+	}
+
+	public record Refund(Long refundId, Integer amount, RefundStatus status) {
 	}
 
 	public record Seat(
