@@ -14,6 +14,11 @@ RUN useradd --system --uid 10001 --create-home app
 WORKDIR /app
 COPY --chown=app:app build/libs/tickting-0.0.1-SNAPSHOT.jar app.jar
 
+# 서버 배포에 쓰는 파일(compose, Nginx 설정, 배포 스크립트)을 이미지에 함께 넣는다. 앱은 쓰지 않는다.
+# 서버는 새 이미지를 받은 뒤 여기서 꺼내 쓴다(deploy/deploy.sh). 그래서 설정 파일을 SSH 로 따로 보내지 않아도 되고,
+# 배포 전용 SSH 키로는 이미지 태그만 넘길 수 있어서 키가 유출돼도 서버에 임의의 설정을 올릴 수 없다.
+COPY deploy /opt/deploy
+
 USER app
 EXPOSE 8080
 
