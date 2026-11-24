@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.auth.mail;
 
 import com.squirrel.tickting.domain.auth.service.EmailVerificationProperties;
+import com.squirrel.tickting.domain.auth.service.PasswordResetProperties;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
@@ -9,9 +10,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** 이메일 인증에 쓰는 부품. 이 기능만 쓰는 것이라 공통 설정(global/config)이 아니라 이 도메인 안에 둔다. */
+/** 이메일 인증·비밀번호 재설정에 쓰는 부품. 이 기능만 쓰는 것이라 공통 설정(global/config)이 아니라 이 도메인 안에 둔다. */
 @Configuration
-@EnableConfigurationProperties(EmailVerificationProperties.class)
+@EnableConfigurationProperties({EmailVerificationProperties.class, PasswordResetProperties.class})
 public class EmailVerificationConfig {
 
 	/**

@@ -2,6 +2,7 @@ package com.squirrel.tickting.support;
 
 import com.squirrel.tickting.domain.auth.mail.EmailSendExecutor;
 import com.squirrel.tickting.domain.auth.mail.EmailSender;
+import com.squirrel.tickting.global.security.AccountType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -62,6 +63,54 @@ public class EmailTestConfiguration {
 			sent.computeIfAbsent(to, key -> new CopyOnWriteArrayList<>()).add(code);
 		}
 
+		private final Map<String, List<String>> resetLinks = new ConcurrentHashMap<>();
+		private final Map<String, List<AccountType>> resetTypes = new ConcurrentHashMap<>();
+		private final Map<String, List<AccountType>> changedNotices = new ConcurrentHashMap<>();
+
+		@Override
+		public void sendPasswordReset(String to, AccountType type, String link, Duration validFor) {
+			if (failing) {
+				throw new IllegalStateException("가짜 메일 서버가 발송에 실패했습니다.");
+			}
+			resetLinks.computeIfAbsent(to, key -> new CopyOnWriteArrayList<>()).add(link);
+			resetTypes.computeIfAbsent(to, key -> new CopyOnWriteArrayList<>()).add(type);
+		}
+
+		@Override
+		public void sendPasswordChanged(String to, AccountType type) {
+			if (failing) {
+				throw new IllegalStateException("가짜 메일 서버가 발송에 실패했습니다.");
+			}
+			changedNotices.computeIfAbsent(to, key -> new CopyOnWriteArrayList<>()).add(type);
+		}
+
+		/** 이 주소로 마지막에 보낸 재설정 링크. 보낸 적이 없으면 null */
+		public String lastResetLink(String to) {
+			List<String> links = resetLinks.get(to);
+			return links == null || links.isEmpty() ? null : links.get(links.size() - 1);
+		}
+
+		/** 이 주소로 마지막에 보낸 재설정 링크의 토큰. 링크의 # 뒤에서 읽는다. */
+		public String lastResetToken(String to) {
+			String link = lastResetLink(to);
+			return link == null ? null : link.substring(link.indexOf("#token=") + "#token=".length());
+		}
+
+		public AccountType lastResetType(String to) {
+			List<AccountType> types = resetTypes.get(to);
+			return types == null || types.isEmpty() ? null : types.get(types.size() - 1);
+		}
+
+		public int resetLinkCount(String to) {
+			List<String> links = resetLinks.get(to);
+			return links == null ? 0 : links.size();
+		}
+
+		public int changedNoticeCount(String to) {
+			List<AccountType> notices = changedNotices.get(to);
+			return notices == null ? 0 : notices.size();
+		}
+
 		/** 이 주소로 마지막에 보낸 번호. 보낸 적이 없으면 null */
 		public String lastCode(String to) {
 			List<String> codes = sent.get(to);
@@ -80,6 +129,9 @@ public class EmailTestConfiguration {
 
 		public void reset() {
 			sent.clear();
+			resetLinks.clear();
+			resetTypes.clear();
+			changedNotices.clear();
 			failing = false;
 		}
 	}
