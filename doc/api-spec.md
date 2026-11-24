@@ -2691,12 +2691,16 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 | `POSTER` | 공연 포스터 | 판매자 (대표·STAFF) |
 | `DETAIL` | 공연 상세 이미지 | 판매자 (대표·STAFF) |
 | `PROFILE` | 예매자 프로필 사진 | 예매자 |
+| `USER_INQUIRY` | 예매자 문의 첨부 | 예매자 |
+| `SELLER_INQUIRY` | 판매자 문의 첨부 | 판매자 (대표·STAFF) |
+
+- 문의 첨부는 예매자·판매자가 함께 쓰는 문의 기능의 사진입니다. 용도 하나에 계정 종류 하나라서 둘로 나눴습니다. (2026-11-24) 다른 용도처럼 공개 주소라 **주소를 아는 사람은 누구나 볼 수 있어서**, 화면에서 영수증·연락처 같은 개인정보가 담긴 사진을 올리지 않도록 안내합니다.
 
 **요청** (`multipart/form-data`)
 
 | 이름 | 종류 | 설명 |
 | --- | --- | --- |
-| `purpose` | 텍스트 | **필수**. `POSTER` / `DETAIL` / `PROFILE` |
+| `purpose` | 텍스트 | **필수**. `POSTER` / `DETAIL` / `PROFILE` / `USER_INQUIRY` / `SELLER_INQUIRY` |
 | `file` | 파일 | **필수**. `image/jpeg` / `image/png` / `image/webp` 중 하나, 1바이트 이상 10MB 이하. (gif 등은 안 받음) |
 
 **응답 200**
@@ -2714,7 +2718,7 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 
 **저장 경로**: `public/{용도}/{계정}/{UUID}.{확장자}` (예: `public/poster/seller-7/3f2a….jpg`)
 
-- 용도 폴더는 `poster` / `detail` / `profile`, 계정 폴더는 `seller-{계정 번호}` / `user-{회원 번호}`입니다. 번호는 토큰에서 읽고 요청으로 받지 않습니다.
+- 용도 폴더는 `poster` / `detail` / `profile` / `user_inquiry` / `seller_inquiry`, 계정 폴더는 `seller-{계정 번호}` / `user-{회원 번호}`입니다. 번호는 토큰에서 읽고 요청으로 받지 않습니다.
 - 이름은 서버가 UUID로 만듭니다. 원본 파일명을 쓰지 않아서 한글·공백·특수문자 문제와 같은 이름 덮어쓰기가 없습니다. 확장자는 파일 형식에서 정합니다. (jpeg → `jpg`)
 - 같은 파일을 다시 올리면 **매번 다른 주소**가 나옵니다. 주소의 내용은 바뀌지 않아서 브라우저가 1년 동안 캐시하도록 `Cache-Control`을 붙여 올립니다.
 
@@ -2722,7 +2726,7 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 
 **에러**
 - 400 `COMMON000`: `purpose`가 없거나 모르는 값 · 파일이 없거나 비어 있음 · 허용하지 않는 형식(대소문자도 구분) · 파일이 10MB 초과. `message`로 사유를 알려 줍니다.
-- 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 용도에 맞지 않는 계정(예: 예매자가 `POSTER`, 관리자)
+- 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 용도에 맞지 않는 계정(예: 예매자가 `POSTER`·`SELLER_INQUIRY`, 판매자가 `USER_INQUIRY`, 관리자)
 - 500 `COMMON999`: S3에 올리지 못함. 원인은 서버 로그에만 남습니다.
 - 판정 순서는 `purpose` 값(400) → 용도에 맞는 계정(403) → 파일(400)입니다.
 

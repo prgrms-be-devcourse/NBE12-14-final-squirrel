@@ -124,13 +124,22 @@ class ImageUploadApiTest extends IntegrationTestSupport {
 		assertThat(read(upload(token(AccountType.USER, 5), "PROFILE", image("image/webp", new byte[] {1}))
 			.andExpect(status().isOk()).andReturn(), "$.data.imageUrl"))
 			.startsWith(BASE + "public/profile/user-5/").endsWith(".webp");
+		// 문의 첨부는 예매자·판매자가 각자의 용도로 올리고 용도별 폴더에 들어간다
+		assertThat(read(upload(token(AccountType.USER, 5), "USER_INQUIRY", image("image/png", new byte[] {1}))
+			.andExpect(status().isOk()).andReturn(), "$.data.imageUrl"))
+			.startsWith(BASE + "public/user_inquiry/user-5/");
+		assertThat(read(upload(token(AccountType.SELLER, 7), "SELLER_INQUIRY", image("image/png", new byte[] {1}))
+			.andExpect(status().isOk()).andReturn(), "$.data.imageUrl"))
+			.startsWith(BASE + "public/seller_inquiry/seller-7/");
 	}
 
 	@Test
-	@DisplayName("용도에 맞지 않는 계정은 403 이고 올리지 않는다 (예매자의 포스터·상세, 판매자의 프로필, 관리자는 모두)")
+	@DisplayName("용도에 맞지 않는 계정은 403 이고 올리지 않는다 (예매자의 포스터·상세·판매자 문의, 판매자의 프로필·예매자 문의, 관리자는 모두)")
 	void purposeMismatch() throws Exception {
-		String[][] cases = {{"USER", "POSTER"}, {"USER", "DETAIL"}, {"SELLER", "PROFILE"},
-			{"ADMIN", "POSTER"}, {"ADMIN", "DETAIL"}, {"ADMIN", "PROFILE"}};
+		String[][] cases = {{"USER", "POSTER"}, {"USER", "DETAIL"}, {"USER", "SELLER_INQUIRY"},
+			{"SELLER", "PROFILE"}, {"SELLER", "USER_INQUIRY"},
+			{"ADMIN", "POSTER"}, {"ADMIN", "DETAIL"}, {"ADMIN", "PROFILE"},
+			{"ADMIN", "USER_INQUIRY"}, {"ADMIN", "SELLER_INQUIRY"}};
 		for (String[] c : cases) {
 			upload(token(AccountType.valueOf(c[0]), 5), c[1], image("image/jpeg", new byte[] {1}))
 				.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH100"));
