@@ -3,7 +3,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, api, useApi } from "@/lib/api";
 import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingDetail, CancelResult } from "@/lib/types";
@@ -19,11 +19,14 @@ export default function BookingDetailPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  // 화면을 그리는 도중에 이동하면 React 가 경고한다. 로그인이 풀렸으면 그린 뒤에 이동한다.
+  const unauthorized = error?.status === 401;
+  useEffect(() => {
+    if (unauthorized) router.push("/login");
+  }, [unauthorized, router]);
+
   if (loading) return <Loading />;
-  if (error) {
-    if (error.status === 401) router.push("/login");
-    return <ErrorBox error={error} onRetry={reload} />;
-  }
+  if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!b) return null;
 
   const activeIds = b.seats.filter((s) => s.active).map((s) => s.bookingSeatId);
@@ -33,7 +36,7 @@ export default function BookingDetailPage() {
     const target = bookingSeatIds ?? activeIds;
     const fee = Math.round(
       b.seats.filter((s) => target.includes(s.bookingSeatId)).reduce((sum, s) => sum + s.price, 0) *
-        (b.currentFeeRate / 100),
+        ((b.currentFeeRate ?? 0) / 100),
     );
     if (!window.confirm(`${target.length}매를 취소합니다. 취소 수수료는 약 ${won(fee)}입니다. 진행할까요?`)) {
       return;
@@ -46,7 +49,12 @@ export default function BookingDetailPage() {
         body: bookingSeatIds ? { bookingSeatIds } : {},
       });
       setSelected([]);
-      setMessage(`취소했습니다. 환불 ${won(result.refund.amount)} (수수료 ${won(result.cancelFeeTotal)})`);
+      // 토스 환불이 실패해도 좌석 취소는 끝나 있다. 다시 누르면 "이미 취소된 좌석" 오류가 되므로 취소 버튼 대신 안내만 한다.
+      setMessage(
+        result.refund.status === "FAILED"
+          ? `좌석은 취소했지만 환불 처리에 문제가 있어 ${won(result.refund.amount)} 환불이 지연되고 있습니다. 자동으로 다시 시도하며, 계속 안 되면 문의해 주세요. (수수료 ${won(result.cancelFeeTotal)})`
+          : `취소했습니다. 환불 ${won(result.refund.amount)} (수수료 ${won(result.cancelFeeTotal)})`,
+      );
       reload();
     } catch (e) {
       setMessage(e instanceof ApiError ? e.message : "취소에 실패했습니다");
