@@ -78,7 +78,8 @@ public class SecurityConfig {
 		"/api/v1/bookings/**",
 		"/api/v1/payments/**",
 		"/api/v1/schedules/*/bookings",
-		"/api/v1/schedules/*/queue"
+		"/api/v1/schedules/*/queue",
+		"/api/v1/inquiries/**"
 	};
 
 	@Bean

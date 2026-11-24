@@ -121,6 +121,10 @@
 | ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 미구현 |
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
+| INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
+| INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
+| INQ-03 | 내 문의 목록 (예매자) | GET `/api/v1/inquiries` | 구현됨 |
+| INQ-04 | 내 문의 상세 (예매자) | GET `/api/v1/inquiries/{inquiryId}` | 구현됨 |
 
 ---
 
@@ -2736,6 +2740,137 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 - 서버가 쓰는 `.env` 키는 모두 필수입니다: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `IMAGE_BASE_URL`(**버킷 루트 주소** `https://{버킷}.s3.{리전}.amazonaws.com`. 저장 경로가 `public/`으로 시작하므로 `/public`을 붙이면 `imageUrl`이 `public/public/…`이 되어 열리지 않음). 앱을 시작할 때 AWS를 부르지 않아서, 사진을 실제로 올려 보지 않는 사람은 앱이 뜨도록 값만 채워 두면 됩니다. 올려 보려면 진짜 키가 필요합니다. (Mock 구현은 없음)
 - 올리기는 서버를 거치므로 요청 한 번이 파일 크기만큼 서버 메모리를 씁니다. (최대 10MB)
 - 올리고 등록하지 않은 파일은 버킷에 남습니다. (정리 방법은 아래 "확정이 필요한 것")
+
+---
+
+## 7. 문의 (`/api/v1/inquiries/**`, 예매자)
+
+설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 판매자 문의·관리자 답변·수정·삭제는 다음 PR입니다.
+
+### INQ-01 문의 유형 목록 — `GET /api/v1/inquiries/categories` (예매자, 구현됨)
+
+예매자가 고를 수 있는 유형만 줍니다. (판매자 유형은 나오지 않음) 화면은 이 목록으로 유형 드롭다운을 그립니다. **값은 임시**입니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": [
+    { "code": "BOOKING", "name": "예매" },
+    { "code": "CANCEL_REFUND", "name": "취소·환불" },
+    { "code": "PAYMENT", "name": "결제" },
+    { "code": "DELIVERY", "name": "티켓 배송·수령" },
+    { "code": "ACCOUNT", "name": "회원·계정" },
+    { "code": "ETC", "name": "기타" }
+  ]
+}
+```
+
+### INQ-02 문의 작성 — `POST /api/v1/inquiries` (예매자, 구현됨)
+
+**요청**
+
+```json
+{
+  "category": "CANCEL_REFUND",
+  "bookingId": 1001,
+  "title": "환불이 아직 들어오지 않았어요",
+  "content": "11/27 에 취소했는데 아직 환불되지 않았습니다.",
+  "images": [
+    { "url": "https://{버킷 주소}/public/user_inquiry/user-5/3f2a9c1e.jpg" }
+  ]
+}
+```
+
+| 필드 | 규칙 |
+| --- | --- |
+| `category` | 필수. INQ-01의 값만 (판매자 유형이면 400 `INQUIRY000`) |
+| `bookingId` | 선택. 고르면 **내 예매**여야 함 (남의·없는 예매는 404 `BOOKING006`). 예매 상태는 따지지 않음 |
+| `title` | 필수, 100자 이하, 앞뒤 공백 제거 (임시) |
+| `content` | 필수, 2,000자 이하, 앞뒤 공백 제거 (임시) |
+| `images` | 선택, 최대 3장(임시). `url`은 이미지 업로드(IMG-01, `purpose=USER_INQUIRY`)의 `imageUrl` 값만 (우리 저장소 주소가 아니면 400 `COMMON000`). 보낸 순서대로 저장 |
+
+- 답변 대기(`WAITING`)로 만들고, 작성 이력(`CREATED`, 그때 내용 그대로)을 함께 남깁니다.
+- 작성자 이름·이메일은 회원 정보에서 복사해 둡니다. 탈퇴한 회원은 404 `USER002`입니다.
+- 첨부 사진은 공개 주소라 화면에서 개인정보가 담긴 사진을 올리지 않도록 안내해 주세요.
+
+**응답 201**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": { "inquiryId": 41, "status": "WAITING", "createdAt": "2026-11-24T15:10:00" }
+}
+```
+
+**에러**: 400 `COMMON000` 형식 오류(필수 값 누락, 길이 초과, 사진 4장 이상, 외부 사진 주소) · 400 `INQUIRY000` 고를 수 없는 유형 · 401 `AUTH200` · 403 `AUTH100` 예매자가 아님 · 404 `BOOKING006` 남의·없는 예매 · 404 `USER002` 탈퇴한 회원
+
+### INQ-03 내 문의 목록 — `GET /api/v1/inquiries` (예매자, 구현됨)
+
+Query: `page`, `size` (기본·최대 20). 최신 작성순 고정이고 삭제한 문의는 나오지 않습니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "content": [
+      {
+        "inquiryId": 41,
+        "category": { "code": "CANCEL_REFUND", "name": "취소·환불" },
+        "title": "환불이 아직 들어오지 않았어요",
+        "status": "WAITING",
+        "bookingNo": "20261125KCZB03R",
+        "createdAt": "2026-11-24T15:10:00",
+        "answeredAt": null
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+```
+
+- `bookingNo`는 예매를 고르지 않았으면 `null`, `answeredAt`은 답변 전이면 `null`입니다.
+
+### INQ-04 내 문의 상세 — `GET /api/v1/inquiries/{inquiryId}` (예매자, 구현됨)
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "inquiryId": 41,
+    "category": { "code": "CANCEL_REFUND", "name": "취소·환불" },
+    "title": "환불이 아직 들어오지 않았어요",
+    "content": "11/27 에 취소했는데 아직 환불되지 않았습니다.",
+    "imageUrls": ["https://{버킷 주소}/public/user_inquiry/user-5/3f2a9c1e.jpg"],
+    "status": "WAITING",
+    "booking": { "bookingId": 1001, "bookingNo": "20261125KCZB03R", "performanceTitle": "가상 콘서트" },
+    "answer": null,
+    "answeredAt": null,
+    "createdAt": "2026-11-24T15:10:00",
+    "updatedAt": "2026-11-24T15:10:00"
+  }
+}
+```
+
+- `booking`은 예매를 고르지 않았으면 `null`이고, 공연 제목은 지금 값입니다. `imageUrls`는 사진이 없으면 빈 배열입니다.
+
+**에러**: 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는 문의, 남의 문의, 삭제한 문의
 
 ---
 
