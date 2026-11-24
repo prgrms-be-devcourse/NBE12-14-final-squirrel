@@ -38,9 +38,12 @@ export type UserMe = {
   nickname: string;
   phone: string;
   profileImg: string | null;
-  birthDate: string;
   createdAt: string;
+  // 이메일 인증을 마쳤는지. 예매하려면 인증이 필요하다. (AUTH-17·18)
+  emailVerified: boolean;
 };
+
+export type EmailVerificationSent = { expiresAt: string; resendAvailableAt: string };
 
 export type PerformanceSummary = {
   performanceId: number;
@@ -111,7 +114,7 @@ export type Zone = {
   total: number;
 };
 
-export type ZoneSummary = { scheduleId: number; layoutKey: string; zones: Zone[] };
+export type ZoneSummary = { scheduleId: number; layoutKey: string | null; zones: Zone[] };
 
 export type SeatStatus = "AVAILABLE" | "HELD" | "SOLD" | "BLOCKED" | "RESERVED";
 

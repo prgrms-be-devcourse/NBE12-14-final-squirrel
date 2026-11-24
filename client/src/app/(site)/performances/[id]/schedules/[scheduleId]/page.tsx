@@ -7,9 +7,11 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiWithMeta, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
 import { useBookingWindow } from "@/lib/popup";
+import { getVenueLayout } from "@/lib/venue-layouts";
 import { saveBooking } from "@/lib/booking-cache";
 import { dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { BookingCreated, PerformanceDetail, Seat, Zone, ZoneSeats, ZoneSummary } from "@/lib/types";
+import { ArenaMap } from "@/components/arena-map";
 import { QueueGate } from "@/components/queue-gate";
 import { ErrorBox, Loading } from "@/components/ui";
 
@@ -46,10 +48,14 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
   const hint = { "x-performance-id": id };
   const zones = useApi<ZoneSummary>(`/api/v1/schedules/${scheduleId}/zones`, undefined, hint);
 
+  // 도면이 있는 공연장은 구역 지도(묶음 단위 좌석 화면)로, 없으면 층별 구역 격자로 그린다.
+  const layout = getVenueLayout(zones.data?.layoutKey);
+  const [mapVersion, setMapVersion] = useState(0);
+
   const [zoneId, setZoneId] = useState<number | null>(null);
   const activeZoneId = zoneId ?? zones.data?.zones.find((z) => z.price !== null)?.zoneId ?? null;
   const seats = useApi<ZoneSeats>(
-    activeZoneId === null ? null : `/api/v1/schedules/${scheduleId}/zones/${activeZoneId}/seats`,
+    activeZoneId === null || layout ? null : `/api/v1/schedules/${scheduleId}/zones/${activeZoneId}/seats`,
     undefined,
     hint,
   );
@@ -70,8 +76,10 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
   const maxPerPerson = p?.sale.maxPerPerson ?? 4;
   const activeZone = zones.data?.zones.find((z) => z.zoneId === activeZoneId);
 
-  function toggle(seat: Seat) {
-    if (!activeZone || seat.status !== "AVAILABLE") return;
+  function toggle(seat: Seat, zoneOverride?: Zone) {
+    const zone = zoneOverride ?? activeZone;
+    const chosen = picked.some((s) => s.seatId === seat.seatId);
+    if (!zone || (seat.status !== "AVAILABLE" && !chosen)) return;
     setMessage(null);
     if (picked.some((s) => s.seatId === seat.seatId)) {
       setPicked(picked.filter((s) => s.seatId !== seat.seatId));
@@ -85,10 +93,10 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
       ...picked,
       {
         seatId: seat.seatId,
-        zoneName: activeZone.name,
+        zoneName: zone.name,
         label: `${seat.row} ${seat.number}번`,
-        gradeName: activeZone.grade,
-        price: activeZone.price ?? 0,
+        gradeName: zone.grade,
+        price: zone.price ?? 0,
       },
     ]);
   }
@@ -127,6 +135,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
         setPicked([]);
         zones.reload();
         seats.reload();
+        setMapVersion((v) => v + 1);
       }
     } finally {
       setSubmitting(false);
@@ -162,7 +171,18 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[1fr_340px]">
         <div className="min-w-0 space-y-10">
-          {/* 구역 지도: 무대 아래로 층별 구역을 늘어놓는다 */}
+          {layout && (
+            <ArenaMap
+              layout={layout}
+              zones={zones.data.zones}
+              scheduleId={scheduleId}
+              pickedIds={new Set(picked.map((x) => x.seatId))}
+              onToggle={toggle}
+              version={mapVersion}
+            />
+          )}
+          {/* 도면이 없는 공연장: 무대 아래로 층별 구역을 늘어놓는다 */}
+          {!layout && (<>
           <section>
             <h2 className="mb-4 font-semibold">구역</h2>
             <div className="card p-5">
@@ -271,6 +291,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
               </div>
             </div>
           </section>
+          </>)}
         </div>
 
         <aside className="card h-fit space-y-5 p-6 lg:sticky lg:top-28">
