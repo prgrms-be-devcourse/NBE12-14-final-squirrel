@@ -72,7 +72,7 @@ export default function SellerSignupPage() {
       <div className="card mx-auto max-w-md space-y-4 p-8 text-center">
         <h1 className="text-xl font-semibold">가입 신청이 접수되었습니다</h1>
         <p className="text-sm text-secondary">관리자가 사업체를 확인하고 승인하면 판매자로 로그인할 수 있습니다. 승인 전에는 로그인할 수 없습니다.</p>
-        <Link href="/login" className="btn btn-primary">
+        <Link href="/seller/login" className="btn btn-primary">
           로그인 화면으로
         </Link>
       </div>
@@ -200,7 +200,7 @@ export default function SellerSignupPage() {
       </form>
       <p className="mt-4 text-center text-sm text-muted">
         이미 승인받았나요?{" "}
-        <Link href="/login" className="text-foreground underline">
+        <Link href="/seller/login" className="text-foreground underline">
           로그인
         </Link>
       </p>

@@ -26,6 +26,9 @@ const ADMIN_NAV: NavItem[] = [
 
 // 판매자·관리자 화면의 공통 틀. 계정 종류가 맞지 않으면 내용을 보여 주지 않는다.
 // 진짜 권한 검사는 Spring 이 하고, 여기는 잘못 들어온 사람에게 안내만 한다.
+// 판매자·관리자는 각자의 로그인 화면으로 보낸다. 예매자 로그인(/login)으로는 보내지 않는다.
+const LOGIN_PATH = { SELLER: "/seller/login", ADMIN: "/admin/login" } as const;
+
 export function ConsoleShell({ role, children }: { role: Exclude<AccountType, "USER">; children: React.ReactNode }) {
   const account = useAccount();
   const router = useRouter();
@@ -33,8 +36,8 @@ export function ConsoleShell({ role, children }: { role: Exclude<AccountType, "U
   const nav = role === "SELLER" ? SELLER_NAV : ADMIN_NAV;
 
   useEffect(() => {
-    if (account === null) router.replace("/login");
-  }, [account, router]);
+    if (account === null) router.replace(LOGIN_PATH[role]);
+  }, [account, router, role]);
 
   if (account === undefined || account === null) {
     return <p className="py-24 text-center text-sm text-muted">확인하는 중</p>;
@@ -44,7 +47,7 @@ export function ConsoleShell({ role, children }: { role: Exclude<AccountType, "U
       <div className="mx-auto max-w-md px-4 py-24 text-center">
         <p className="text-lg font-semibold">접근할 수 없는 화면입니다</p>
         <p className="mt-2 text-secondary">{role === "SELLER" ? "판매자" : "관리자"} 계정으로 로그인해 주세요</p>
-        <Link href="/login" className="btn btn-primary btn-lg mt-8">
+        <Link href={LOGIN_PATH[role]} className="btn btn-primary btn-lg mt-8">
           로그인
         </Link>
       </div>

@@ -23,13 +23,18 @@ export function Header() {
   const onList = pathname === "/performances";
   // 판매자·관리자 화면에서는 예매자용 검색창과 장르 탭을 숨긴다
   const consoleArea = pathname.startsWith("/seller") || pathname.startsWith("/admin");
+  // 판매자·관리자 로그인 화면에는 예매자용 로그인·가입 링크를 두지 않는다. (입구를 섞지 않는다)
+  const staffLogin = pathname === "/seller/login" || pathname === "/admin/login";
 
   async function logout() {
+    // 로그아웃하면 그 계정 종류의 로그인 화면으로 돌아간다. 예매자는 처음 화면이다.
+    const next =
+      account?.accountType === "SELLER" ? "/seller/login" : account?.accountType === "ADMIN" ? "/admin/login" : "/";
     try {
       await api("/api/v2/auth/logout", { method: "POST" });
     } finally {
       clearAccount();
-      router.push("/");
+      router.push(next);
     }
   }
 
@@ -103,7 +108,7 @@ export function Header() {
               관리자
             </Link>
           )}
-          {account === undefined ? null : account ? (
+          {account === undefined || (staffLogin && !account) ? null : account ? (
             <button
               type="button"
               onClick={logout}

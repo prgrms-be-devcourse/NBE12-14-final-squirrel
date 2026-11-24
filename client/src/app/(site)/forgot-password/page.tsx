@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { PasswordResetSent } from "@/lib/types";
@@ -13,7 +14,9 @@ const TABS = [
 ];
 
 export default function ForgotPasswordPage() {
-  const [tab, setTab] = useState(TABS[0]);
+  // 판매자 로그인 화면에서 왔으면(?type=seller) 판매자 탭으로 시작한다.
+  const initialTab = useSearchParams().get("type") === "seller" ? TABS[1] : TABS[0];
+  const [tab, setTab] = useState(initialTab);
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState<PasswordResetSent | null>(null);
   const [busy, setBusy] = useState(false);
@@ -110,7 +113,7 @@ export default function ForgotPasswordPage() {
         </button>
       </form>
       <p className="mt-4 text-center text-sm text-muted">
-        <Link href="/login" className="text-foreground underline">
+        <Link href={tab.path === "sellers" ? "/seller/login" : "/login"} className="text-foreground underline">
           로그인으로 돌아가기
         </Link>
       </p>
