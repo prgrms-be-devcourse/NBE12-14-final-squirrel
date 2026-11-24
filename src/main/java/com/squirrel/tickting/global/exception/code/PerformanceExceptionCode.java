@@ -123,7 +123,23 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	/** 판매 오픈보다 먼저(같은 시각 포함) 시작하는 회차가 있음. 그 회차는 한 장도 팔 수 없고 보통 날짜 입력 실수다. 회차 일시는 메시지로 알려 준다 */
 	SCHEDULE_BEFORE_SALE_OPEN("PERFORMANCE407", HttpStatus.BAD_REQUEST, "판매 오픈보다 먼저 시작하는 회차가 있습니다."),
 	/** 판매 종료가 마지막 회차 시작보다 늦음. 기능상 문제는 없지만 예매자 공연 상세에 공연이 끝난 뒤까지 판매 기간으로 보인다 */
-	SALE_CLOSE_AFTER_LAST_SCHEDULE("PERFORMANCE408", HttpStatus.BAD_REQUEST, "판매 종료 일시는 마지막 회차 시작보다 늦을 수 없습니다.");
+	SALE_CLOSE_AFTER_LAST_SCHEDULE("PERFORMANCE408", HttpStatus.BAD_REQUEST, "판매 종료 일시는 마지막 회차 시작보다 늦을 수 없습니다."),
+
+	// 판매 좌석 생성은 500번대를 쓴다.
+	/**
+	 * 이미 판매 좌석이 만들어진 회차에서 다시 만들려 함. 버튼을 두 번 누르거나 스케줄러·다른 요청과 겹쳐도 한 번만 만들어지게 하는 마지막 방어선이다
+	 * (락 안에서 다시 읽어 본 값이거나 seats_generated_at 조건부 UPDATE 가 0행일 때)
+	 */
+	SEATS_ALREADY_GENERATED("PERFORMANCE500", HttpStatus.CONFLICT, "이미 판매 좌석이 생성된 회차입니다."),
+	/** 취소된 회차에서 판매 좌석을 만들려 함. 팔 수 없는 좌석만 쌓이고 가격이 잠긴다. 회차 수정·취소(SLR-13·15)도 취소된 회차를 막을 때 쓸 수 있다 */
+	SCHEDULE_CANCELED("PERFORMANCE501", HttpStatus.CONFLICT, "취소된 회차는 판매 좌석을 만들 수 없습니다."),
+	/** 이미 시작한(시작 시각이 지금 이전이거나 같은) 회차에서 판매 좌석을 만들려 함. 팔 수 없는 좌석만 쌓이고 가격이 잠긴다 */
+	SCHEDULE_ALREADY_STARTED("PERFORMANCE502", HttpStatus.BAD_REQUEST, "이미 시작한 회차는 판매 좌석을 만들 수 없습니다."),
+	/**
+	 * 복사할 공연장 좌석이 하나도 없어 좌석이 0행으로 만들어짐. 판매 구역이 있는데 그 구역에 공연장 좌석이 없는 깨진 데이터라
+	 * 지금은 일어나지 않는다. 그대로 두면 빈 회차가 만들어진 것으로 기록되어 등급·가격·구역이 잠기므로 롤백하고 거절한다
+	 */
+	NO_VENUE_SEATS_TO_COPY("PERFORMANCE503", HttpStatus.CONFLICT, "복사할 공연장 좌석이 없어 판매 좌석을 만들 수 없습니다. 공연장 정보를 확인해 주세요.");
 
 	private final String code;
 	private final HttpStatus status;
