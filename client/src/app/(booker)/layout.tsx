@@ -1,24 +1,20 @@
 import type { Metadata } from "next";
-import { Noto_Sans_KR } from "next/font/google";
 import { Suspense } from "react";
+import { sans } from "@/app/fonts";
 import { AccountScope } from "@/components/account-scope";
 import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { HideInPopup } from "@/components/site-chrome";
-import "./globals.css";
+import "@/app/globals.css";
 
-const sans = Noto_Sans_KR({
-  variable: "--font-noto",
-  subsets: ["latin"],
-  display: "swap",
-});
-
+// 예매자 화면의 루트 레이아웃. 판매자((seller))·관리자((admin))는 각자의 루트 레이아웃을 따로 갖는다.
+// 루트 레이아웃이 달라서 세 화면은 머리글·바닥글·색을 서로 섞지 않는다.
 export const metadata: Metadata = {
   title: "tickting",
   description: "공연 티켓을 좌석까지 골라 예매하는 서비스",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function BookerRootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" className={`${sans.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">

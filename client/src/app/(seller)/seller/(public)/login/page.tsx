@@ -13,7 +13,7 @@ export default function SellerLoginPage() {
       </p>
       <p className="mt-4 text-center text-sm text-muted">
         판매자로 등록하려면{" "}
-        <Link href="/signup/seller" className="text-foreground underline">
+        <Link href="/seller/signup" className="text-foreground underline">
           가입 신청
         </Link>
       </p>
