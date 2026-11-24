@@ -79,6 +79,8 @@ public abstract class IntegrationTestSupport {
 		registry.add("spring.mail.username", () -> "");
 		registry.add("spring.mail.password", () -> "");
 		registry.add("app.auth.email-verification.from-address", () -> "no-reply@tickting.local");
+		// 재설정 메일의 링크 앞부분. 메일은 FakeEmailSender 가 받아서 실제로 열리는 주소일 필요는 없다.
+		registry.add("app.auth.password-reset.frontend-base-url", () -> "http://localhost:3000");
 	}
 
 	private static final Pattern REFRESH_COOKIE = Pattern.compile("refreshToken=([^;]*)");
@@ -128,6 +130,15 @@ public abstract class IntegrationTestSupport {
 		fakeEmailSender.reset();
 		emailSendExecutor.reset();
 		emailClock.reset();
+	}
+
+	/** 재설정 링크·간격·하루 횟수도 Redis 에 남아서 다음 테스트에 섞일 수 있다. 테스트마다 지운다. */
+	@BeforeEach
+	void clearPasswordReset() {
+		var keys = stringRedisTemplate.keys("tickting:pw-reset:*");
+		if (keys != null && !keys.isEmpty()) {
+			stringRedisTemplate.delete(keys);
+		}
 	}
 
 	/** 로그인 실패 횟수는 Redis 에 남아서 다음 테스트에서 같은 이메일이 잠길 수 있다. 테스트마다 지운다. */

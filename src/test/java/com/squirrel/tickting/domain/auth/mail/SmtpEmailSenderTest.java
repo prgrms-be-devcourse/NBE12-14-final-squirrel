@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.squirrel.tickting.domain.auth.service.EmailVerificationProperties;
+import com.squirrel.tickting.global.security.AccountType;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -90,6 +91,44 @@ class SmtpEmailSenderTest {
 		String text = get("/api/v1/message/" + summary.path("ID").asString()).path("Text").asString();
 		assertThat(text).contains("인증번호: 482915").contains("5분 동안 유효합니다.").contains("본인이 요청하지 않았다면");
 		assertThat(text).doesNotContain("http");
+		// HTML 본문에도 같은 번호와 유효 시간이 있고, 링크는 없다
+		String html = get("/api/v1/message/" + summary.path("ID").asString()).path("HTML").asString();
+		assertThat(html).contains("482915").contains("5분 동안").contains("#d23a1f");
+		assertThat(html).doesNotContain("href=");
+	}
+
+	@Test
+	@DisplayName("재설정 메일은 계정 종류를 제목에 담고, 텍스트와 HTML 본문 모두에 같은 링크와 유효 시간을 담아 한 통 나간다")
+	void sendsPasswordResetMailWithTextAndHtml() throws Exception {
+		SmtpEmailSender sender = new SmtpEmailSender(
+			mailSender(MAILPIT.getHost(), MAILPIT.getMappedPort(SMTP_PORT)), properties());
+		String link = "http://localhost:3000/reset-password#token=abc_DEF-123";
+
+		sender.sendPasswordReset("receiver@example.com", AccountType.SELLER, link, Duration.ofMinutes(15));
+
+		JsonNode summary = get("/api/v1/messages").path("messages").get(0);
+		assertThat(summary.path("Subject").asString()).isEqualTo("[리셀노] 판매자 계정 비밀번호 재설정 안내");
+		JsonNode message = get("/api/v1/message/" + summary.path("ID").asString());
+		assertThat(message.path("Text").asString()).contains("판매자 계정").contains(link).contains("15분 동안 유효합니다.");
+		String html = message.path("HTML").asString();
+		assertThat(html).contains("판매자").contains("href=\"" + link + "\"").contains("15분 동안").contains("#d23a1f");
+		// 링크를 글자로도 한 번 더 넣어서 버튼이 보이지 않는 메일 앱에서도 쓸 수 있다
+		assertThat(html.split(java.util.regex.Pattern.quote(link), -1)).hasSize(3);
+	}
+
+	@Test
+	@DisplayName("변경 알림 메일은 계정 종류를 담고 링크는 담지 않는다")
+	void sendsPasswordChangedMailWithoutLink() throws Exception {
+		SmtpEmailSender sender = new SmtpEmailSender(
+			mailSender(MAILPIT.getHost(), MAILPIT.getMappedPort(SMTP_PORT)), properties());
+
+		sender.sendPasswordChanged("receiver@example.com", AccountType.USER);
+
+		JsonNode summary = get("/api/v1/messages").path("messages").get(0);
+		assertThat(summary.path("Subject").asString()).isEqualTo("[리셀노] 예매자 계정 비밀번호가 변경되었습니다");
+		JsonNode message = get("/api/v1/message/" + summary.path("ID").asString());
+		assertThat(message.path("Text").asString()).contains("예매자 계정").doesNotContain("http");
+		assertThat(message.path("HTML").asString()).contains("예매자").doesNotContain("href=");
 	}
 
 	@Test

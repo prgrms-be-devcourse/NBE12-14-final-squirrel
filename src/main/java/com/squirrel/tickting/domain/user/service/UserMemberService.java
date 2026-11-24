@@ -133,6 +133,30 @@ public class UserMemberService {
 	}
 
 	/**
+	 * 비밀번호 재설정 메일을 받을 수 있는 회원을 읽는다. 탈퇴했거나 없으면 PASSWORD_RESET_EMAIL_NOT_FOUND.
+	 * 정지(SUSPENDED) 회원도 허용한다. 비밀번호만 바꿀 수 있고 로그인 차단은 로그인이 그대로 맡는다.
+	 */
+	@Transactional(readOnly = true)
+	public UserMember getPasswordResetTarget(String rawEmail) {
+		return userMemberRepository.findByEmailAndDeletedAtIsNull(EmailUtil.normalize(rawEmail))
+			.orElseThrow(() -> new BusinessException(AuthExceptionCode.PASSWORD_RESET_EMAIL_NOT_FOUND,
+				"예매자 계정으로 가입된 이메일이 아닙니다."));
+	}
+
+	/**
+	 * 비밀번호를 새로 정하고, 알림 메일을 보낼 가입 이메일을 돌려준다. 그 사이 탈퇴했으면 PASSWORD_RESET_TOKEN_INVALID.
+	 * 트랜잭션을 열지 않는다. 해시 계산(BCrypt)이 오래 걸려서, 열면 그동안 DB 연결을 쥐고 있게 된다. UPDATE 하나만 짧게 트랜잭션이다.
+	 */
+	public String resetPassword(Long userId, String rawPassword, LocalDateTime now) {
+		UserMember user = userMemberRepository.findByIdAndDeletedAtIsNull(userId)
+			.orElseThrow(() -> new BusinessException(AuthExceptionCode.PASSWORD_RESET_TOKEN_INVALID));
+		if (userMemberRepository.updatePassword(userId, passwordEncoder.encode(rawPassword), now) == 0) {
+			throw new BusinessException(AuthExceptionCode.PASSWORD_RESET_TOKEN_INVALID);
+		}
+		return user.getEmail();
+	}
+
+	/**
 	 * 예매하기(대기열 입장) 전에 이메일 인증을 마쳤는지 확인한다. 안 했으면 EMAIL_NOT_VERIFIED.
 	 * 인증 상태는 세션이 아니라 DB 에서 읽는다. 세션에 두면 인증을 마친 뒤에도 다시 로그인해야 풀리기 때문이다.
 	 * 탈퇴한 회원은 인증한 것으로 보지 않아 같은 에러가 난다. (토큰이 남아 있어도 예매할 수 없다)

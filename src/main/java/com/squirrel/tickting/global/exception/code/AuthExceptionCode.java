@@ -39,6 +39,11 @@ public enum AuthExceptionCode implements ExceptionCode {
 	/** 이메일 인증을 하지 않은 예매자가 예매하기(대기열 입장)를 함. 화면은 인증 모달을 띄운다 */
 	EMAIL_NOT_VERIFIED("AUTH307", HttpStatus.FORBIDDEN, "예매하려면 이메일 인증이 필요합니다."),
 
+	/** 비밀번호 재설정 메일을 요청한 이메일로 가입한 해당 종류(예매자·판매자)의 계정이 없음. 메시지에 계정 종류를 넣어 던진다. 삭제(탈퇴)된 계정도 없는 것으로 본다 */
+	PASSWORD_RESET_EMAIL_NOT_FOUND("AUTH308", HttpStatus.NOT_FOUND, "가입되지 않은 이메일입니다."),
+	/** 비밀번호 재설정 링크가 만료되었거나 이미 사용됨(다른 링크로 비밀번호를 바꿔 폐기된 경우, 링크를 받은 뒤 계정이 탈퇴한 경우 포함). 사용자가 할 일은 "다시 요청" 하나라 한 코드로 둔다 */
+	PASSWORD_RESET_TOKEN_INVALID("AUTH309", HttpStatus.BAD_REQUEST, "만료되었거나 이미 사용한 링크입니다. 다시 요청해 주세요."),
+
 	/** 로그인은 됐으나 권한 부족 (예: 예매자가 관리자 API 호출, 403) */
 	ACCESS_DENIED("AUTH100", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 

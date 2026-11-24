@@ -8,6 +8,7 @@ spring:
     # 이미지를 실제로 올려 보려면 진짜 AWS 키가 필요하다. 올려 보지 않는 사람은 앱이 뜨도록 값만 채워 두면 된다. (시작할 때 AWS 를 부르지 않는다)
     # 이메일 인증 메일에 쓰는 키: MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM (모두 필수)
     # 로컬은 Mailpit(개발용 가짜 메일 서버)을 쓴다: MAIL_HOST=localhost, MAIL_PORT=1025, 사용자·비밀번호는 빈 값, MAIL_FROM=no-reply@tickting.local. doc/local-multi-server.md 참고
+    # 비밀번호 재설정 메일의 링크에 쓰는 키: FRONTEND_BASE_URL (필수). 로컬 프론트 주소이고, 끝에 / 를 붙이지 않는다: FRONTEND_BASE_URL=http://localhost:3000
     # 따옴표를 쓰지 말고 = 앞뒤에 공백을 넣지 않는다. 실행 위치가 프로젝트 루트여야 .env 를 찾는다.
     import: optional:file:.env[.properties]
   datasource:
