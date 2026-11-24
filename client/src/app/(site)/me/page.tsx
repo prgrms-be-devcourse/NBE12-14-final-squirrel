@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, api, useApi } from "@/lib/api";
 import { clearAccount } from "@/lib/auth";
 import { dateText } from "@/lib/format";
 import type { UserMe } from "@/lib/types";
-import { EmailVerification } from "@/components/email-verification";
 import { ImageUpload } from "@/components/image-upload";
 import { ErrorBox, Loading, PageTitle } from "@/components/ui";
 
@@ -23,12 +22,13 @@ export default function MePage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [confirmingWithdraw, setConfirmingWithdraw] = useState(false);
-  const [verifying, setVerifying] = useState(false);
 
-  if (error?.status === 401) {
-    router.push("/login");
-    return null;
-  }
+  // 화면을 그리는 도중에 이동하면 React 가 경고한다. 로그인이 풀렸으면 그린 뒤에 이동한다.
+  const unauthorized = error?.status === 401;
+  useEffect(() => {
+    if (unauthorized) router.push("/login");
+  }, [unauthorized, router]);
+  if (unauthorized) return null;
 
   function startEdit(me: UserMe) {
     setNickname(me.nickname);
@@ -151,7 +151,6 @@ export default function MePage() {
               ["이름", data.name],
               ["닉네임", data.nickname],
               ["휴대폰", data.phone],
-              ["이메일 인증", data.emailVerified ? "완료" : "미인증"],
               ["가입일", dateText(data.createdAt)],
             ].map(([label, value]) => (
               <div key={label} className="flex justify-between gap-4 px-6 py-4">
@@ -160,23 +159,6 @@ export default function MePage() {
               </div>
             ))}
           </dl>
-          {!data.emailVerified &&
-            (verifying ? (
-              <div className="card mt-5 p-6">
-                <EmailVerification
-                  onVerified={() => {
-                    setVerifying(false);
-                    setMessage({ text: "이메일 인증을 마쳤습니다", error: false });
-                    reload();
-                  }}
-                  onCancel={() => setVerifying(false)}
-                />
-              </div>
-            ) : (
-              <button type="button" className="btn mt-5 w-full" onClick={() => setVerifying(true)}>
-                이메일 인증하기
-              </button>
-            ))}
           <Link href="/bookings" className="btn btn-lg mt-6 w-full">
             내 예매 보기
           </Link>

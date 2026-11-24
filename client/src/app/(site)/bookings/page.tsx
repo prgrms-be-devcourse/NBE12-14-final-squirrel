@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApi } from "@/lib/api";
 import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, won } from "@/lib/format";
 import type { BookingStatus, BookingSummary, Page } from "@/lib/types";
@@ -25,10 +25,12 @@ export default function BookingsPage() {
     size: 10,
   });
 
-  if (error?.status === 401) {
-    router.push("/login");
-    return null;
-  }
+  // 화면을 그리는 도중에 이동하면 React 가 경고한다. 로그인이 풀렸으면 그린 뒤에 이동한다.
+  const unauthorized = error?.status === 401;
+  useEffect(() => {
+    if (unauthorized) router.push("/login");
+  }, [unauthorized, router]);
+  if (unauthorized) return null;
 
   return (
     <>

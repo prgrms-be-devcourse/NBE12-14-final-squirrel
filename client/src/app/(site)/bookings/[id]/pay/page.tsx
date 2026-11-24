@@ -157,9 +157,16 @@ export default function PayPage() {
     };
   }, [useToss, pending, totalAmount]);
 
+  // 화면을 그리는 도중에 이동하면 React 가 경고한다. 로그인이 풀렸으면 그린 뒤에 이동한다.
+  const unauthorized = detail.error?.status === 401;
+  useEffect(() => {
+    if (unauthorized) toLogin();
+    // toLogin 은 창 상태가 바뀔 때만 달라진다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unauthorized]);
+
   if (cache.state === "unknown" || (cache.state === "none" && detail.loading)) return <Loading />;
   if (!view) {
-    if (detail.error?.status === 401) toLogin();
     return detail.error ? <ErrorBox error={detail.error} onRetry={detail.reload} /> : null;
   }
   const b = view;

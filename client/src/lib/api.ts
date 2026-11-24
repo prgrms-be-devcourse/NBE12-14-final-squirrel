@@ -82,7 +82,7 @@ export async function apiWithMeta<T>(path: string, options: Options = {}): Promi
   }
 
   if (!response.ok || !envelope?.success) {
-    if (response.status === 401) clearAccount();
+    if (response.status === 401) clearAccount({ expired: true });
     throw new ApiError(
       response.status,
       envelope?.code ?? "COMMON999",
@@ -168,7 +168,7 @@ export async function uploadImage(file: File, purpose: ImagePurpose): Promise<st
     envelope = null;
   }
   if (!response.ok || !envelope?.success) {
-    if (response.status === 401) clearAccount();
+    if (response.status === 401) clearAccount({ expired: true });
     throw new ApiError(response.status, envelope?.code ?? "COMMON999", envelope?.message || "사진을 올리지 못했습니다");
   }
   return envelope.data.imageUrl;
