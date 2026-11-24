@@ -283,3 +283,51 @@ body {
     right: -30px;
   }
 }
+
+/* 구역 지도 (공연장 도면) */
+.arena-zone {
+  cursor: pointer;
+  outline: none;
+}
+.arena-zone polygon {
+  stroke: var(--surface);
+  stroke-width: 2;
+  transition: filter 150ms var(--ease);
+}
+.arena-zone:hover polygon,
+.arena-zone:focus-visible polygon {
+  filter: brightness(1.1);
+}
+.arena-zone:focus-visible polygon {
+  stroke: var(--foreground);
+  stroke-width: 3;
+}
+.arena-zone[data-disabled] {
+  cursor: default;
+}
+.arena-zone-label {
+  fill: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.arena-seat {
+  fill: var(--muted);
+  opacity: 0.5;
+  cursor: pointer;
+}
+.arena-seat:hover {
+  opacity: 0.95;
+}
+.arena-seat-picked {
+  fill: var(--accent);
+  opacity: 1;
+}
+.arena-seat-off {
+  opacity: 0.16;
+  cursor: default;
+}
+.arena-seat-off:hover {
+  opacity: 0.16;
+}

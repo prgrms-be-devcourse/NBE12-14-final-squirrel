@@ -64,6 +64,7 @@ async function proxy(request: NextRequest): Promise<Response> {
     pathname,
     search: request.nextUrl.searchParams,
     cookies: parseCookies(request.headers.get("cookie")),
+    header: (name) => request.headers.get(name),
     json: async () => JSON.parse(new TextDecoder().decode(body)),
     performanceId: Number.isFinite(performanceHeader) && performanceHeader > 0 ? performanceHeader : null,
   };
