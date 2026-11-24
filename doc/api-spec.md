@@ -125,6 +125,8 @@
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
 | INQ-03 | 내 문의 목록 (예매자) | GET `/api/v1/inquiries` | 구현됨 |
 | INQ-04 | 내 문의 상세 (예매자) | GET `/api/v1/inquiries/{inquiryId}` | 구현됨 |
+| INQ-05 | 문의 수정 (예매자) | PUT `/api/v1/inquiries/{inquiryId}` | 구현됨 |
+| INQ-06 | 문의 삭제 (예매자) | DELETE `/api/v1/inquiries/{inquiryId}` | 구현됨 |
 
 ---
 
@@ -2745,7 +2747,7 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 
 ## 7. 문의 (`/api/v1/inquiries/**`, 예매자)
 
-설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 판매자 문의·관리자 답변·수정·삭제는 다음 PR입니다.
+설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 판매자 문의·관리자 답변은 다음 PR입니다.
 
 ### INQ-01 문의 유형 목록 — `GET /api/v1/inquiries/categories` (예매자, 구현됨)
 
@@ -2871,6 +2873,43 @@ Query: `page`, `size` (기본·최대 20). 최신 작성순 고정이고 삭제�
 - `booking`은 예매를 고르지 않았으면 `null`이고, 공연 제목은 지금 값입니다. `imageUrls`는 사진이 없으면 빈 배열입니다.
 
 **에러**: 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는 문의, 남의 문의, 삭제한 문의
+
+### INQ-05 문의 수정 — `PUT /api/v1/inquiries/{inquiryId}` (예매자, 구현됨)
+
+**답변 대기(`WAITING`)일 때만** 됩니다. 작성(INQ-02)과 같은 본문을 **통째로** 다시 보냅니다. 보내지 않은 사진은 지워지고, `bookingId`를 비우면 예매 연결이 풀립니다. 필드 규칙은 INQ-02와 같습니다.
+
+**요청**
+
+```json
+{
+  "category": "CANCEL_REFUND",
+  "bookingId": 1001,
+  "title": "환불이 아직 들어오지 않았어요",
+  "content": "11/27 에 취소했는데 아직 환불되지 않았습니다. 카드사에도 확인했어요.",
+  "images": [
+    { "url": "https://{버킷 주소}/public/user_inquiry/user-5/3f2a9c1e.jpg" }
+  ]
+}
+```
+
+- 수정 이력(`UPDATED`, 바뀐 내용 그대로)을 남깁니다. 작성 이력은 처음 내용 그대로 남습니다.
+- 수정과 관리자 답변이 동시에 들어오면 **먼저 끝난 쪽만** 성공하고, 수정이 늦으면 409 `INQUIRY002`입니다. (상태 조건부 UPDATE)
+
+**응답 200**: INQ-04와 같은 문의 상세(바뀐 내용)
+
+**에러**: 400 `COMMON000` 형식 오류 · 400 `INQUIRY000` 고를 수 없는 유형 · 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는·남의·삭제한 문의 · 404 `BOOKING006` 남의·없는 예매 · 409 `INQUIRY002` 답변이 끝난 문의
+
+### INQ-06 문의 삭제 — `DELETE /api/v1/inquiries/{inquiryId}` (예매자, 구현됨)
+
+**답변 대기일 때만** 됩니다. 행은 지우지 않고 `deleted_at`만 남겨서(소프트 삭제) 목록·상세에서 사라지고, 지우기 직전 내용을 삭제 이력(`DELETED`)으로 남깁니다. 같은 문의를 동시에 여러 번 지워도 한 번만 성공합니다.
+
+**응답 200**
+
+```json
+{ "success": true, "code": "0000", "message": "", "data": null }
+```
+
+**에러**: 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는·남의·이미 삭제한 문의 · 409 `INQUIRY002` 답변이 끝난 문의(동시에 지운 요청이 먼저 끝난 경우도)
 
 ---
 

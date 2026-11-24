@@ -45,6 +45,36 @@ public class UserInquiryRequest {
 		}
 	}
 
+	/** 문의 수정. 작성과 같은 값을 통째로 다시 보낸다. (보내지 않은 사진·예매는 지운 것으로 본다) */
+	public record Update(
+		@NotNull(message = "문의 유형을 선택해 주세요.")
+		@Schema(description = "문의 유형. 예매자 유형 목록에 있는 값만", example = "CANCEL_REFUND")
+		InquiryCategory category,
+
+		@Schema(description = "관련 예매 번호(내부 번호). 비우면 연결을 푼다. 내 예매만 고를 수 있다", example = "1001")
+		Long bookingId,
+
+		@NotBlank(message = "제목을 입력해 주세요.")
+		@Size(max = 100, message = "제목은 100자 이하로 입력해 주세요.")
+		@Schema(description = "제목", example = "환불이 아직 들어오지 않았어요")
+		String title,
+
+		@NotBlank(message = "내용을 입력해 주세요.")
+		@Size(max = 2000, message = "내용은 2000자 이하로 입력해 주세요.")
+		@Schema(description = "내용", example = "11/27 에 취소했는데 아직 환불되지 않았습니다. 카드사에도 확인했어요.")
+		String content,
+
+		@Size(max = 3, message = "사진은 3장까지 첨부할 수 있습니다.")
+		@Schema(description = "첨부 사진 전체. 비우면 사진을 모두 지운다. 보낸 순서대로 저장한다")
+		List<@Valid @NotNull(message = "사진이 비어 있습니다.") Image> images
+	) {
+
+		/** 사진 주소 목록. 비어 있으면 빈 목록이다. */
+		public List<String> imageUrls() {
+			return images == null ? List.of() : images.stream().map(Image::url).toList();
+		}
+	}
+
 	/** 첨부 사진 하나. 공연 상세 이미지처럼 객체로 받는다. (@ImageUrl 은 목록의 문자열 원소에 걸 수 없다) */
 	public record Image(
 		@NotBlank(message = "사진 주소를 입력해 주세요.")
