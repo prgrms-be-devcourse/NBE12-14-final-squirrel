@@ -40,10 +40,26 @@ pnpm dev
 
 ## Vercel 배포
 
-1. 프로젝트를 가져올 때 **Root Directory를 `client`**로 지정합니다. (프레임워크는 Next.js, 패키지 관리자는 `pnpm-lock.yaml`로 자동 인식)
-2. Environment Variables(Production)에 위 표의 `SPRING_API_URL`, `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`를 넣습니다. `MOCK_FALLBACK`은 넣지 않습니다.
-3. 함수 실행 지역은 `vercel.json`에서 서울(`icn1`)로 고정합니다. 서버(`api.noresell.store`)와 가깝게 두려는 것입니다.
-4. 도메인 `noresell.store`를 프로젝트에 연결합니다.
+조직의 프라이빗 저장소는 무료 Vercel 요금제로 GitHub에 연결할 수 없어서, **GitHub Actions가 Vercel CLI로 직접 올립니다.**
+(`.github/workflows/deploy-client.yml`. `main`에 `client/`가 바뀐 채 머지되면 자동으로 돌고, Actions 탭의 "Run workflow"로 직접 실행할 수도 있습니다.)
+
+### 처음 한 번 하는 설정
+
+1. **Vercel 프로젝트 만들기** (GitHub 연결 없이). 내 컴퓨터에서:
+   ```bash
+   cd client
+   npx vercel login
+   npx vercel link
+   ```
+   `link`가 묻는 대로 새 프로젝트를 만듭니다. 이때 **Root Directory는 비워 둡니다.** (Actions가 `client/` 폴더를 프로젝트 루트로 올립니다) 끝나면 `client/.vercel/project.json`이 생기는데, git에는 올라가지 않습니다.
+2. **환경 변수**를 Vercel 프로젝트(Settings → Environment Variables, Production)에 넣습니다. 위 표의 `SPRING_API_URL`, `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`입니다. `MOCK_FALLBACK`은 넣지 않습니다. 이 값은 배포할 때 `vercel pull`이 받아 가고, `NEXT_PUBLIC_` 값은 빌드에 들어갑니다.
+3. **GitHub 저장소 Secrets**(Settings → Secrets and variables → Actions)에 세 개를 넣습니다.
+   - `VERCEL_TOKEN`: Vercel 계정 설정(Settings → Tokens)에서 만든 토큰
+   - `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`: 1번이 만든 `client/.vercel/project.json`의 `orgId`, `projectId`
+4. **도메인** `noresell.store`를 Vercel 프로젝트(Settings → Domains)에 연결하고, 가비아 DNS를 Vercel이 알려 주는 값으로 맞춥니다.
+5. 첫 배포는 Actions 탭에서 "Deploy client"를 직접 실행해서 확인합니다.
+
+함수 실행 지역은 `vercel.json`에서 서울(`icn1`)로 고정합니다. 서버(`api.noresell.store`)와 가깝게 두려는 것입니다.
 
 ### 배포 환경에서 알아 둘 것
 
