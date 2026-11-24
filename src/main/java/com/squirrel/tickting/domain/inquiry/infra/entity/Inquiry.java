@@ -17,8 +17,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -27,6 +25,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * 문의. 예매자·판매자가 함께 쓰고 관리자가 답변한다. 답변이 하나라 같은 행에 둔다.
@@ -81,18 +81,19 @@ public class Inquiry extends SoftDeletableEntity {
 		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
 	private Booking booking;
 
-	/** 첨부 사진(읽기 전용). 저장은 InquiryImage 를 직접 한다. */
-	@OneToMany
-	@OrderBy("sortOrder")
-	@JoinColumn(name = "inquiry_id", insertable = false, updatable = false,
-		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
-	private List<InquiryImage> images;
-
 	@Column(nullable = false, length = 100)
 	private String title;
 
 	@Column(nullable = false, length = 2000)
 	private String content;
+
+	/**
+	 * 첨부 사진 주소 목록. 보낸 순서 그대로이고 사진이 없으면 빈 목록이다.
+	 * 문의와 늘 같이 읽고 쓰며 수정할 때도 통째로 바꿔서 테이블을 나누지 않고 JSON 배열 컬럼에 둔다.
+	 */
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(nullable = false, columnDefinition = "jsonb")
+	private List<String> imageUrls;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)

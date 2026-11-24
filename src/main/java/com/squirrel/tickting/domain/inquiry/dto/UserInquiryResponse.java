@@ -2,7 +2,6 @@ package com.squirrel.tickting.domain.inquiry.dto;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.inquiry.infra.entity.Inquiry;
-import com.squirrel.tickting.domain.inquiry.infra.entity.InquiryImage;
 import com.squirrel.tickting.domain.inquiry.type.InquiryCategory;
 import com.squirrel.tickting.domain.inquiry.type.InquiryStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -62,7 +61,7 @@ public class UserInquiryResponse {
 		}
 	}
 
-	/** 내 문의 상세. 사진·예매는 문의의 읽기 전용 연관에서 꺼내므로 트랜잭션 안에서 만든다. */
+	/** 내 문의 상세. 예매는 문의의 읽기 전용 연관에서 꺼내므로 트랜잭션 안에서 만든다. */
 	@Schema(name = "UserInquiryDetail", description = "내 문의 상세")
 	public record Detail(
 		Long inquiryId,
@@ -83,7 +82,7 @@ public class UserInquiryResponse {
 
 		public static Detail from(Inquiry inquiry) {
 			return new Detail(inquiry.getId(), Category.from(inquiry.getCategory()), inquiry.getTitle(),
-				inquiry.getContent(), inquiry.getImages().stream().map(InquiryImage::getUrl).toList(),
+				inquiry.getContent(), inquiry.getImageUrls(),
 				inquiry.getStatus(), inquiry.getBooking() == null ? null : BookingInfo.from(inquiry.getBooking()),
 				inquiry.getAnswer(), inquiry.getAnsweredAt(), inquiry.getCreatedAt(), inquiry.getUpdatedAt());
 		}

@@ -37,8 +37,8 @@
 ## 2. 테이블 (`V14__create_inquiry_tables.sql`)
 
 ```
-inquiry (문의 1건 = 1행)  ──1:N──  inquiry_image   (첨부 사진 주소)
-                          ──1:N──  inquiry_history (작성·수정·삭제·답변 기록)
+inquiry (문의 1건 = 1행, 첨부 사진 주소는 image_urls 컬럼에 JSON 배열로)
+  └─ 1:N inquiry_history (작성·수정·삭제·답변 기록)
 ```
 
 ### `inquiry`
@@ -51,6 +51,7 @@ inquiry (문의 1건 = 1행)  ──1:N──  inquiry_image   (첨부 사진 �
 | `category` | 문의 유형 | 필수 | 필수 |
 | `booking_id` | 고른 내 예매 | 선택 | 비움 |
 | `title`, `content` | 제목, 내용 | 필수 | 필수 |
+| `image_urls` | 첨부 사진 주소 목록 (jsonb 배열, 최대 3장, 없으면 `[]`) | 선택 | 선택 |
 | `status` | `WAITING` / `ANSWERED` | 필수 | 필수 |
 | `answer`, `answered_by`, `answered_at` | 답변, 답변한 관리자, 답변 일시 | 답변 후 | 답변 후 |
 | `created_at`, `updated_at`, `deleted_at` | 시간, 소프트 삭제 | | |
@@ -60,9 +61,7 @@ inquiry (문의 1건 = 1행)  ──1:N──  inquiry_image   (첨부 사진 �
 - 판매자 문의는 다음 PR이지만, 컬럼을 다시 추가하는 마이그레이션을 만들지 않으려고 처음부터 만들었다.
 - 인덱스: 내 문의 목록 `(author_type, author_id, created_at DESC)`, 사업체 목록 `(business_id, created_at DESC)`, 관리자 목록 `(status, created_at)`. 모두 삭제하지 않은 행만.
 
-### `inquiry_image`
-
-공연 상세 이미지(`performance_image`)와 같은 모양이다. `inquiry_id`, `url`, `sort_order`. 수정할 때는 목록을 통째로 바꾼다. ⏳
+- **사진을 테이블로 나누지 않은 이유** (2026-11-24 변경: 처음에는 공연 상세 이미지처럼 `inquiry_image` 테이블이었다): 사진은 최대 3장이고, 늘 문의와 같이 읽고 쓰며, 수정할 때도 통째로 바꾼다. 사진 하나로 검색하거나 한 장만 고칠 일이 없다. 그래서 4부의 jsonb 기준("읽기만 하고 검색·부분 수정하지 않는 값", 취소 규정 스냅샷)과 같이 문의 행의 `jsonb` 배열로 둔다. 테이블·엔티티·저장 단계가 하나씩 줄고, 순서는 배열 순서 그대로다. 공연 상세 이미지는 개수 제한이 없고 공연 화면의 중심 데이터라 사정이 다르다.
 
 ### `inquiry_history`
 
@@ -84,9 +83,9 @@ inquiry (문의 1건 = 1행)  ──1:N──  inquiry_image   (첨부 사진 �
 domain/inquiry
   controller/UserInquiryController   예매자 API (/api/v1/inquiries)
   facade/UserInquiryFacade           작성: 예매(내 예매인가) + 회원(이름·이메일) + 문의(저장)
-  service/InquiryService             문의·사진·이력 저장과 조회 (자기 도메인만)
+  service/InquiryService             문의·이력 저장과 조회 (자기 도메인만)
   dto/UserInquiryRequest, UserInquiryResponse
-  infra/entity/Inquiry, InquiryImage, InquiryHistory
+  infra/entity/Inquiry, InquiryHistory
   type/InquiryStatus, InquiryCategory, InquiryAction
 global/exception/code/InquiryExceptionCode
 ```
@@ -100,7 +99,7 @@ global/exception/code/InquiryExceptionCode
 | 순서 | 내용 | 상태 |
 |---|---|---|
 | 0 | 이미지 업로드에 문의 첨부 용도(`USER_INQUIRY`, `SELLER_INQUIRY`) 추가 | ✅ |
-| 1 | 테이블 3개(V14) + 예매자 문의 유형 목록·작성·목록·상세 | ✅ |
+| 1 | 테이블 2개(V14: `inquiry`, `inquiry_history`) + 예매자 문의 유형 목록·작성·목록·상세 | ✅ |
 | 2 | 예매자 문의 수정·삭제 (답변 대기일 때만, 상태 조건부 UPDATE로 답변과 겹치면 하나만 성공) | ⏳ |
 | 3 | 관리자 문의 목록·상세(이력 포함)·답변 (이미 답변했으면 409) | ⏳ |
 | 4 | 판매자 문의 유형 목록·작성·목록·상세·수정·삭제 (사업체 단위로 보기) | ⏳ |

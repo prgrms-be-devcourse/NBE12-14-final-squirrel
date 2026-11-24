@@ -32,7 +32,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 	@BeforeEach
 	@AfterEach
 	void cleanInquiries() {
-		jdbc.execute("TRUNCATE TABLE inquiry, inquiry_image, inquiry_history RESTART IDENTITY");
+		jdbc.execute("TRUNCATE TABLE inquiry, inquiry_history RESTART IDENTITY");
 	}
 
 	private Map<String, Object> body(String category, Long bookingId, List<String> imageUrls) {
@@ -80,7 +80,8 @@ class UserInquiryApiTest extends BookingTestSupport {
 		assertThat(row.get("booking_id")).isEqualTo(bookingId);
 		assertThat(row.get("business_id")).isNull();
 		assertThat(row.get("title")).isEqualTo("환불이 아직 들어오지 않았어요");
-		assertThat(jdbc.queryForList("SELECT url FROM inquiry_image WHERE inquiry_id = ? ORDER BY sort_order",
+		// 사진은 보낸 순서 그대로 문의 행의 JSON 배열에 들어간다
+		assertThat(jdbc.queryForList("SELECT jsonb_array_elements_text(image_urls) FROM inquiry WHERE id = ?",
 			String.class, inquiryId)).containsExactly(IMAGE, second);
 
 		Map<String, Object> history = jdbc.queryForMap("SELECT * FROM inquiry_history WHERE inquiry_id = ?", inquiryId);
