@@ -31,6 +31,17 @@ public class SellerMemberService {
 	private final PasswordVerifier passwordVerifier;
 
 	/**
+	 * 가입 전 이메일 인증번호를 보내도 되는 이메일인지 확인한다. 이미 가입한(탈퇴하지 않은) 판매자 이메일이면 EMAIL_DUPLICATED.
+	 * 가입 API 의 중복 확인과 같은 기준이다. 가입한 이메일로 번호를 보내 봐야 가입할 수 없어서 미리 막는다.
+	 */
+	@Transactional(readOnly = true)
+	public void requireEmailNotTaken(String normalizedEmail) {
+		if (sellerMemberRepository.existsByEmailAndDeletedAtIsNull(normalizedEmail)) {
+			throw new BusinessException(SellerExceptionCode.EMAIL_DUPLICATED);
+		}
+	}
+
+	/**
 	 * 판매자 가입 신청. 사업체(승인 대기)와 대표자 계정을 한 트랜잭션으로 만든다.
 	 * 둘 중 하나만 저장되는 일이 없어야 하므로, 어느 쪽에서 실패해도 전부 되돌린다.
 	 * 동시 요청이 아래 중복 확인을 함께 통과하면 DB 의 UNIQUE 인덱스가 막고,

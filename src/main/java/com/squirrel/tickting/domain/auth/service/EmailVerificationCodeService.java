@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.auth.service;
 
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
+import com.squirrel.tickting.global.security.AccountType;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,12 +27,16 @@ import org.springframework.stereotype.Service;
  * 서버가 여러 대라 모두 Redis 에 두고, 확인과 변경은 Lua 스크립트 하나로 한다.
  * (인증을 마친 이메일로 가입하면 그 시각이 DB(user_member.email_verified_at)에 남고, 여기에는 몇 분 뒤 사라져도 되는 값만 있다)
  *
- * <p>Redis 키 (이메일은 해시로만 남긴다. 해시를 중괄호로 묶어 같은 이메일의 키가 같은 슬롯에 놓이게 했다)
+ * <p>예매자와 판매자가 함께 쓰지만 인증 상태는 계정 종류별로 따로 둔다. 모든 메서드가 계정 종류(USER, SELLER)를 받고 키에 들어간다.
+ * 한쪽에서 인증한 이메일로 다른 쪽에 가입할 수 없고, 하루 발송 한도와 재발송 간격도 따로 센다.
+ * (두 계정은 테이블이 달라 같은 이메일로 둘 다 가입할 수 있어서, 한 사람이 양쪽에서 인증을 받을 수도 있다)
+ *
+ * <p>Redis 키 (이메일은 해시로만 남긴다. 해시를 중괄호로 묶어 같은 이메일의 키가 같은 슬롯에 놓이게 했다. 아래 {종류}는 USER 또는 SELLER)
  * <ul>
- *   <li>{@code tickting:email-verify:USER:{이메일 해시}:code} 해시. 인증번호·발급 식별값·틀린 횟수. 유효 시간이 지나면 사라진다</li>
- *   <li>{@code tickting:email-verify:USER:{이메일 해시}:resend} 재발송 간격 동안만 있는 표시</li>
- *   <li>{@code tickting:email-verify:USER:{이메일 해시}:daily:{한국 날짜}} 그날 발송 횟수. 날짜가 키에 있어서 자정이 지나면 0부터 시작한다</li>
- *   <li>{@code tickting:email-verify:USER:{이메일 해시}:verified} 인증을 마쳤다는 표시. 가입에 성공하거나 유효 시간이 지나면 사라진다</li>
+ *   <li>{@code tickting:email-verify:{종류}:{이메일 해시}:code} 해시. 인증번호·발급 식별값·틀린 횟수. 유효 시간이 지나면 사라진다</li>
+ *   <li>{@code tickting:email-verify:{종류}:{이메일 해시}:resend} 재발송 간격 동안만 있는 표시</li>
+ *   <li>{@code tickting:email-verify:{종류}:{이메일 해시}:daily:{한국 날짜}} 그날 발송 횟수. 날짜가 키에 있어서 자정이 지나면 0부터 시작한다</li>
+ *   <li>{@code tickting:email-verify:{종류}:{이메일 해시}:verified} 인증을 마쳤다는 표시. 가입에 성공하거나 유효 시간이 지나면 사라진다</li>
  * </ul>
  */
 @Slf4j
@@ -39,7 +44,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class EmailVerificationCodeService {
 
-	private static final String PREFIX = "tickting:email-verify:USER:";
+	private static final String KEY_ROOT = "tickting:email-verify:";
 	private static final int CODE_DIGITS = 6;
 	/** 지난 날짜의 횟수 키를 치우는 용도다. 하루 한도 계산에는 쓰이지 않는다 */
 	private static final Duration DAILY_KEY_TTL = Duration.ofDays(2);
@@ -64,25 +69,27 @@ public class EmailVerificationCodeService {
 	 * 발급한 인증번호와 되돌리는 데 필요한 값. 응답에 들어갈 값(두 시각)과 메일에 들어갈 값(번호)이 섞여 있어
 	 * 응답 DTO 하나로 표현할 수 없어서 서비스 안에 둔다.
 	 *
+	 * @param type     어느 계정의 인증인지. 되돌릴 때 같은 종류의 키를 찾는 데 쓴다
 	 * @param nonce    이 발급의 식별값. 나중에 되돌릴 때 저장된 번호가 이 발급의 것인지 알아보는 데 쓴다
 	 * @param dailyKey 하루 횟수를 센 키. 자정을 넘겨 되돌려도 센 날의 키를 되돌린다
 	 */
-	public record Issued(String emailHash, String code, String nonce, String dailyKey, LocalDateTime expiresAt,
-						 LocalDateTime resendAvailableAt) {
+	public record Issued(AccountType type, String emailHash, String code, String nonce, String dailyKey,
+						 LocalDateTime expiresAt, LocalDateTime resendAvailableAt) {
 	}
 
 	/**
 	 * 새 인증번호를 만들어 저장한다. 이전 번호는 바로 무효가 된다.
 	 * 재발송 간격 안이면 EMAIL_VERIFICATION_TOO_SOON, 하루 한도를 넘었으면 EMAIL_VERIFICATION_DAILY_LIMIT. (이 순서로 확인한다)
 	 */
-	public Issued issue(String normalizedEmail) {
+	public Issued issue(AccountType type, String normalizedEmail) {
 		LocalDateTime now = now();
 		String code = generateCode();
 		String nonce = UUID.randomUUID().toString();
 		String emailHash = sha256(normalizedEmail);
-		String dailyKey = dailyKey(emailHash, now.toLocalDate());
+		String dailyKey = dailyKey(type, emailHash, now.toLocalDate());
 
-		Long result = redis.execute(ISSUE_SCRIPT, List.of(resendKey(emailHash), dailyKey, codeKey(emailHash)),
+		Long result = redis.execute(ISSUE_SCRIPT,
+			List.of(resendKey(type, emailHash), dailyKey, codeKey(type, emailHash)),
 			String.valueOf(properties.resendInterval().toSeconds()),
 			String.valueOf(properties.dailyLimit()),
 			String.valueOf(DAILY_KEY_TTL.toSeconds()),
@@ -101,7 +108,7 @@ public class EmailVerificationCodeService {
 		if (result != ISSUED) {
 			throw new IllegalStateException("알 수 없는 발급 결과입니다. result=" + result);
 		}
-		return new Issued(emailHash, code, nonce, dailyKey,
+		return new Issued(type, emailHash, code, nonce, dailyKey,
 			now.plus(properties.codeTtl()), now.plus(properties.resendInterval()));
 	}
 
@@ -111,8 +118,8 @@ public class EmailVerificationCodeService {
 	 * 유효한 번호가 없으면 EMAIL_VERIFICATION_CODE_INVALID, 틀렸으면 남은 횟수를 담은 EMAIL_VERIFICATION_CODE_MISMATCH.
 	 * 마지막 기회까지 틀리면 번호가 폐기되므로 MISMATCH 가 아니라 INVALID 다.
 	 */
-	public LocalDateTime confirm(String normalizedEmail, String code) {
-		Long result = redis.execute(CONFIRM_SCRIPT, List.of(codeKey(sha256(normalizedEmail))), code,
+	public LocalDateTime confirm(AccountType type, String normalizedEmail, String code) {
+		Long result = redis.execute(CONFIRM_SCRIPT, List.of(codeKey(type, sha256(normalizedEmail))), code,
 			String.valueOf(properties.maxAttempts()));
 
 		if (result == null) {
@@ -125,21 +132,21 @@ public class EmailVerificationCodeService {
 			throw new BusinessException(AuthExceptionCode.EMAIL_VERIFICATION_CODE_MISMATCH,
 				"인증번호가 올바르지 않습니다. (남은 횟수 " + result + "회)");
 		}
-		return markVerified(normalizedEmail);
+		return markVerified(type, normalizedEmail);
 	}
 
 	/**
 	 * 이메일을 인증한 것으로 표시하고 표시가 사라지는 시각을 돌려준다. 이미 표시가 있으면 유효 시간을 새로 시작한다.
 	 * 인증번호를 맞힌 사람만 부르는 것이 원칙이고, 테스트가 인증을 건너뛰어 가입하려고 쓰기도 한다.
 	 */
-	public LocalDateTime markVerified(String normalizedEmail) {
-		redis.opsForValue().set(verifiedKey(sha256(normalizedEmail)), VERIFIED_VALUE, properties.verifiedTtl());
+	public LocalDateTime markVerified(AccountType type, String normalizedEmail) {
+		redis.opsForValue().set(verifiedKey(type, sha256(normalizedEmail)), VERIFIED_VALUE, properties.verifiedTtl());
 		return now().plus(properties.verifiedTtl());
 	}
 
 	/** 가입 전에 이 이메일의 인증이 유효한지 본다. 인증하지 않았거나 유효 시간이 지났으면 EMAIL_NOT_VERIFIED. */
-	public void requireVerified(String normalizedEmail) {
-		if (!Boolean.TRUE.equals(redis.hasKey(verifiedKey(sha256(normalizedEmail))))) {
+	public void requireVerified(AccountType type, String normalizedEmail) {
+		if (!Boolean.TRUE.equals(redis.hasKey(verifiedKey(type, sha256(normalizedEmail))))) {
 			throw new BusinessException(AuthExceptionCode.EMAIL_NOT_VERIFIED);
 		}
 	}
@@ -148,9 +155,9 @@ public class EmailVerificationCodeService {
 	 * 가입에 성공한 뒤 인증 표시를 지운다. 이미 가입이 끝났으므로 Redis 가 실패해도 예외를 내보내지 않는다.
 	 * (표시는 유효 시간이 지나면 사라지고, 그 이메일은 이미 가입돼 있어 다시 가입할 수 없다)
 	 */
-	public void clearVerified(String normalizedEmail) {
+	public void clearVerified(AccountType type, String normalizedEmail) {
 		try {
-			redis.delete(verifiedKey(sha256(normalizedEmail)));
+			redis.delete(verifiedKey(type, sha256(normalizedEmail)));
 		} catch (RuntimeException e) {
 			log.warn("가입 뒤 이메일 인증 표시를 지우지 못했습니다. error={}", e.getClass().getSimpleName());
 		}
@@ -171,7 +178,7 @@ public class EmailVerificationCodeService {
 
 	private void revoke(Issued issued, boolean restoreInterval) {
 		redis.execute(REVOKE_SCRIPT,
-			List.of(codeKey(issued.emailHash()), issued.dailyKey(), resendKey(issued.emailHash())),
+			List.of(codeKey(issued.type(), issued.emailHash()), issued.dailyKey(), resendKey(issued.type(), issued.emailHash())),
 			issued.nonce(), restoreInterval ? "1" : "0");
 	}
 
@@ -184,20 +191,28 @@ public class EmailVerificationCodeService {
 		return String.format("%0" + CODE_DIGITS + "d", random.nextInt(bound));
 	}
 
-	private static String codeKey(String emailHash) {
-		return PREFIX + "{" + emailHash + "}:code";
+	/** 키의 앞부분. 가입이 없는 관리자는 인증을 쓰지 않으므로 받지 않는다. (잘못 부르면 키가 조용히 생기지 않고 바로 드러난다) */
+	private static String prefix(AccountType type) {
+		if (type == AccountType.ADMIN) {
+			throw new IllegalArgumentException("관리자는 가입이 없어서 이메일 인증을 쓰지 않습니다.");
+		}
+		return KEY_ROOT + type.name() + ":";
 	}
 
-	private static String resendKey(String emailHash) {
-		return PREFIX + "{" + emailHash + "}:resend";
+	private static String codeKey(AccountType type, String emailHash) {
+		return prefix(type) + "{" + emailHash + "}:code";
 	}
 
-	private static String dailyKey(String emailHash, LocalDate date) {
-		return PREFIX + "{" + emailHash + "}:daily:" + date;
+	private static String resendKey(AccountType type, String emailHash) {
+		return prefix(type) + "{" + emailHash + "}:resend";
 	}
 
-	private static String verifiedKey(String emailHash) {
-		return PREFIX + "{" + emailHash + "}:verified";
+	private static String dailyKey(AccountType type, String emailHash, LocalDate date) {
+		return prefix(type) + "{" + emailHash + "}:daily:" + date;
+	}
+
+	private static String verifiedKey(AccountType type, String emailHash) {
+		return prefix(type) + "{" + emailHash + "}:verified";
 	}
 
 	private static String sha256(String value) {

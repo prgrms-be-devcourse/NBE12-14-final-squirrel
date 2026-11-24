@@ -50,7 +50,8 @@ public class AuthController {
 	}
 
 	@Operation(summary = "판매자(대표자) 가입 신청",
-		description = "사업체(승인 대기)와 대표자 계정을 함께 만든다. 관리자가 승인하기 전에는 로그인할 수 없다.")
+		description = "사업체(승인 대기)와 대표자 계정을 함께 만든다. 관리자가 승인하기 전에는 로그인할 수 없다. "
+			+ "로그인 이메일의 인증(/auth/sellers/email-verification)을 마쳐야 한다. 인증하지 않았거나 유효 시간(20분)이 지났으면 400(AUTH307)이다.")
 	@PostMapping("/auth/sellers/signup")
 	public ResponseEntity<ApiResponse<AuthResponse.SellerSignup>> sellerSignup(
 		@Valid @RequestBody AuthRequest.SellerSignup request
