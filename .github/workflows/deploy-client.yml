@@ -1,0 +1,71 @@
+# 프론트(client/)를 Vercel 에 배포한다. main 에 client/ 가 바뀐 채 머지(푸시)되면 자동으로 돌고,
+# GitHub 의 Actions 탭에서 "Run workflow" 로 직접 실행할 수도 있다.
+#   설치 → lint·타입 확인 → Vercel CLI 로 빌드 → 배포
+#
+# 왜 Vercel 의 GitHub 연동을 쓰지 않나: 조직(prgrms-be-devcourse)의 프라이빗 저장소는 무료 요금제로 Vercel 에 연결할 수 없다.
+# 그래서 이 저장소의 Actions 가 Vercel CLI 로 직접 올린다. (서버 배포 deploy.yml 과 같은 방식이다)
+# 환경 변수(SPRING_API_URL, NEXT_PUBLIC_TOSS_CLIENT_KEY, NEXT_PUBLIC_RECAPTCHA_SITE_KEY)는 여기가 아니라 Vercel 프로젝트에 넣는다.
+# 빌드할 때 `vercel pull` 이 그 값을 받아 온다. (client/README.md 의 "Vercel 배포" 참고)
+#
+# 필요한 설정 (GitHub 저장소 Settings → Secrets and variables → Actions)
+#   Secrets: VERCEL_TOKEN(Vercel 계정의 토큰), VERCEL_ORG_ID, VERCEL_PROJECT_ID(`vercel link` 가 만든 client/.vercel/project.json 의 값)
+name: Deploy client
+
+on:
+  push:
+    branches: [main]
+    # 서버나 문서만 바뀐 머지로 프론트를 다시 올리지 않는다. (서버 배포 deploy.yml 은 반대로 client/ 를 건너뛴다)
+    paths:
+      - 'client/**'
+      - '.github/workflows/deploy-client.yml'
+  workflow_dispatch:
+
+# 배포가 동시에 두 번 돌지 않게 한다. 진행 중인 배포를 취소하지 않고 기다린다.
+concurrency:
+  group: deploy-client
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 버전은 client/package.json 의 packageManager 를 따른다.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: client/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: client/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      # 깨진 채로 올라가지 않게, 올리기 전에 lint 와 타입을 확인한다. (빌드는 아래 vercel build 가 한다)
+      - run: pnpm lint
+      - run: pnpm exec next typegen && pnpm exec tsc --noEmit
+
+      # 이 버전을 고정하려면 vercel@latest 를 정확한 버전으로 바꾼다.
+      - run: npm install --global vercel@latest
+
+      # Vercel 프로젝트의 운영(Production) 환경 변수와 설정을 받아 온다.
+      - run: vercel pull --yes --environment=production
+
+      # 여기서 빌드하고(vercel build), 만든 결과만 올린다(--prebuilt). Vercel 서버는 소스를 보지 않는다.
+      - run: vercel build --prod
+      - run: vercel deploy --prebuilt --prod
