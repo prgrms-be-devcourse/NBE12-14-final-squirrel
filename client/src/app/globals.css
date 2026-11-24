@@ -331,3 +331,18 @@ body {
 .arena-seat-off:hover {
   opacity: 0.16;
 }
+
+/* 판매자·관리자 화면의 색. 루트 레이아웃의 <body data-shell="..."> 가 정한다.
+   Tailwind 의 색 토큰이 var(--accent) 를 그대로 읽어서(@theme inline) 이 값만 바꾸면 버튼·강조색이 함께 바뀐다. */
+[data-shell="seller"] {
+  --accent: #2a63c8;
+  --accent-hover: #2352a6;
+  --accent-strong: #1f4fa0;
+  --accent-soft: #e8effc;
+}
+[data-shell="admin"] {
+  --accent: #2b2f3a;
+  --accent-hover: #191b21;
+  --accent-strong: #191b21;
+  --accent-soft: #e9ebf0;
+}

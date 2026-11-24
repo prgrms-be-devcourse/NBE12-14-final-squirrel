@@ -21,20 +21,14 @@ export function Header() {
 
   const genre = searchParams.get("genre");
   const onList = pathname === "/performances";
-  // 판매자·관리자 화면에서는 예매자용 검색창과 장르 탭을 숨긴다
-  const consoleArea = pathname.startsWith("/seller") || pathname.startsWith("/admin");
-  // 판매자·관리자 로그인 화면에는 예매자용 로그인·가입 링크를 두지 않는다. (입구를 섞지 않는다)
-  const staffLogin = pathname === "/seller/login" || pathname === "/admin/login";
 
+  // 이 머리글은 예매자 화면 전용이다. 판매자·관리자는 루트 레이아웃이 달라서 (seller)·(admin) 쪽 상단 바를 쓴다.
   async function logout() {
-    // 로그아웃하면 그 계정 종류의 로그인 화면으로 돌아간다. 예매자는 처음 화면이다.
-    const next =
-      account?.accountType === "SELLER" ? "/seller/login" : account?.accountType === "ADMIN" ? "/admin/login" : "/";
     try {
       await api("/api/v2/auth/logout", { method: "POST" });
     } finally {
       clearAccount();
-      router.push(next);
+      router.push("/");
     }
   }
 
@@ -69,7 +63,7 @@ export function Header() {
           tick<span className="text-accent">ting</span>
         </Link>
 
-        <form onSubmit={search} className={`relative hidden max-w-xl flex-1 sm:block ${consoleArea ? "!hidden" : ""}`}>
+        <form onSubmit={search} className="relative hidden max-w-xl flex-1 sm:block">
           <input
             className="input h-12 rounded-full pr-14 pl-6"
             placeholder="공연 제목이나 출연진을 검색하세요"
@@ -98,17 +92,7 @@ export function Header() {
               </Link>
             </>
           )}
-          {account?.accountType === "SELLER" && (
-            <Link href="/seller" className="text-secondary hover:text-foreground">
-              판매자 센터
-            </Link>
-          )}
-          {account?.accountType === "ADMIN" && (
-            <Link href="/admin" className="text-secondary hover:text-foreground">
-              관리자
-            </Link>
-          )}
-          {account === undefined || (staffLogin && !account) ? null : account ? (
+          {account === undefined ? null : account ? (
             <button
               type="button"
               onClick={logout}
@@ -129,7 +113,7 @@ export function Header() {
         </div>
       </div>
 
-      <nav className={`mx-auto max-w-6xl overflow-x-auto px-4 no-scrollbar sm:px-6 ${consoleArea ? "!hidden" : ""}`} aria-label="공연 메뉴">
+      <nav className="mx-auto max-w-6xl overflow-x-auto px-4 no-scrollbar sm:px-6" aria-label="공연 메뉴">
         <ul className="flex gap-8 text-[15px]">
           {tabs.map((tab) => (
             <li key={tab.href}>

@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { StaffBar } from "@/components/staff-shell";
 import { useAccount } from "@/lib/auth";
 import type { AccountType } from "@/lib/types";
 
@@ -55,9 +56,11 @@ export function ConsoleShell({ role, children }: { role: Exclude<AccountType, "U
   }
 
   return (
-    <div className="min-h-[calc(100vh-80px)] bg-deep">
-      <div className="mx-auto grid max-w-[1400px] gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[220px_1fr]">
-        <aside className="lg:sticky lg:top-28 lg:self-start">
+    <>
+      <StaffBar role={role} />
+      <div className="flex-1 bg-deep">
+        <div className="mx-auto grid max-w-[1400px] gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[220px_1fr]">
+          <aside className="lg:sticky lg:top-8 lg:self-start">
           <nav
             aria-label="콘솔 메뉴"
             className="no-scrollbar -mx-4 flex gap-1 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:px-0"
@@ -81,10 +84,11 @@ export function ConsoleShell({ role, children }: { role: Exclude<AccountType, "U
               );
             })}
           </nav>
-        </aside>
-        <div className="min-w-0">{children}</div>
+          </aside>
+          <div className="min-w-0">{children}</div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
