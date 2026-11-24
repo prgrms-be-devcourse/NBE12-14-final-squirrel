@@ -13,6 +13,8 @@ import { ErrorBox, Loading } from "@/components/ui";
 
 // 결제창을 여는 클라이언트 키다. 브라우저에 내려가도 되는 키라 NEXT_PUBLIC_ 을 쓴다. (시크릿 키는 Spring 만 읽는다)
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+// 운영에서는 토스 결제창만 쓴다. 키가 없을 때 임시 승인으로 넘어가면 안 되므로 결제를 막는다.
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // 결제 화면이 그리는 예매 정보. 예매를 만든 직후의 응답(BKG-01)이나 예매 상세(BKG-05)에서 만든다.
 type PayView = {
@@ -117,6 +119,7 @@ export default function PayPage() {
   const mockSeen = useMockSeen();
   const mocked = cache.booking ? cache.booking.mock : mockSeen;
   const useToss = Boolean(TOSS_CLIENT_KEY) && !mocked;
+  const payUnavailable = IS_PRODUCTION && !useToss;
   const widgetsRef = useRef<TossPaymentsWidgets | null>(null);
   const [widgetState, setWidgetState] = useState<"loading" | "ready" | "error">("loading");
 
@@ -157,9 +160,16 @@ export default function PayPage() {
     };
   }, [useToss, pending, totalAmount]);
 
+  // 화면을 그리는 도중에 이동하면 React 가 경고한다. 로그인이 풀렸으면 그린 뒤에 이동한다.
+  const unauthorized = detail.error?.status === 401;
+  useEffect(() => {
+    if (unauthorized) toLogin();
+    // toLogin 은 창 상태가 바뀔 때만 달라진다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unauthorized]);
+
   if (cache.state === "unknown" || (cache.state === "none" && detail.loading)) return <Loading />;
   if (!view) {
-    if (detail.error?.status === 401) toLogin();
     return detail.error ? <ErrorBox error={detail.error} onRetry={detail.reload} /> : null;
   }
   const b = view;
@@ -172,6 +182,10 @@ export default function PayPage() {
   const seconds = Math.max(0, Math.floor((remainingMs % 60000) / 1000));
 
   async function pay() {
+    if (payUnavailable) {
+      setMessage("지금은 결제를 사용할 수 없습니다. 잠시 뒤 다시 시도해 주세요");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -362,14 +376,18 @@ export default function PayPage() {
           <button
             type="button"
             className="btn btn-primary btn-lg w-full"
-            disabled={busy || (useToss && widgetState !== "ready")}
+            disabled={busy || payUnavailable || (useToss && widgetState !== "ready")}
             onClick={pay}
           >
             {busy ? "결제 처리 중" : `${won(b.totalAmount)} 결제하기`}
           </button>
           {!useToss && (
             <p className="text-center text-xs text-muted">
-              {TOSS_CLIENT_KEY ? "연결된 서버가 없어 목 데이터로 결제를 승인합니다" : "토스 클라이언트 키가 없어 테스트 결제로 승인합니다"}
+              {payUnavailable
+                ? "결제 수단을 불러올 수 없어 지금은 결제할 수 없습니다"
+                : TOSS_CLIENT_KEY
+                  ? "연결된 서버가 없어 목 데이터로 결제를 승인합니다"
+                  : "토스 클라이언트 키가 없어 테스트 결제로 승인합니다"}
             </p>
           )}
         </>

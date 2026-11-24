@@ -710,10 +710,10 @@ async function cancelBooking(ctx: MockContext, idText: string): Promise<Response
   const booking = ownBooking(ctx, session, idText);
   if (!booking) return fail(404, "BOOKING006", "예매를 찾을 수 없습니다.");
   if (booking.status !== "PAID" && booking.status !== "PARTIAL_CANCELED") {
-    return fail(409, "BOOKING010", "취소할 수 없는 예매입니다.");
+    return fail(409, "BOOKING008", "취소할 수 없는 예매입니다.");
   }
   const rule = ruleFor(booking);
-  if (!rule?.cancelable) return fail(400, "BOOKING011", "지금은 취소할 수 없습니다. (공연 당일 취소 불가)");
+  if (!rule?.cancelable) return fail(400, "BOOKING009", "지금은 취소할 수 없는 기간입니다.");
 
   const body = (await ctx.json().catch(() => null)) as { bookingSeatIds?: number[] } | null;
   const requested = body?.bookingSeatIds;
@@ -725,7 +725,7 @@ async function cancelBooking(ctx: MockContext, idText: string): Promise<Response
     (requested && targets.length !== requested.length) ||
     targets.some((seat) => !seat.active)
   ) {
-    return fail(400, "BOOKING012", "이미 취소되었거나 존재하지 않는 좌석입니다.");
+    return fail(400, "BOOKING010", "취소할 수 없는 좌석이 포함되어 있습니다.");
   }
 
   const map = state().seats.get(booking.scheduleId);
@@ -795,13 +795,39 @@ async function signup(ctx: MockContext): Promise<Response> {
   if (!/^01[0-9]{8,9}$/.test(body?.phone ?? "")) problems.push("phone: 하이픈 없는 휴대폰 번호를 입력해 주세요");
   if (problems.length > 0) return fail(400, "COMMON000", problems.join(", "));
   if (body!.password !== body!.passwordConfirm) return fail(400, "AUTH005", "비밀번호와 비밀번호 확인이 다릅니다.");
+  // 인증을 마친 이메일로만 가입할 수 있다. 유효 시간(20분)이 지났으면 다시 인증해야 한다.
+  const verifiedEmail = body!.email!.trim().toLowerCase();
+  if ((verifiedEmails().get(verifiedEmail) ?? 0) < Date.now()) {
+    return fail(400, "AUTH307", "이메일 인증이 필요합니다. 인증이 만료됐다면 다시 인증해 주세요.");
+  }
   const required = MOCK_TERMS.filter((t) => t.required).map((t) => t.termId);
   if (!required.every((id) => body?.agreedTermIds?.includes(id))) {
     return fail(400, "TERMS000", "필수 약관에 동의해 주세요.");
   }
+  // 가입에 성공한 인증은 다시 쓰지 못하게 지운다.
+  verifiedEmails().delete(verifiedEmail);
   return ok({ accountType: "USER", role: null }, 201, {
     "Set-Cookie": mockCookie("USER", body!.email!.trim()),
   });
+}
+
+// 판매자 가입 신청. 목은 형식만 확인하고 접수한 것으로 답한다. (관리자 심사 목록에는 더하지 않는다)
+async function sellerSignup(ctx: MockContext): Promise<Response> {
+  const body = (await ctx.json().catch(() => null)) as Record<string, unknown> | null;
+  const text = (key: string) => (typeof body?.[key] === "string" ? (body[key] as string).trim() : "");
+  const problems: string[] = [];
+  if (!text("email").includes("@")) problems.push("email: 이메일 형식이 올바르지 않습니다");
+  const password = text("password");
+  if (password.length < 8 || password.length > 25) problems.push("password: 8~25자로 입력해 주세요");
+  if (!text("name")) problems.push("name: 이름을 입력해 주세요");
+  if (!/^01[0-9]{8,9}$/.test(text("phone"))) problems.push("phone: 하이픈 없는 휴대폰 번호를 입력해 주세요");
+  if (!text("companyName")) problems.push("companyName: 상호를 입력해 주세요");
+  if (!text("representativeName")) problems.push("representativeName: 대표자명을 입력해 주세요");
+  if (!/^[0-9]{10}$/.test(text("businessNumber"))) problems.push("businessNumber: 하이픈 없는 숫자 10자리로 입력해 주세요");
+  if (body?.termsAgreed !== true) problems.push("termsAgreed: 판매자 약관에 동의해 주세요");
+  if (problems.length > 0) return fail(400, "COMMON000", problems.join(", "));
+  if (password !== text("passwordConfirm")) return fail(400, "AUTH005", "비밀번호와 비밀번호 확인이 다릅니다.");
+  return ok({ businessId: 100 + Math.floor(Math.random() * 900), status: "PENDING" }, 201);
 }
 
 function logout(): Response {
@@ -827,7 +853,6 @@ function me(ctx: MockContext): Response {
     nickname: profile?.nickname ?? nameOf(session.email),
     phone: "01012345678",
     profileImg: profile?.profileImg ?? null,
-    emailVerified: verified().has(session.key),
     createdAt: isoLocal(new Date(Date.now() - 30 * DAY)),
   });
 }
@@ -858,31 +883,73 @@ function withdraw(ctx: MockContext): Response {
   return logout();
 }
 
-// ---------- 이메일 인증 ----------
+// ---------- 이메일 인증 (가입 전) ----------
 
-// 인증을 마친 계정. 목에서는 처음엔 모두 미인증이라, 예매하기에서 인증 화면이 뜨는 흐름을 볼 수 있다.
-const verifiedGlobal = globalThis as unknown as { __ticktingVerified?: Set<string> };
-const verified = () => (verifiedGlobal.__ticktingVerified ??= new Set());
+// 인증을 마친 이메일 → 유효 시각(ms). 개발 서버가 다시 컴파일돼도 유지되게 globalThis 에 둔다.
+const verifiedGlobal = globalThis as unknown as { __ticktingVerifiedEmails?: Map<string, number> };
+const verifiedEmails = () => (verifiedGlobal.__ticktingVerifiedEmails ??= new Map());
+const VERIFIED_DURATION = 20 * MINUTE;
 // 목의 인증번호는 항상 123456 이다. (서버가 메일로 보내는 값을 흉내 낸다)
 const MOCK_VERIFY_CODE = "123456";
 
-function sendVerification(ctx: MockContext): Response {
-  const session = requireSession(ctx, "USER");
-  if (session instanceof Response) return session;
-  if (verified().has(session.key)) return fail(409, "AUTH301", "이미 이메일 인증을 마쳤습니다.");
+async function sendVerification(ctx: MockContext): Promise<Response> {
+  const body = (await ctx.json().catch(() => ({}))) as { email?: string };
+  if (!body.email?.includes("@")) return fail(400, "COMMON000", "email: 이메일 형식이 올바르지 않습니다.");
+  // 서버는 가입 전 인증번호 발송에 캡챠를 건다. 목은 토큰이 있으면 통과하고 "fail" 이면 실패한다.
+  const captcha = ctx.header("x-captcha-token");
+  if (!captcha || captcha === "fail") return fail(403, "CAPTCHA000", "자동 입력 방지 확인에 실패했습니다. 다시 시도해 주세요.");
+  // 목에서는 taken@ 로 시작하는 이메일을 이미 가입한 이메일로 본다.
+  if (body.email.trim().toLowerCase().startsWith("taken@")) return fail(409, "USER000", "이미 가입한 이메일입니다.");
   const now = Date.now();
   return ok({ expiresAt: isoLocal(new Date(now + 5 * MINUTE)), resendAvailableAt: isoLocal(new Date(now + MINUTE)) });
 }
 
 async function confirmVerification(ctx: MockContext): Promise<Response> {
-  const session = requireSession(ctx, "USER");
-  if (session instanceof Response) return session;
-  if (verified().has(session.key)) return fail(409, "AUTH301", "이미 이메일 인증을 마쳤습니다.");
-  const body = (await ctx.json().catch(() => ({}))) as { code?: string };
-  if (!/^[0-9]{6}$/.test(body.code ?? "")) return fail(400, "COMMON000", "code: 숫자 6자리를 입력해 주세요.");
-  if (body.code !== MOCK_VERIFY_CODE) return fail(400, "AUTH305", "인증번호가 맞지 않습니다. (목 데이터의 인증번호는 123456 입니다)");
-  verified().add(session.key);
-  return ok({ emailVerifiedAt: isoLocal(new Date()) });
+  const body = (await ctx.json().catch(() => ({}))) as { email?: string; code?: string };
+  if (!body.email?.includes("@") || !/^[0-9]{6}$/.test(body.code ?? "")) {
+    return fail(400, "COMMON000", "email, code: 이메일과 숫자 6자리 인증번호를 입력해 주세요.");
+  }
+  if (body.code !== MOCK_VERIFY_CODE) return fail(400, "AUTH305", "인증번호가 올바르지 않습니다. (목 데이터의 인증번호는 123456 입니다)");
+  const until = Date.now() + VERIFIED_DURATION;
+  verifiedEmails().set(body.email.trim().toLowerCase(), until);
+  return ok({ verifiedUntil: isoLocal(new Date(until)) });
+}
+
+// ---------- 비밀번호 찾기 ----------
+
+// 목의 재설정 링크는 /reset-password#token=… 에서 토큰 글자로 흐름을 고른다.
+//   expired…  만료·사용됨 안내 / seller…  판매자 화면 / 그 밖  예매자 화면
+// 메일 요청은 none@ 로 시작하는 이메일이면 가입되지 않은 이메일(404)로 답한다.
+async function passwordResetRequest(ctx: MockContext, kind: "예매자" | "판매자"): Promise<Response> {
+  const body = (await ctx.json().catch(() => ({}))) as { email?: string };
+  const email = body.email?.trim() ?? "";
+  if (!email.includes("@")) return fail(400, "COMMON000", "email: 이메일 형식이 올바르지 않습니다.");
+  if (email.toLowerCase().startsWith("none@")) {
+    return fail(404, "AUTH308", `가입되지 않은 이메일입니다. (${kind})`);
+  }
+  const now = Date.now();
+  return ok({
+    email,
+    expiresAt: isoLocal(new Date(now + 15 * MINUTE)),
+    resendAvailableAt: isoLocal(new Date(now + MINUTE)),
+  });
+}
+
+async function passwordResetValidate(ctx: MockContext): Promise<Response> {
+  const body = (await ctx.json().catch(() => ({}))) as { token?: string };
+  if (!body.token) return fail(400, "COMMON000", "token: 토큰을 입력해 주세요.");
+  if (body.token.startsWith("expired")) return ok({ valid: false, accountType: null });
+  return ok({ valid: true, accountType: body.token.startsWith("seller") ? "SELLER" : "USER" });
+}
+
+async function passwordResetConfirm(ctx: MockContext): Promise<Response> {
+  const body = (await ctx.json().catch(() => ({}))) as { token?: string; password?: string; passwordConfirm?: string };
+  if (!body.token || !body.password || body.password.length < 8 || body.password.length > 25) {
+    return fail(400, "COMMON000", "password: 8~25자로 입력해 주세요.");
+  }
+  if (body.password !== body.passwordConfirm) return fail(400, "AUTH005", "비밀번호와 비밀번호 확인이 일치하지 않습니다.");
+  if (body.token.startsWith("expired")) return fail(400, "AUTH309", "만료되었거나 이미 사용한 링크입니다. 다시 요청해 주세요.");
+  return ok(null);
 }
 
 // ---------- 대기열 ----------
@@ -908,10 +975,9 @@ function queueStatus(key: string): Response {
 function queueEnter(ctx: MockContext, scheduleId: string): Response {
   const session = requireSession(ctx, "USER");
   if (session instanceof Response) return session;
-  // 확인 순서는 서버와 같다: 캡챠 → 이메일 인증 → 회차. 목은 토큰이 있으면 통과하고 "fail" 이면 실패한다.
+  // 확인 순서는 서버와 같다: 캡챠 → 회차. (이메일 인증은 가입 때 마치므로 여기서 보지 않는다) 목은 토큰이 있으면 통과하고 "fail" 이면 실패한다.
   const captcha = ctx.header("x-captcha-token");
   if (!captcha || captcha === "fail") return fail(403, "CAPTCHA000", "자동 입력 방지 확인에 실패했습니다. 다시 시도해 주세요.");
-  if (!verified().has(session.key)) return fail(403, "AUTH307", "이메일 인증이 필요합니다.");
   const key = `${session.key}:${scheduleId}`;
   if (!queues().has(key)) queues().set(key, 0);
   return queueStatus(key);
@@ -956,11 +1022,16 @@ const ROUTES: [string, string, Handler][] = [
   ["POST", "/api/v2/auth/:who/login", (ctx, [who]) =>
     who in ACCOUNT_BY_PATH ? login(ctx, who) : fail(404, "COMMON002", "존재하지 않는 경로입니다.")],
   ["POST", "/api/v2/auth/users/signup", (ctx) => signup(ctx)],
+  ["POST", "/api/v1/auth/sellers/signup", (ctx) => sellerSignup(ctx)],
   ["POST", "/api/v2/auth/logout", () => logout()],
+  ["POST", "/api/v1/auth/users/email-verification", (ctx) => sendVerification(ctx)],
+  ["POST", "/api/v1/auth/users/email-verification/confirm", (ctx) => confirmVerification(ctx)],
+  ["POST", "/api/v1/auth/users/password-reset/request", (ctx) => passwordResetRequest(ctx, "예매자")],
+  ["POST", "/api/v1/auth/sellers/password-reset/request", (ctx) => passwordResetRequest(ctx, "판매자")],
+  ["POST", "/api/v1/auth/password-reset/validate", (ctx) => passwordResetValidate(ctx)],
+  ["POST", "/api/v1/auth/password-reset/confirm", (ctx) => passwordResetConfirm(ctx)],
   ["GET", "/api/v1/users/me", (ctx) => me(ctx)],
   ["PATCH", "/api/v1/users/me", (ctx) => updateMe(ctx)],
-  ["POST", "/api/v1/users/me/email-verification", (ctx) => sendVerification(ctx)],
-  ["POST", "/api/v1/users/me/email-verification/confirm", (ctx) => confirmVerification(ctx)],
   ["DELETE", "/api/v1/users/me", (ctx) => withdraw(ctx)],
 
   ["GET", "/api/v1/performances", (ctx) => listPerformances(ctx)],

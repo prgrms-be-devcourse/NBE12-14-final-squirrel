@@ -6,22 +6,27 @@ import { useState } from "react";
 import { ApiError, api, useApi } from "@/lib/api";
 import { saveAccount } from "@/lib/auth";
 import type { LoginResult, Term } from "@/lib/types";
+import { EmailVerifyField } from "@/components/email-verification";
 import { ErrorBox, Loading } from "@/components/ui";
 
 const TERM_LABEL = { SERVICE: "서비스 이용약관", PRIVACY: "개인정보 수집·이용", WITHDRAW: "탈퇴 안내" };
+
+const EMPTY_FORM = {
+  email: "",
+  password: "",
+  passwordConfirm: "",
+  nickname: "",
+  name: "",
+  phone: "",
+};
 
 export default function SignupPage() {
   const router = useRouter();
   const terms = useApi<Term[]>("/api/v1/terms");
 
-  const [form, setForm] = useState({
-    email: "",
-    password: "",
-    passwordConfirm: "",
-    nickname: "",
-    name: "",
-    phone: "",
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
+  // 이메일 인증을 마친 이메일의 유효 시각. 이때까지 가입을 마쳐야 한다. (api-spec AUTH-18)
+  const [verifiedUntil, setVerifiedUntil] = useState<string | null>(null);
   const [agreed, setAgreed] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -31,6 +36,10 @@ export default function SignupPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (!verifiedUntil) {
+      setMessage("이메일 인증을 해 주세요");
+      return;
+    }
     if (form.password !== form.passwordConfirm) {
       setMessage("비밀번호와 비밀번호 확인이 다릅니다");
       return;
@@ -41,7 +50,7 @@ export default function SignupPage() {
       const result = await api<LoginResult>("/api/v2/auth/users/signup", {
         method: "POST",
         body: {
-          email: form.email,
+          email: form.email.trim(),
           password: form.password,
           passwordConfirm: form.passwordConfirm,
           nickname: form.nickname,
@@ -51,9 +60,19 @@ export default function SignupPage() {
         },
       });
       saveAccount({ accountType: result.accountType, role: result.role });
+      // 화면을 떠나도 이 페이지의 상태는 보관된다(cacheComponents). 비밀번호·개인정보가 남지 않게 지운다.
+      setForm(EMPTY_FORM);
+      setAgreed([]);
+      setVerifiedUntil(null);
       router.push("/");
     } catch (error) {
-      setMessage(error instanceof ApiError ? error.message : "가입에 실패했습니다");
+      if (error instanceof ApiError && error.code === "AUTH307") {
+        // 인증이 풀렸다. 다른 이유로 실패한 가입은 인증이 남아 있으므로 풀지 않는다.
+        setVerifiedUntil(null);
+        setMessage("이메일 인증을 다시 해 주세요");
+      } else {
+        setMessage(error instanceof ApiError ? error.message : "가입에 실패했습니다");
+      }
     } finally {
       setBusy(false);
     }
@@ -63,12 +82,17 @@ export default function SignupPage() {
     <div className="mx-auto max-w-md">
       <h1 className="mb-8 text-3xl font-semibold">예매자 가입</h1>
       <form onSubmit={submit} className="card space-y-4 p-6">
-        <div>
-          <label className="label" htmlFor="email">
-            이메일
-          </label>
-          <input id="email" type="email" className="input" value={form.email} onChange={set("email")} required />
-        </div>
+        <EmailVerifyField
+          email={form.email}
+          onEmailChange={(email) => setForm({ ...form, email })}
+          verifiedUntil={verifiedUntil}
+          onVerified={setVerifiedUntil}
+          onUnverify={() => setVerifiedUntil(null)}
+          onExpired={() => {
+            setVerifiedUntil(null);
+            setMessage("이메일 인증 시간이 지났습니다. 다시 인증해 주세요");
+          }}
+        />
         <div>
           <label className="label" htmlFor="password">
             비밀번호 (8~25자, 영문·숫자·특수문자)
@@ -150,7 +174,7 @@ export default function SignupPage() {
         </fieldset>
 
         {message && <p className="text-sm text-accent-strong">{message}</p>}
-        <button type="submit" className="btn btn-primary w-full" disabled={busy}>
+        <button type="submit" className="btn btn-primary w-full" disabled={busy || !verifiedUntil}>
           {busy ? "가입 중" : "가입하기"}
         </button>
       </form>

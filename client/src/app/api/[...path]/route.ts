@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { handleMock, hasMock, type MockContext } from "@/server/mock/handlers";
-import { springFetch } from "@/server/spring";
+import { mockEnabled, springFetch } from "@/server/spring";
 
 // 브라우저는 Spring 을 직접 부르지 않고 이 BFF(Next 서버)만 부른다.
 // 경로를 그대로 이어 붙이므로 /api/v1/... 은 Spring 의 /api/v1/... 이 된다.
@@ -8,9 +8,12 @@ import { springFetch } from "@/server/spring";
 //
 // 응답 우선순위
 //  1. Spring 이 답하면 그 응답을 그대로 쓴다. (이미 만들어진 API 는 그대로 동작)
-//  2. Spring 에 연결할 수 없거나, 아직 만들어지지 않은 경로(404 COMMON002 / 405 COMMON001)면
-//     같은 경로의 목 응답(x-mock 헤더가 붙는다)으로 대신한다.
-//  3. 목 응답도 없으면 Spring 의 응답(또는 502)을 그대로 돌려준다.
+//  2. 개발에서만(mockEnabled): Spring 에 연결할 수 없거나, 아직 만들어지지 않은 경로(404 COMMON002 / 405 COMMON001)면
+//     같은 경로의 목 응답(x-mock 헤더가 붙는다)으로 대신한다. 운영에서는 목으로 대신하지 않는다.
+//  3. 목 응답이 없거나 꺼져 있으면 Spring 의 응답(또는 502)을 그대로 돌려준다.
+
+// 결제 승인처럼 오래 걸리는 요청을 Vercel 이 중간에 끊지 않게 한다. (기본값보다 길게)
+export const maxDuration = 30;
 
 // 연결 단위 헤더는 프록시가 그대로 넘기면 안 된다.
 const HOP_BY_HOP = [
@@ -75,7 +78,7 @@ async function proxy(request: NextRequest): Promise<Response> {
   const upstream = await springFetch(`${pathname}${search}`, { method, headers, body });
 
   if (upstream === null || isGatewayFailure(upstream)) {
-    const mock = await handleMock(mockContext);
+    const mock = mockEnabled() ? await handleMock(mockContext) : null;
     if (mock) return mock;
     console.error("Spring 서버에 연결할 수 없다 (SPRING_API_URL 확인)", method, pathname);
     return Response.json(
@@ -84,7 +87,7 @@ async function proxy(request: NextRequest): Promise<Response> {
     );
   }
 
-  if (hasMock(method, pathname) && (await isUnmappedRoute(upstream))) {
+  if (mockEnabled() && hasMock(method, pathname) && (await isUnmappedRoute(upstream))) {
     const mock = await handleMock(mockContext);
     if (mock) return mock;
   }

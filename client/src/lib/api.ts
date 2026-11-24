@@ -82,7 +82,7 @@ export async function apiWithMeta<T>(path: string, options: Options = {}): Promi
   }
 
   if (!response.ok || !envelope?.success) {
-    if (response.status === 401) clearAccount();
+    if (response.status === 401) clearAccount({ expired: true });
     throw new ApiError(
       response.status,
       envelope?.code ?? "COMMON999",
@@ -136,7 +136,9 @@ export function useApi<T>(path: string | null, query?: Query, headers?: Record<s
 
 export type ImagePurpose = "POSTER" | "DETAIL" | "PROFILE";
 
-export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+// 서버는 10MB 까지 받지만, 브라우저는 Next 서버(BFF)를 거쳐 올리고 Vercel 함수는 요청 본문이 4.5MB 를 넘으면 거절한다.
+// 그래서 화면에서는 4MB 로 막는다.
+export const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 // 사진을 서버로 보내면 서버가 S3 에 올리고 공개 주소를 돌려준다. (api-spec IMG-01)
@@ -146,7 +148,7 @@ export async function uploadImage(file: File, purpose: ImagePurpose): Promise<st
     throw new ApiError(400, "CLIENT", "jpg, png, webp 형식의 사진만 올릴 수 있습니다");
   }
   if (file.size === 0 || file.size > IMAGE_MAX_BYTES) {
-    throw new ApiError(400, "CLIENT", "사진은 10MB 이하여야 합니다");
+    throw new ApiError(400, "CLIENT", "사진은 4MB 이하여야 합니다");
   }
   const form = new FormData();
   form.set("purpose", purpose);
@@ -168,7 +170,7 @@ export async function uploadImage(file: File, purpose: ImagePurpose): Promise<st
     envelope = null;
   }
   if (!response.ok || !envelope?.success) {
-    if (response.status === 401) clearAccount();
+    if (response.status === 401) clearAccount({ expired: true });
     throw new ApiError(response.status, envelope?.code ?? "COMMON999", envelope?.message || "사진을 올리지 못했습니다");
   }
   return envelope.data.imageUrl;

@@ -28,7 +28,7 @@ public class ImageController {
 
 	/** 시큐리티는 로그인만 확인한다. 용도에 맞는 계정인지는 서비스가 본다. */
 	@Operation(summary = "이미지 업로드",
-		description = "이미지를 S3 에 올리고 공개 주소를 돌려준다. 응답의 imageUrl 을 공연·프로필의 이미지 주소로 등록한다. jpg, png, webp 만, 최대 10MB.")
+		description = "이미지를 S3 에 올리고 공개 주소를 돌려준다. 응답의 imageUrl 을 공연·프로필·문의의 이미지 주소로 등록한다. jpg, png, webp 만, 최대 10MB.")
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ResponseEntity<ApiResponse<ImageResponse>> upload(
 		@AuthenticationPrincipal CustomUserDetails account,

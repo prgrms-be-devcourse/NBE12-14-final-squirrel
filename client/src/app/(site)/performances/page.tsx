@@ -8,8 +8,10 @@ import type { Genre, Page, PerformanceSummary } from "@/lib/types";
 import { PerformanceCard } from "@/components/performance-card";
 import { Empty, ErrorBox, Loading, PageTitle, Pagination } from "@/components/ui";
 
-const REGIONS = ["서울", "경기", "부산"];
-const GENRES: Genre[] = ["CONCERT", "MUSICAL", "PLAY", "CLASSIC"];
+// 서버에 지역 목록 API 가 없어서 공연장이 있는 지역을 적어 둔다. (시드의 인스파이어 아레나는 인천)
+// 공연장 지역은 정확히 같은 값으로만 걸러지므로, 새 지역의 공연장을 등록하면 여기에도 더해야 한다.
+const REGIONS = ["서울", "경기", "인천", "부산"];
+const GENRES: Genre[] = ["CONCERT", "MUSICAL", "PLAY", "CLASSIC", "ETC"];
 
 export default function PerformancesPage() {
   const router = useRouter();

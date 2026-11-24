@@ -32,6 +32,9 @@ export default function LoginPage() {
         body: { email, password },
       });
       saveAccount({ accountType: result.accountType, role: result.role });
+      // 화면을 떠나도 이 페이지의 상태는 보관된다(cacheComponents). 로그아웃 뒤 다시 와도 비밀번호가 남지 않게 지운다.
+      setEmail("");
+      setPassword("");
       router.push(tab.home);
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : "로그인에 실패했습니다");
@@ -48,7 +51,13 @@ export default function LoginPage() {
           <button
             key={t.type}
             type="button"
-            onClick={() => setTab(t)}
+            onClick={() => {
+              // 다른 계정 종류의 이메일·비밀번호가 넘어가지 않게 지운다.
+              setTab(t);
+              setEmail("");
+              setPassword("");
+              setMessage(null);
+            }}
             className={`btn flex-1 ${tab.type === t.type ? "btn-dark" : ""}`}
           >
             {t.label}
@@ -89,11 +98,28 @@ export default function LoginPage() {
           {busy ? "로그인 중" : "로그인"}
         </button>
       </form>
+      {/* 관리자는 비밀번호 찾기 대상이 아니다. 계정 종류는 찾기 화면에서 다시 고른다. */}
+      {tab.type !== "ADMIN" && (
+        <p className="mt-4 text-center text-sm text-muted">
+          비밀번호를 잊었나요?{" "}
+          <Link href="/forgot-password" className="text-foreground underline">
+            비밀번호 찾기
+          </Link>
+        </p>
+      )}
       {tab.type === "USER" && (
         <p className="mt-4 text-center text-sm text-muted">
           계정이 없나요?{" "}
           <Link href="/signup" className="text-foreground underline">
             가입하기
+          </Link>
+        </p>
+      )}
+      {tab.type === "SELLER" && (
+        <p className="mt-4 text-center text-sm text-muted">
+          판매자로 등록하려면{" "}
+          <Link href="/signup/seller" className="text-foreground underline">
+            가입 신청
           </Link>
         </p>
       )}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Noto_Sans_KR } from "next/font/google";
 import { Suspense } from "react";
+import { AccountScope } from "@/components/account-scope";
 import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { HideInPopup } from "@/components/site-chrome";
@@ -30,7 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <main className="flex-1">
           {/* 경로 값(useParams)을 읽는 화면이 미리 그려지지 않고 요청 때 채워지게 한다 */}
           <Suspense fallback={<p className="py-24 text-center text-sm text-muted">불러오는 중</p>}>
-            {children}
+            <AccountScope>{children}</AccountScope>
           </Suspense>
         </main>
         <Suspense>

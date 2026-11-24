@@ -50,7 +50,7 @@ export function ImageUpload({
           <button type="button" className="btn" disabled={busy} onClick={() => input.current?.click()}>
             {busy ? "올리는 중" : value ? `${label} 바꾸기` : `${label} 올리기`}
           </button>
-          <p className="text-xs text-muted">jpg, png, webp · 10MB 이하</p>
+          <p className="text-xs text-muted">jpg, png, webp · 4MB 이하</p>
         </div>
         <input
           ref={input}

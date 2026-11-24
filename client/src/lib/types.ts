@@ -39,11 +39,15 @@ export type UserMe = {
   phone: string;
   profileImg: string | null;
   createdAt: string;
-  // 이메일 인증을 마쳤는지. 예매하려면 인증이 필요하다. (AUTH-17·18)
-  emailVerified: boolean;
 };
 
+// 가입 전 이메일 인증. (AUTH-17·18)
 export type EmailVerificationSent = { expiresAt: string; resendAvailableAt: string };
+export type EmailVerificationConfirmed = { verifiedUntil: string };
+
+// 비밀번호 찾기. (AUTH-19~22)
+export type PasswordResetSent = { email: string; expiresAt: string; resendAvailableAt: string };
+export type PasswordResetValidity = { valid: boolean; accountType: AccountType | null };
 
 export type PerformanceSummary = {
   performanceId: number;
@@ -216,7 +220,8 @@ export type BookingDetail = {
   } | null;
   cancelPolicy: CancelRule[];
   cancelable: boolean;
-  currentFeeRate: number;
+  // 취소할 수 없으면 null
+  currentFeeRate: number | null;
   expiresAt: string | null;
   createdAt: string;
   canceledAt: string | null;
@@ -227,7 +232,8 @@ export type CancelResult = {
   bookingStatus: BookingStatus;
   canceledSeatIds: number[];
   cancelFeeTotal: number;
-  refund: { refundId: number; amount: number; status: string };
+  // 토스 환불이 실패해도 좌석 취소는 끝나고 status 가 FAILED 로 온다.
+  refund: { refundId: number; amount: number; status: "REQUESTED" | "PROCESSING" | "DONE" | "FAILED" };
 };
 
 export type SellerPerformanceSummary = {
@@ -390,7 +396,7 @@ export type BusinessDetail = BusinessSummary & {
   owner: { memberId: number; email: string; phone: string; status: string } | null;
 };
 
-export type RefundStatus = "REQUESTED" | "DONE" | "FAILED";
+export type RefundStatus = "REQUESTED" | "PROCESSING" | "DONE" | "FAILED";
 
 export type RefundItem = {
   refundId: number;
