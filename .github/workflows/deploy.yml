@@ -1,6 +1,7 @@
-# 운영 서버에 배포한다. 자동으로 돌지 않고, GitHub 의 Actions 탭에서 "Run workflow" 로 직접 실행한다.
+# 운영 서버에 배포한다. main 에 머지(푸시)되면 자동으로 돌고, GitHub 의 Actions 탭에서 "Run workflow" 로 직접 실행할 수도 있다.
 #   jar 빌드 → 이미지 빌드 → Docker Hub 에 올리기 → 서버에 SSH 로 deploy.sh 호출(태그만 전달) → 바깥에서 헬스 확인
 # 테스트는 여기서 돌리지 않는다. PR 과 dev 머지마다 CI 가 돌리므로, 배포하는 브랜치는 CI 가 통과한 것을 쓴다.
+# 서버를 켜 둔 시간(09~18시) 밖에 main 에 머지하면 SSH 가 닿지 않아 실패한다. 서버를 켠 뒤 직접 실행으로 다시 돌린다.
 #
 # 필요한 설정 (GitHub 저장소 Settings → Secrets and variables → Actions)
 #   Secrets:   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN(쓰기 권한), DEPLOY_SSH_KEY(배포 전용 SSH 개인 키), DEPLOY_KNOWN_HOSTS(서버의 호스트 키)
@@ -8,6 +9,13 @@
 name: Deploy
 
 on:
+  push:
+    branches: [main]
+    # 문서나 프론트만 바뀐 머지로 서버를 다시 띄우지 않는다. (프론트는 Vercel 이 따로 배포한다)
+    paths-ignore:
+      - 'doc/**'
+      - 'client/**'
+      - '**.md'
   workflow_dispatch:
 
 # 배포가 동시에 두 번 돌지 않게 한다. 진행 중인 배포를 취소하지 않고 기다린다.
