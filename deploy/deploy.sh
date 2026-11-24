@@ -50,7 +50,21 @@ COMPOSE=(docker compose -f "$DIR/compose.prod.yaml")
 # 컨테이너를 새 이미지로 교체한다. 이미지 이름은 compose 가 .env 의 APP_IMAGE 에서 읽는다.
 set_image() { sed -i "s|^APP_IMAGE=.*|APP_IMAGE=$1|" .env; }
 set_image "$NEW"
-"${COMPOSE[@]}" up -d
+
+# 새 이미지가 건강하지 않으면 이전 이미지로 되돌리고 실패로 끝낸다.
+# 되돌리면 새 컨테이너와 로그가 사라지므로, 지우기 전에 마지막 로그를 보여 준다. (배포 로그가 GitHub 에 남아서 임시 비밀번호 줄은 가린다)
+rollback() {
+	echo "앱이 건강해지지 않았습니다. 이전 이미지($PREV)로 되돌립니다."
+	APP_CID="$("${COMPOSE[@]}" ps -aq app || true)"
+	[[ -z "$APP_CID" ]] || docker logs --tail 60 "$APP_CID" 2>&1 | grep -v 'generated security password' || true
+	set_image "$PREV"
+	"${COMPOSE[@]}" up -d || true
+	exit 1
+}
+
+# Nginx 가 앱이 건강해진 뒤에 뜨도록 걸려 있어서(depends_on), 앱이 건강해지지 않으면 up 이 여기서 실패한다.
+# set -e 로 그냥 끝나면 되돌리지 못하고 고장 난 이미지가 남는다.
+"${COMPOSE[@]}" up -d || rollback
 
 # Nginx 는 설정 파일이 바뀌어도 컨테이너가 그대로라 다시 읽게 한다. (설정이 틀리면 reload 하지 않고 실패한다)
 if [[ -n "$("${COMPOSE[@]}" ps -q nginx)" ]]; then
@@ -71,12 +85,7 @@ for _ in $(seq 1 60); do
 done
 
 if [[ "$healthy" != "1" ]]; then
-	echo "앱이 건강해지지 않았습니다. 이전 이미지($PREV)로 되돌립니다."
-	# 임시 비밀번호 줄은 가리고 마지막 로그만 보여 준다. (배포 로그가 GitHub 에 남는다)
-	docker logs --tail 60 "$APP_CID" 2>&1 | grep -v 'generated security password' || true
-	set_image "$PREV"
-	"${COMPOSE[@]}" up -d app || true
-	exit 1
+	rollback
 fi
 
 # 디스크가 작아서(16GB) 옛 이미지가 쌓이지 않게 정리한다. 이틀 안에 만든 이미지(되돌릴 때 쓸 수 있는 것)는 남긴다.

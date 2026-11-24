@@ -7,8 +7,8 @@
 --   2) 소극장 (테스트용): 3개 구역, 30석. 동시성 테스트나 손으로 확인할 때 쓰는 작은 공연장이다.
 -- 좌석은 generate_series 로 펼친다. 구역마다 (열 범위, 번호 범위) 묶음을 적고 열 x 번호만큼 좌석을 만든다.
 --
--- 시드는 V100 번대를 쓴다. 팀원이 새 마이그레이션(V7, V8 ...)을 계속 추가해도 번호가 겹치지 않게 하려는 것이다.
--- (db/migration 과 db/seed 는 같은 버전 번호를 공유한다. 로컬은 out-of-order 로 중간 번호도 적용한다.)
+-- 테스트 시드는 항상 맨 뒤에 적용되게 V900 번대를 쓴다. 앱의 스키마·시드(V1~)는 만든 순서대로 이어 쓰므로 겹치지 않는다.
+-- (테스트에서만 db/migration, db/seed, db/seed-demo 뒤에 적용된다.)
 
 INSERT INTO venue (name, address, region, total_seats, layout_key, status, created_at, updated_at) VALUES
     ('가상 아레나 (샘플)', '서울 (가상)', '서울', 0, 'sample-arena', 'ACTIVE', NOW(), NOW()),

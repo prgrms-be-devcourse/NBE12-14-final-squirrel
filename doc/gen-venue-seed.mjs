@@ -1,5 +1,5 @@
 // 공연장 JSON(doc/venue-seed-*.json)에서 로컬 시드 SQL(db/seed/V1xx__*.sql)을 만든다.
-// 사용법: node doc/gen-venue-seed.mjs doc/venue-seed-concert-arena-44.json src/main/resources/db/seed/V105__insert_concert_arena_seed.sql
+// 사용법: node doc/gen-venue-seed.mjs doc/venue-seed-concert-arena-44.json src/main/resources/db/seed/V15__insert_concert_arena_seed.sql
 // 시드 SQL 은 손으로 고치지 않는다. 기준은 JSON 이고, 바꿀 것이 있으면 JSON 을 고쳐서 다시 만든다.
 // 좌석 번호는 JSON 의 from~to 를 그대로 펼친다. (1부터 다시 세지 않는다. 열 안의 칸 위치라서 모양이 번호로 정해진다)
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -55,12 +55,12 @@ out('--   - 좌석 번호(seat_number)는 1부터 센 순번이 아니라 "열 �
 out(`--     그 차이가 도면의 모양이 된다. (${shapedExample}) 번호를 1..n 으로 다시 매기거나 열 길이를 맞추면 모양이 깨진다.`);
 out('--   - 열 이름(row_label)도 JSON 의 label 그대로다.');
 out('--   - 구역 안의 좌석 sort_order 는 JSON 의 열 순서, 같은 열 안에서는 번호 순서다.');
-out('--   - 열 하나가 아래 VALUES 한 줄이다. (V100 의 Floor석처럼 열 이름을 직접 지정해서 번호 범위를 펼친다)');
+out('--   - 열 하나가 아래 VALUES 한 줄이다. (예전 로컬 시드의 Floor석처럼 열 이름을 직접 지정해서 번호 범위를 펼친다)');
 if (approximate > 0) {
 	out(`-- JSON 의 memo 에 [근사] 가 붙은 구역(${approximate}개)은 사진을 보고 읽은 대략적인 모양이라 열 길이가 실제와 다를 수 있다.`);
 }
 out('-- 이 시드는 모든 환경(운영 포함)에 적용된다. 공연장 생성 API 가 아직 없어서 시드로 넣는다.');
-out('-- 개발용 공연장(가상 아레나·소극장)은 앱 시드에서 빼고 테스트 전용 시드(src/test/resources/db/test-seed)로 옮겼다. 시드는 V100 번대를 쓴다.');
+out('-- 개발용 공연장(가상 아레나·소극장)은 앱 시드에서 빼고 테스트 전용 시드(src/test/resources/db/test-seed)로 옮겼다. 시드 번호는 스키마 마이그레이션과 한 줄로 만든 순서대로 이어 쓴다.');
 out();
 out('INSERT INTO venue (name, address, region, total_seats, layout_key, status, created_at, updated_at) VALUES');
 out(`    (${q(venue.name)}, ${q(venue.address)}, ${q(venue.region)}, 0, ${q(venue.layoutKey)}, 'ACTIVE', NOW(), NOW());`);
