@@ -57,7 +57,7 @@ public class AuthFacade {
 	public AuthResponse.Token userSignup(AuthRequest.UserSignup request, HttpServletResponse response) {
 		// Redis 만 보는 검사라 DB 를 쓰는 약관·중복 확인보다 먼저 한다
 		String email = EmailUtil.normalize(request.email());
-		emailVerificationCodeService.requireVerified(email);
+		emailVerificationCodeService.requireVerified(AccountType.USER, email);
 		LocalDateTime verifiedAt = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
 
 		CustomUserDetails account = transactionTemplate.execute(status -> {
@@ -68,7 +68,7 @@ public class AuthFacade {
 			return userMemberService.toAccount(user);
 		});
 		// 가입에 성공한 인증은 다시 쓰지 못하게 지운다. 실패한 가입은 지우지 않아 인증을 다시 하지 않고 고쳐 낼 수 있다
-		emailVerificationCodeService.clearVerified(email);
+		emailVerificationCodeService.clearVerified(AccountType.USER, email);
 		return tokenService.issue(account, response);
 	}
 
@@ -78,13 +78,22 @@ public class AuthFacade {
 		return tokenService.issue(account, response);
 	}
 
-	/** 판매자는 관리자 승인 전에는 로그인할 수 없으므로 토큰을 주지 않고 신청 결과만 돌려준다. */
+	/**
+	 * 판매자 가입 신청. 로그인 이메일의 인증을 마친 뒤에만 받는다. (예매자 가입과 같은 규칙이고, 인증 상태는 판매자용이 따로 있다)
+	 * 판매자는 관리자 승인 전에는 로그인할 수 없으므로 토큰을 주지 않고 신청 결과만 돌려준다.
+	 */
 	public AuthResponse.SellerSignup sellerSignup(AuthRequest.SellerSignup request) {
+		// Redis 만 보는 검사라 DB 를 쓰는 중복 확인보다 먼저 한다
+		String email = EmailUtil.normalize(request.email());
+		emailVerificationCodeService.requireVerified(AccountType.SELLER, email);
+
 		SellerBusiness business = sellerMemberService.signup(new SellerSignupCommand(
 			request.email(), request.password(), request.passwordConfirm(), request.name(), request.phone(),
 			request.companyName(),
 			request.representativeName(), request.businessNumber(), request.contactPhone(),
 			request.contactEmail()));
+		// 가입에 성공한 인증은 다시 쓰지 못하게 지운다. 실패한 가입은 지우지 않아 인증을 다시 하지 않고 고쳐 낼 수 있다
+		emailVerificationCodeService.clearVerified(AccountType.SELLER, email);
 		return new AuthResponse.SellerSignup(business.getId(), business.getStatus().name());
 	}
 

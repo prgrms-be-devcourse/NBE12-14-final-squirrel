@@ -9,8 +9,15 @@ import type { EmailVerificationConfirmed, EmailVerificationSent } from "@/lib/ty
 // 가입 전 이메일 인증. 가입 화면에서 이메일을 입력하고 인증번호를 받아 확인한다. (api-spec AUTH-17·18)
 // 발송 200 은 "접수했다"는 뜻이지 메일이 도착했다는 뜻이 아니다.
 // 인증은 verifiedUntil(20분)까지 유효해서, 그 안에 가입을 마쳐야 한다.
+// 예매자와 판매자가 같은 화면 부품을 쓰고, kind 로 호출할 API 와 "이미 가입" 안내만 달라진다. 인증 상태는 서버가 종류별로 따로 둔다.
 
-const SEND_PATH = "/api/v1/auth/users/email-verification";
+export type EmailVerifyKind = "user" | "seller";
+
+// 종류별로 다른 것을 한곳에 모았다. takenCode 는 발송이 "이미 가입한 이메일"일 때 서버가 주는 에러 코드다.
+const KINDS: Record<EmailVerifyKind, { path: string; takenCode: string }> = {
+  user: { path: "/api/v1/auth/users/email-verification", takenCode: "USER000" },
+  seller: { path: "/api/v1/auth/sellers/email-verification", takenCode: "SELLER000" },
+};
 
 const useCountdown = (untilIso: string | null): number => {
   const [now, setNow] = useState(() => Date.now());
@@ -23,6 +30,8 @@ const useCountdown = (untilIso: string | null): number => {
 };
 
 export function EmailVerifyField({
+  kind = "user",
+  label = "이메일",
   email,
   onEmailChange,
   verifiedUntil,
@@ -30,6 +39,9 @@ export function EmailVerifyField({
   onUnverify,
   onExpired,
 }: {
+  // 예매자 가입이면 "user", 판매자 가입 신청이면 "seller".
+  kind?: EmailVerifyKind;
+  label?: string;
   email: string;
   onEmailChange: (email: string) => void;
   // 인증을 마친 이메일의 유효 시각. null 이면 아직 인증하지 않았다.
@@ -40,11 +52,12 @@ export function EmailVerifyField({
   // verifiedUntil 이 지나서 인증이 풀렸다.
   onExpired: () => void;
 }) {
+  const { path, takenCode } = KINDS[kind];
   const [sent, setSent] = useState<EmailVerificationSent | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  // 발송이 USER000(409)이면 로그인·비밀번호 찾기로 안내한다.
+  // 발송이 "이미 가입한 이메일"(USER000·SELLER000, 409)이면 로그인으로 안내한다.
   const [taken, setTaken] = useState(false);
   const resendIn = useCountdown(sent?.resendAvailableAt ?? null);
   const validFor = useCountdown(sent?.expiresAt ?? null);
@@ -79,7 +92,7 @@ export function EmailVerifyField({
         return;
       }
       setSent(
-        await api<EmailVerificationSent>(SEND_PATH, {
+        await api<EmailVerificationSent>(path, {
           method: "POST",
           body: { email: email.trim() },
           headers: { [CAPTCHA_HEADER]: token },
@@ -87,7 +100,7 @@ export function EmailVerifyField({
       );
       setCode("");
     } catch (error) {
-      if (error instanceof ApiError && error.code === "USER000") setTaken(true);
+      if (error instanceof ApiError && error.code === takenCode) setTaken(true);
       else setMessage(error instanceof ApiError ? error.message : "인증번호를 받지 못했습니다");
     } finally {
       setBusy(false);
@@ -99,7 +112,7 @@ export function EmailVerifyField({
     setBusy(true);
     setMessage(null);
     try {
-      const result = await api<EmailVerificationConfirmed>(`${SEND_PATH}/confirm`, {
+      const result = await api<EmailVerificationConfirmed>(`${path}/confirm`, {
         method: "POST",
         body: { email: email.trim(), code: code.trim() },
       });
@@ -127,7 +140,7 @@ export function EmailVerifyField({
     <div className="space-y-3">
       <div>
         <label className="label" htmlFor="email">
-          이메일
+          {label}
         </label>
         <div className="flex gap-2">
           <input
@@ -165,14 +178,18 @@ export function EmailVerifyField({
 
       {taken && (
         <p role="alert" className="text-sm text-accent-strong">
-          이미 가입한 이메일입니다.{" "}
-          <Link href="/login" className="underline">
+          {kind === "seller" ? "이미 판매자로 가입한 이메일입니다." : "이미 가입한 이메일입니다."}{" "}
+          <Link href={kind === "seller" ? "/seller/login" : "/login"} className="underline">
             로그인
           </Link>
-          {" 또는 "}
-          <Link href="/forgot-password" className="underline">
-            비밀번호 찾기
-          </Link>
+          {kind === "user" && (
+            <>
+              {" 또는 "}
+              <Link href="/forgot-password" className="underline">
+                비밀번호 찾기
+              </Link>
+            </>
+          )}
         </p>
       )}
 

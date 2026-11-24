@@ -35,7 +35,7 @@ public enum AuthExceptionCode implements ExceptionCode {
 	EMAIL_VERIFICATION_CODE_MISMATCH("AUTH305", HttpStatus.BAD_REQUEST, "인증번호가 올바르지 않습니다."),
 	/** 유효한 인증번호가 없음: 만료, 틀린 횟수 초과로 폐기, 받은 적 없음. 사용자가 할 일은 "다시 받기" 하나라 한 코드로 묶었다 */
 	EMAIL_VERIFICATION_CODE_INVALID("AUTH306", HttpStatus.BAD_REQUEST, "인증번호가 만료되었거나 없습니다. 다시 받아 주세요."),
-	/** 이메일 인증을 마치지 않았거나 인증 유효 시간(20분)이 지난 채로 예매자 가입을 함. 화면은 이메일 인증을 다시 하게 한다 */
+	/** 이메일 인증을 마치지 않았거나 인증 유효 시간(20분)이 지난 채로 예매자·판매자 가입을 함. 화면은 이메일 인증을 다시 하게 한다 */
 	EMAIL_NOT_VERIFIED("AUTH307", HttpStatus.BAD_REQUEST, "이메일 인증이 필요합니다. 인증이 만료됐다면 다시 인증해 주세요."),
 
 	/** 비밀번호 재설정 메일을 요청한 이메일로 가입한 해당 종류(예매자·판매자)의 계정이 없음. 메시지에 계정 종류를 넣어 던진다. 삭제(탈퇴)된 계정도 없는 것으로 본다 */

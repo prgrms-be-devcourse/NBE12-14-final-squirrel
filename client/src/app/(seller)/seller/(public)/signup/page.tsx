@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { EmailVerifyField } from "@/components/email-verification";
 import { ApiError, api } from "@/lib/api";
 
 // 판매자 가입 신청 (AUTH-09). 사업체(승인 대기)와 대표자 계정이 함께 만들어지고, 관리자가 승인하기 전에는 로그인할 수 없다.
 // 가입 응답은 로그인이 아니라 접수 결과라서, 접수했다는 안내만 보여 준다.
+// 로그인 이메일은 신청 전에 인증을 마쳐야 한다. (api-spec AUTH-17·18 판매자용) 담당 이메일은 연락용이라 인증하지 않는다.
 
 const EMPTY_FORM = {
   email: "",
@@ -22,6 +24,8 @@ const EMPTY_FORM = {
 
 export default function SellerSignupPage() {
   const [form, setForm] = useState(EMPTY_FORM);
+  // 로그인 이메일 인증을 마친 유효 시각. 이때까지 신청을 마쳐야 한다.
+  const [verifiedUntil, setVerifiedUntil] = useState<string | null>(null);
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -32,6 +36,10 @@ export default function SellerSignupPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (!verifiedUntil) {
+      setMessage("이메일 인증을 해 주세요");
+      return;
+    }
     if (form.password !== form.passwordConfirm) {
       setMessage("비밀번호와 비밀번호 확인이 다릅니다");
       return;
@@ -59,9 +67,19 @@ export default function SellerSignupPage() {
           termsAgreed,
         },
       });
+      // 화면을 떠나도 이 페이지의 상태가 보관될 수 있다. 비밀번호·개인정보가 남지 않게 지운다.
+      setForm(EMPTY_FORM);
+      setTermsAgreed(false);
+      setVerifiedUntil(null);
       setDone(true);
     } catch (error) {
-      setMessage(error instanceof ApiError ? error.message : "가입 신청에 실패했습니다");
+      if (error instanceof ApiError && error.code === "AUTH307") {
+        // 인증이 풀렸다. 다른 이유로 실패한 신청은 인증이 남아 있으므로 풀지 않는다.
+        setVerifiedUntil(null);
+        setMessage("이메일 인증을 다시 해 주세요");
+      } else {
+        setMessage(error instanceof ApiError ? error.message : "가입 신청에 실패했습니다");
+      }
     } finally {
       setBusy(false);
     }
@@ -86,12 +104,19 @@ export default function SellerSignupPage() {
       <form onSubmit={submit} className="card space-y-4 p-6">
         <fieldset className="space-y-4">
           <legend className="label">대표자 계정</legend>
-          <div>
-            <label className="label" htmlFor="email">
-              로그인 이메일
-            </label>
-            <input id="email" type="email" className="input" value={form.email} onChange={set("email")} required />
-          </div>
+          <EmailVerifyField
+            kind="seller"
+            label="로그인 이메일"
+            email={form.email}
+            onEmailChange={(email) => setForm({ ...form, email })}
+            verifiedUntil={verifiedUntil}
+            onVerified={setVerifiedUntil}
+            onUnverify={() => setVerifiedUntil(null)}
+            onExpired={() => {
+              setVerifiedUntil(null);
+              setMessage("이메일 인증 시간이 지났습니다. 다시 인증해 주세요");
+            }}
+          />
           <div>
             <label className="label" htmlFor="password">
               비밀번호 (8~25자, 영문·숫자·특수문자)
@@ -194,7 +219,7 @@ export default function SellerSignupPage() {
             {message}
           </p>
         )}
-        <button type="submit" className="btn btn-primary w-full" disabled={busy}>
+        <button type="submit" className="btn btn-primary w-full" disabled={busy || !verifiedUntil}>
           {busy ? "접수 중" : "가입 신청"}
         </button>
       </form>

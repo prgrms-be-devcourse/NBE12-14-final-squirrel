@@ -7,9 +7,11 @@ import com.squirrel.tickting.domain.auth.mail.EmailSender;
 import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService;
 import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService.Issued;
 import com.squirrel.tickting.domain.auth.service.EmailVerificationProperties;
+import com.squirrel.tickting.domain.seller.service.SellerMemberService;
 import com.squirrel.tickting.domain.user.service.UserMemberService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.AuthExceptionCode;
+import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.util.EmailUtil;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
@@ -19,8 +21,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * 가입 전 이메일 인증. 이미 가입한 이메일인지(user 도메인)와 인증번호·메일(auth 도메인)을 엮는다.
+ * 가입 전 이메일 인증. 이미 가입한 이메일인지(user·seller 도메인)와 인증번호·메일(auth 도메인)을 엮는다.
  * 가입 전이라 로그인이 없고, 인증을 마친 이메일은 Redis 에 표시로 남아 가입 API 가 확인한다.
+ * 예매자와 판매자가 같이 쓰되 계정 종류(AccountType)를 받아서, 인증 상태와 한도를 종류별로 따로 둔다.
  *
  * <p>발송은 비동기다. 인증번호를 저장하고 발송을 접수하면 바로 응답하고, 메일은 발송 스레드가 뒤에서 보낸다.
  * 인기 공연 오픈 때 인증하는 사람이 몰려도 발송이 요청 스레드를 묶어 대기열·예매까지 밀리지 않게 하려는 것이다.
@@ -36,6 +39,7 @@ public class EmailVerificationFacade {
 	private static final String SEND_METRIC = "email.verification.send";
 
 	private final UserMemberService userMemberService;
+	private final SellerMemberService sellerMemberService;
 	private final EmailVerificationCodeService codeService;
 	private final EmailSender emailSender;
 	private final EmailSendExecutor sendExecutor;
@@ -47,11 +51,11 @@ public class EmailVerificationFacade {
 	 * 확인 순서: 이미 가입한 이메일(409) → 재발송 간격(429) → 하루 한도(429) → 발송 대기(503).
 	 * 가입한 이메일에는 번호도 간격·횟수 키도 만들지 않고 메일도 보내지 않는다. (남의 메일함에 메일을 보내는 길을 줄이려는 것이다)
 	 */
-	public EmailVerificationResponse.Sent send(EmailVerificationRequest.Send request) {
+	public EmailVerificationResponse.Sent send(AccountType type, EmailVerificationRequest.Send request) {
 		String email = EmailUtil.normalize(request.email());
-		userMemberService.requireEmailNotTaken(email);
+		requireEmailNotTaken(type, email);
 
-		Issued issued = codeService.issue(email);
+		Issued issued = codeService.issue(type, email);
 		try {
 			sendExecutor.execute(() -> deliver(email, issued));
 		} catch (RejectedExecutionException e) {
@@ -70,10 +74,22 @@ public class EmailVerificationFacade {
 	 * 인증번호를 확인하고 그 이메일을 인증한 것으로 표시한다. 확인 순서: 인증번호(400).
 	 * 이미 가입한 이메일인지는 보지 않는다. 가입한 이메일로는 번호를 받을 수 없어서 확인할 번호가 없기 때문이다.
 	 */
-	public EmailVerificationResponse.Confirmed confirm(EmailVerificationRequest.Confirm request) {
+	public EmailVerificationResponse.Confirmed confirm(AccountType type, EmailVerificationRequest.Confirm request) {
 		String email = EmailUtil.normalize(request.email());
-		LocalDateTime verifiedUntil = codeService.confirm(email, request.code());
+		LocalDateTime verifiedUntil = codeService.confirm(type, email, request.code());
 		return EmailVerificationResponse.Confirmed.builder().verifiedUntil(verifiedUntil).build();
+	}
+
+	/**
+	 * 그 계정 종류의 테이블에 이미 가입한 이메일이면 막는다. 예매자와 판매자는 테이블이 달라서,
+	 * 예매자로 가입한 이메일도 판매자 가입에는 쓸 수 있다. (그 반대도 같다)
+	 */
+	private void requireEmailNotTaken(AccountType type, String email) {
+		switch (type) {
+			case USER -> userMemberService.requireEmailNotTaken(email);
+			case SELLER -> sellerMemberService.requireEmailNotTaken(email);
+			case ADMIN -> throw new IllegalArgumentException("관리자는 가입이 없어서 이메일 인증을 쓰지 않습니다.");
+		}
 	}
 
 	/** 발송 스레드에서 실행된다. 실패해도 예외를 밖으로 내보내지 않고 인증번호·횟수를 되돌린다. */
