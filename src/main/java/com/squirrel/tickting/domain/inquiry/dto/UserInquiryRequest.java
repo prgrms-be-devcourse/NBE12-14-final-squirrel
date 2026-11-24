@@ -38,11 +38,6 @@ public class UserInquiryRequest {
 		@Schema(description = "첨부 사진. 비우면 없음. 보낸 순서대로 저장한다")
 		List<@Valid @NotNull(message = "사진이 비어 있습니다.") Image> images
 	) {
-
-		/** 사진 주소 목록. 비어 있으면 빈 목록이다. */
-		public List<String> imageUrls() {
-			return images == null ? List.of() : images.stream().map(Image::url).toList();
-		}
 	}
 
 	/** 문의 수정. 작성과 같은 값을 통째로 다시 보낸다. (보내지 않은 사진·예매는 지운 것으로 본다) */
@@ -68,11 +63,6 @@ public class UserInquiryRequest {
 		@Schema(description = "첨부 사진 전체. 비우면 사진을 모두 지운다. 보낸 순서대로 저장한다")
 		List<@Valid @NotNull(message = "사진이 비어 있습니다.") Image> images
 	) {
-
-		/** 사진 주소 목록. 비어 있으면 빈 목록이다. */
-		public List<String> imageUrls() {
-			return images == null ? List.of() : images.stream().map(Image::url).toList();
-		}
 	}
 
 	/** 첨부 사진 하나. 공연 상세 이미지처럼 객체로 받는다. (@ImageUrl 은 목록의 문자열 원소에 걸 수 없다) */

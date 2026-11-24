@@ -63,7 +63,7 @@ public class InquiryService {
 			.bookingId(request.bookingId())
 			.title(request.title().strip())
 			.content(request.content().strip())
-			.imageUrls(request.imageUrls())
+			.imageUrls(toImageUrls(request.images()))
 			.status(InquiryStatus.WAITING)
 			.build());
 		recordHistory(inquiry, AccountType.USER, userId, InquiryAction.CREATED);
@@ -96,7 +96,7 @@ public class InquiryService {
 		ensureWaiting(findMine(userId, inquiryId));
 
 		int updated = inquiryRepository.updateIfWaiting(inquiryId, request.category(), request.bookingId(),
-			request.title().strip(), request.content().strip(), request.imageUrls(), LocalDateTime.now());
+			request.title().strip(), request.content().strip(), toImageUrls(request.images()), LocalDateTime.now());
 		if (updated == 0) {
 			// 확인한 뒤 바꾸기 전에 답변(또는 삭제)이 먼저 끝났다
 			throw new BusinessException(InquiryExceptionCode.INQUIRY_ALREADY_ANSWERED);
@@ -133,6 +133,11 @@ public class InquiryService {
 		if (inquiry.getStatus() != InquiryStatus.WAITING) {
 			throw new BusinessException(InquiryExceptionCode.INQUIRY_ALREADY_ANSWERED);
 		}
+	}
+
+	/** 첨부 사진을 저장할 주소 목록으로 바꾼다. 사진을 보내지 않았으면(null) 빈 목록이라 image_urls 는 늘 배열이다. */
+	private List<String> toImageUrls(List<UserInquiryRequest.Image> images) {
+		return images == null ? List.of() : images.stream().map(UserInquiryRequest.Image::url).toList();
 	}
 
 	/** 그 순간의 문의 내용(사진 목록 포함)을 통째로 이력에 남긴다. */
