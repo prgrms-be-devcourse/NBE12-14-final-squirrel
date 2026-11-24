@@ -28,14 +28,6 @@ CREATE TABLE inquiry (
     deleted_at    TIMESTAMP
 );
 
--- 내 문의 목록 (예매자·판매자 각자)
-CREATE INDEX idx_inquiry_author ON inquiry (author_type, author_id, created_at DESC) WHERE deleted_at IS NULL;
--- 판매자 사업체의 문의 목록
-CREATE INDEX idx_inquiry_business ON inquiry (business_id, created_at DESC)
-    WHERE business_id IS NOT NULL AND deleted_at IS NULL;
--- 관리자 문의 목록 (답변 대기 먼저 보기)
-CREATE INDEX idx_inquiry_status ON inquiry (status, created_at) WHERE deleted_at IS NULL;
-
 -- 문의 이력. 작성·수정·삭제·답변마다 그 순간의 내용을 통째로 남긴다. 수정·삭제하지 않는다.
 -- 답변 전 수정은 본문을 덮어쓰므로, 처음에 무엇을 썼는지와 관리자가 어떤 내용에 답했는지는 여기에만 남는다.
 CREATE TABLE inquiry_history (
@@ -50,5 +42,3 @@ CREATE TABLE inquiry_history (
     answer       VARCHAR(2000),
     created_at   TIMESTAMP      NOT NULL
 );
-
-CREATE INDEX idx_inquiry_history_inquiry ON inquiry_history (inquiry_id, created_at);
