@@ -20,9 +20,11 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -78,5 +80,29 @@ public class UserInquiryController {
 		@PathVariable Long inquiryId
 	) {
 		return ResponseEntity.ok(ApiResponse.success(inquiryService.getMyInquiry(account.getId(), inquiryId)));
+	}
+
+	@Operation(summary = "문의 수정",
+		description = "답변 대기일 때만 내용을 통째로 바꾼다. 답변이 끝났으면 409, 남의 문의·삭제한 문의는 404 다.")
+	@PutMapping("/{inquiryId}")
+	public ResponseEntity<ApiResponse<UserInquiryResponse.Detail>> update(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@Parameter(description = "문의 번호")
+		@PathVariable Long inquiryId,
+		@Valid @RequestBody UserInquiryRequest.Update request
+	) {
+		return ResponseEntity.ok(ApiResponse.success(userInquiryFacade.update(account.getId(), inquiryId, request)));
+	}
+
+	@Operation(summary = "문의 삭제",
+		description = "답변 대기일 때만 지운다. 목록·상세에서 사라지고 이력은 남는다. 답변이 끝났으면 409 다.")
+	@DeleteMapping("/{inquiryId}")
+	public ResponseEntity<ApiResponse<Void>> delete(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@Parameter(description = "문의 번호")
+		@PathVariable Long inquiryId
+	) {
+		inquiryService.deleteForUser(account.getId(), inquiryId);
+		return ResponseEntity.ok(ApiResponse.noContentSuccess());
 	}
 }

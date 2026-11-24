@@ -7,6 +7,7 @@ import com.squirrel.tickting.domain.inquiry.type.InquiryStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
+import lombok.Builder;
 
 /** 예매자 문의 응답. 문의 도메인을 판매자·관리자가 함께 쓰므로 역할 이름을 붙여 파일을 나눈다. */
 public class UserInquiryResponse {
@@ -15,6 +16,7 @@ public class UserInquiryResponse {
 	}
 
 	/** 문의 유형 하나. 화면의 유형 드롭다운에 쓴다. */
+	@Builder
 	@Schema(name = "UserInquiryCategory", description = "문의 유형")
 	public record Category(
 		@Schema(example = "CANCEL_REFUND")
@@ -24,10 +26,14 @@ public class UserInquiryResponse {
 	) {
 
 		public static Category from(InquiryCategory category) {
-			return new Category(category, category.getLabel());
+			return Category.builder()
+				.code(category)
+				.name(category.getLabel())
+				.build();
 		}
 	}
 
+	@Builder
 	@Schema(name = "UserInquiryCreated", description = "문의 작성 결과")
 	public record Created(
 		Long inquiryId,
@@ -36,11 +42,16 @@ public class UserInquiryResponse {
 	) {
 
 		public static Created from(Inquiry inquiry) {
-			return new Created(inquiry.getId(), inquiry.getStatus(), inquiry.getCreatedAt());
+			return Created.builder()
+				.inquiryId(inquiry.getId())
+				.status(inquiry.getStatus())
+				.createdAt(inquiry.getCreatedAt())
+				.build();
 		}
 	}
 
 	/** 내 문의 목록의 한 항목. 예매 번호는 예매의 읽기 전용 연관에서 꺼내므로 트랜잭션 안에서 만든다. */
+	@Builder
 	@Schema(name = "UserInquirySummary", description = "내 문의 목록 항목")
 	public record Summary(
 		Long inquiryId,
@@ -55,13 +66,20 @@ public class UserInquiryResponse {
 	) {
 
 		public static Summary from(Inquiry inquiry) {
-			return new Summary(inquiry.getId(), Category.from(inquiry.getCategory()), inquiry.getTitle(),
-				inquiry.getStatus(), inquiry.getBooking() == null ? null : inquiry.getBooking().getBookingNo(),
-				inquiry.getCreatedAt(), inquiry.getAnsweredAt());
+			return Summary.builder()
+				.inquiryId(inquiry.getId())
+				.category(Category.from(inquiry.getCategory()))
+				.title(inquiry.getTitle())
+				.status(inquiry.getStatus())
+				.bookingNo(inquiry.getBooking() == null ? null : inquiry.getBooking().getBookingNo())
+				.createdAt(inquiry.getCreatedAt())
+				.answeredAt(inquiry.getAnsweredAt())
+				.build();
 		}
 	}
 
 	/** 내 문의 상세. 예매는 문의의 읽기 전용 연관에서 꺼내므로 트랜잭션 안에서 만든다. */
+	@Builder
 	@Schema(name = "UserInquiryDetail", description = "내 문의 상세")
 	public record Detail(
 		Long inquiryId,
@@ -81,14 +99,24 @@ public class UserInquiryResponse {
 	) {
 
 		public static Detail from(Inquiry inquiry) {
-			return new Detail(inquiry.getId(), Category.from(inquiry.getCategory()), inquiry.getTitle(),
-				inquiry.getContent(), inquiry.getImageUrls(),
-				inquiry.getStatus(), inquiry.getBooking() == null ? null : BookingInfo.from(inquiry.getBooking()),
-				inquiry.getAnswer(), inquiry.getAnsweredAt(), inquiry.getCreatedAt(), inquiry.getUpdatedAt());
+			return Detail.builder()
+				.inquiryId(inquiry.getId())
+				.category(Category.from(inquiry.getCategory()))
+				.title(inquiry.getTitle())
+				.content(inquiry.getContent())
+				.imageUrls(inquiry.getImageUrls())
+				.status(inquiry.getStatus())
+				.booking(inquiry.getBooking() == null ? null : BookingInfo.from(inquiry.getBooking()))
+				.answer(inquiry.getAnswer())
+				.answeredAt(inquiry.getAnsweredAt())
+				.createdAt(inquiry.getCreatedAt())
+				.updatedAt(inquiry.getUpdatedAt())
+				.build();
 		}
 	}
 
 	/** 문의에 연결한 예매. 공연 제목은 지금 값이다. */
+	@Builder
 	@Schema(name = "UserInquiryBooking", description = "문의에 연결한 예매")
 	public record BookingInfo(
 		Long bookingId,
@@ -99,7 +127,11 @@ public class UserInquiryResponse {
 	) {
 
 		static BookingInfo from(Booking booking) {
-			return new BookingInfo(booking.getId(), booking.getBookingNo(), booking.getPerformance().getTitle());
+			return BookingInfo.builder()
+				.bookingId(booking.getId())
+				.bookingNo(booking.getBookingNo())
+				.performanceTitle(booking.getPerformance().getTitle())
+				.build();
 		}
 	}
 }
