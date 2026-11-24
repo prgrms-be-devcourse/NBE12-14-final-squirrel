@@ -17,10 +17,10 @@ export default function SignupPage() {
   const [form, setForm] = useState({
     email: "",
     password: "",
+    passwordConfirm: "",
     nickname: "",
     name: "",
     phone: "",
-    birth: "",
   });
   const [agreed, setAgreed] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
@@ -31,18 +31,22 @@ export default function SignupPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (form.password !== form.passwordConfirm) {
+      setMessage("비밀번호와 비밀번호 확인이 다릅니다");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
-      // 본인인증은 아직 Mock 이다. 형식: mock|이름|CI|휴대폰|생년월일(yyyyMMdd)
-      const identityToken = ["mock", form.name, `ci-${crypto.randomUUID()}`, form.phone, form.birth].join("|");
       const result = await api<LoginResult>("/api/v2/auth/users/signup", {
         method: "POST",
         body: {
           email: form.email,
           password: form.password,
+          passwordConfirm: form.passwordConfirm,
           nickname: form.nickname,
-          identityToken,
+          name: form.name.trim(),
+          phone: form.phone,
           agreedTermIds: agreed,
         },
       });
@@ -80,32 +84,46 @@ export default function SignupPage() {
           />
         </div>
         <div>
+          <label className="label" htmlFor="passwordConfirm">
+            비밀번호 확인
+          </label>
+          <input
+            id="passwordConfirm"
+            type="password"
+            autoComplete="new-password"
+            className="input"
+            value={form.passwordConfirm}
+            onChange={set("passwordConfirm")}
+            required
+          />
+        </div>
+        <div>
           <label className="label" htmlFor="nickname">
             닉네임 (2~20자)
           </label>
           <input id="nickname" className="input" value={form.nickname} onChange={set("nickname")} required />
         </div>
 
-        <fieldset className="space-y-3 rounded-xl border border-line p-3">
-          <legend className="px-1 text-xs text-muted">본인 확인 (테스트용 Mock)</legend>
-          <input className="input" placeholder="이름" value={form.name} onChange={set("name")} required />
+        <div>
+          <label className="label" htmlFor="name">
+            이름
+          </label>
+          <input id="name" className="input" maxLength={50} value={form.name} onChange={set("name")} required />
+        </div>
+        <div>
+          <label className="label" htmlFor="phone">
+            휴대폰 (하이픈 없이)
+          </label>
           <input
+            id="phone"
             className="input"
-            placeholder="휴대폰 (01012345678)"
+            placeholder="01012345678"
             inputMode="tel"
             value={form.phone}
             onChange={set("phone")}
             required
           />
-          <input
-            className="input"
-            placeholder="생년월일 (19900101)"
-            inputMode="numeric"
-            value={form.birth}
-            onChange={set("birth")}
-            required
-          />
-        </fieldset>
+        </div>
 
         <fieldset className="space-y-2">
           <legend className="label">약관</legend>

@@ -90,4 +90,29 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		   AND b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PENDING
 		""")
 	int markExpired(@Param("ids") Collection<Long> ids, @Param("now") LocalDateTime now);
+
+	/** 일부 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다. */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED,
+		       b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		""")
+	int markPartiallyCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/** 전체 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 전체 취소 일시를 남긴다. */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.CANCELED,
+		       b.canceledAt = :now,
+		       b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		""")
+	int markCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
 }

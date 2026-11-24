@@ -89,6 +89,17 @@ public class Payment extends CreatedTimeEntity {
 			: reason;
 	}
 
+	/**
+	 * 환불을 반영한다. 남은 좌석이 없으면 전액 환불(CANCELED), 있으면 일부 환불(PARTIAL_CANCELED)이다.
+	 * 승인된 결제(DONE·PARTIAL_CANCELED)만 환불할 수 있다. 토스 환불의 성공·실패는 refund 가 가지므로 여기서는 보지 않는다.
+	 */
+	public void applyCancel(boolean fullyCanceled) {
+		if (this.status != PaymentStatus.DONE && this.status != PaymentStatus.PARTIAL_CANCELED) {
+			throw new IllegalStateException("승인된 결제만 환불할 수 있다. 현재: " + this.status);
+		}
+		this.status = fullyCanceled ? PaymentStatus.CANCELED : PaymentStatus.PARTIAL_CANCELED;
+	}
+
 	private void requireStatus(PaymentStatus expected) {
 		if (this.status != expected) {
 			throw new IllegalStateException("결제 상태가 " + expected + " 여야 한다. 현재: " + this.status);

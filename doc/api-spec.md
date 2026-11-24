@@ -91,7 +91,7 @@
 | BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 구현됨 |
 | BKG-04 | 내 예매 목록 | GET `/api/v1/bookings` | 구현됨 |
 | BKG-05 | 내 예매 상세 | GET `/api/v1/bookings/{bookingId}` | 구현됨 |
-| BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 미구현 |
+| BKG-06 | 예매 취소 | POST `/api/v1/bookings/{bookingId}/cancel` | 구현됨 |
 | SLR-01 | 공연장 목록 | GET `/api/v1/seller/venues` | 구현됨 |
 | SLR-02 | 공연 등록 | POST `/api/v1/seller/performances` | 구현됨 |
 | SLR-03 | 공연 수정 | PUT `/api/v1/seller/performances/{performanceId}` | 구현됨 |
@@ -1281,7 +1281,10 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 - `cancelPolicy`는 예매할 때 복사한 취소 규정입니다. 판매자가 나중에 규정을 바꿔도 예매 당시 규정이 나옵니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
 - `performance`·`schedule`은 지금 값이고 항상 있습니다. (예매의 읽기 전용 연관에서 꺼냅니다. 행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
 - `delivery`는 배송(`DELIVERY`)이 아니면 `null`입니다.
-- **`refundedAmount`, `cancelable`, `currentFeeRate`는 지금 `null`입니다.** 예매 취소(BKG-06)와 같은 기준(환불 상태, 남은 일수 세는 법)으로 계산해야 해서 그 기능이 들어올 때 채웁니다. 화면은 `null`이면 취소 버튼을 숨기면 됩니다.
+- `refundedAmount`는 **실제로 돌려준 금액**입니다. 완료(`DONE`)된 환불만 더하고, 요청 중·실패한 환불은 빠집니다. 취소한 적이 없으면 0입니다.
+- `cancelable`, `currentFeeRate`는 **예매 취소(BKG-06)와 같은 계산**으로 정합니다. 화면에 보인 수수료율과 실제 환불이 어긋나지 않게 한 클래스(`CancelPolicyCalculator`)에서만 계산합니다. 기준은 BKG-06의 "취소 가능 여부와 수수료율"을 봅니다.
+  - `cancelable`: 지금 취소할 수 있으면 `true`. 결제 완료·일부 취소가 아니거나 취소 불가 기간이면 `false`입니다.
+  - `currentFeeRate`: 지금 취소하면 적용되는 수수료율(%). 취소할 수 없으면 `null`입니다.
 
 **응답 200**
 
@@ -1334,7 +1337,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
     "ticketAmount": 308000,
     "bookingFeeAmount": 4000,
     "totalAmount": 312000,
-    "refundedAmount": null,
+    "refundedAmount": 0,
     "payment": {
       "paymentId": 801,
       "method": "카드",
@@ -1350,8 +1353,8 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
         "cancelable": true
       }
     ],
-    "cancelable": null,
-    "currentFeeRate": null,
+    "cancelable": true,
+    "currentFeeRate": 0,
     "expiresAt": null,
     "createdAt": "2026-11-25T20:03:41",
     "canceledAt": null
@@ -1361,9 +1364,9 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 
 **에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 404 `BOOKING006` 예매 없음(남의 예매 포함)
 
-### BKG-06 예매 취소 — `POST /api/v1/bookings/{bookingId}/cancel` (예매자)
+### BKG-06 예매 취소 — `POST /api/v1/bookings/{bookingId}/cancel` (예매자, 구현됨)
 
-`bookingSeatIds`를 생략하면 전체 취소. 환불 = Σ(좌석가 − 취소 수수료) + Σ(예매 수수료).
+결제 완료된 예매의 좌석을 취소하고 토스로 환불합니다. `bookingSeatIds`를 비우면(생략, 빈 목록, 본문 없음) **남은 좌석 전부**를 취소합니다.
 
 **요청** (부분 취소)
 
@@ -1398,7 +1401,59 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**(코드 미정): 404 예매 없음 · 409 취소할 수 없는 상태 · 400 당일 취소 불가 · 400 이미 취소된 좌석 · 502 토스 환불 실패(환불은 `FAILED`로 남아 재시도)
+**취소 가능 여부와 수수료율** (2026-11-24 확정, 금액·수수료 환불은 임시 정책)
+
+아래 순서로 판정합니다. BKG-05의 `cancelable`, `currentFeeRate`도 같은 계산입니다.
+
+1. 결제 완료(`PAID`)·일부 취소(`PARTIAL_CANCELED`)가 아니면 취소할 수 없습니다. (409 `BOOKING008`)
+2. **연기 무료 취소** 대상이면 수수료 0%로 취소할 수 있습니다. 공연 당일이거나 새 일정이 미정이어도 됩니다. 대상은 가장 최근 연기 이력의 `free_cancel_until`이 지나지 않았고, 예매가 그 연기보다 먼저 생긴 경우입니다. (3부)
+3. 회차가 이미 시작했으면 취소할 수 없습니다. 당일 취소를 허용한 규정이어도 시작한 뒤에는 막습니다. (400 `BOOKING009`)
+4. 예매 때 복사한 취소 규정에서 **남은 일수**가 들어가는 구간을 찾습니다. `cancelable=false` 구간(기본 규정의 당일)이거나 맞는 구간이 없으면 400 `BOOKING009`입니다.
+
+- **남은 일수는 달력 날짜 차이로 셉니다.** 기준은 한국 시간이고, 회차가 연기되면 바뀐 시작 일시로 셉니다.
+  - 예: 공연 11/30 19:00, 지금 11/27 23:00 → 날짜로 3일 전 → 기본 규정 10%. (시간으로 세면 68시간이라 2일 전·20%가 되지만 쓰지 않습니다)
+  - 이유: 규정 구간이 "공연 3·4·5·6일 전"처럼 날짜로 적혀 있어서 사용자가 읽는 대로 계산되게 했습니다.
+
+**금액**
+
+```
+좌석별 취소 수수료 = 좌석 가격 × 수수료율(%)      (원 단위 절사)
+환불 금액 = Σ(취소한 좌석 가격 − 취소 수수료) + Σ(취소한 좌석의 예매 수수료)
+```
+
+- 예매 수수료는 **취소한 좌석 몫만** 돌려줍니다. 예매 수수료가 좌석 1장당 붙기 때문입니다. (임시 정책)
+- 예: 154,000원 좌석 1장을 10% 구간에 취소 → 수수료 15,400원, 환불 154,000 − 15,400 + 2,000 = 140,600원
+- 환불은 취소 요청마다 `refund` 1행이 생깁니다. 부분 취소를 두 번 하면 2행입니다.
+
+**토스 환불이 실패하면** (2026-11-24 변경: 처음 명세는 502)
+
+- 좌석 취소는 끝나고 **200**으로 답하며 `refund.status`가 `FAILED`입니다. 실패 사유는 `refund.fail_reason`에 남습니다.
+- 이유: 좌석 취소를 먼저 커밋하고 토스를 부르기 때문에, 실패로 답하면 실제로는 취소된 예매를 사용자가 다시 취소하려다 "이미 취소된 좌석"(`BOOKING010`)을 보게 됩니다.
+- 실패한 환불은 같은 멱등키로 다시 요청하면 이중 환불 없이 마무리됩니다. 재시도 스케줄러와 관리자 재처리는 아직 없습니다. (4부 4-5, 5부)
+- 결과 기록까지 실패하면 `PROCESSING`으로 답하고, 환불은 요청 중으로 남습니다.
+
+**처리 순서**
+
+1. 예매 단위 락(`booking:{id}`, 결제 승인과 같은 락) → 트랜잭션 시작
+2. 위 판정과 금액 계산 → `refund` 1행(`PROCESSING`, 새 멱등키) → `payment` 일부·전액 환불 상태 → `booking_seat` 취소(`active=false`, `canceled_at`, `cancel_fee`, `refund_id`) → `schedule_seat` `SOLD` → `AVAILABLE` → `booking` 일부·전체 취소 → 커밋, 락 해제
+3. 트랜잭션 밖에서 토스 결제 취소 API 호출 (`Idempotency-Key` = 환불 행의 멱등키)
+4. `refund`를 `DONE`(완료 일시) 또는 `FAILED`(사유)로 기록
+
+- 같은 좌석 취소가 동시에 와도 락이 하나씩 처리하고, 락이 뚫려도 좌석 취소 UPDATE의 `active` 조건이 한 번만 통과시켜 이중 환불이 생기지 않습니다.
+- 돌려줄 금액이 0원이면(수수료 100% 규정) 토스를 부르지 않고 바로 `DONE`입니다.
+
+**에러** (판정 순서)
+
+| HTTP | 코드 | 언제 |
+|---|---|---|
+| 401 | `AUTH200` | 토큰 없음 |
+| 403 | `AUTH100` | 예매자가 아님 |
+| 400 | `COMMON000` | 좌석 번호 목록에 빈 값 |
+| 404 | `BOOKING006` | 없는 예매, 남의 예매 |
+| 409 | `BOOKING008` | 결제 완료·일부 취소가 아님 (결제 대기, 만료, 이미 전체 취소) |
+| 400 | `BOOKING009` | 취소 불가 기간 (당일 등 `cancelable=false` 구간, 회차 시작 후) |
+| 400 | `BOOKING010` | 이미 취소된 좌석이거나 이 예매의 좌석이 아님 (하나라도 있으면 전체 거절) |
+| 409 | `COMMON004` | 같은 예매의 다른 요청(취소·결제)이 처리 중이라 락을 1초 안에 잡지 못함 |
 
 ---
 

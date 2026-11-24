@@ -113,3 +113,18 @@ export function gradeColor(code: string | null | undefined, given?: string | nul
   if (!code) return null;
   return GRADE_COLOR[code] ?? "#4b5060";
 }
+
+// 구역 지도에 칠하는 등급 색. 등급이 바뀌어도 같은 색으로 보이게 코드마다 하나로 고정한다.
+const GRADE_MAP_COLOR: Record<string, string> = {
+  VIP: "#7b68ee",
+  VIP_STANDING: "#7b68ee",
+  R: "#1fa81f",
+  S: "#17b2ff",
+  A: "#f28b5b",
+  B: "#c9a227",
+  C: "#8d93a5",
+};
+
+export function gradeMapColor(code: string | null | undefined): string {
+  return (code && GRADE_MAP_COLOR[code]) || "#8d93a5";
+}

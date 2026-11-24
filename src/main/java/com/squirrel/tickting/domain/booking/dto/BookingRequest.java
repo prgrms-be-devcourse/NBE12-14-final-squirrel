@@ -15,4 +15,10 @@ public class BookingRequest {
 		List<@NotNull(message = "좌석 번호가 비어 있습니다.") Long> seatIds
 	) {
 	}
+
+	/** 예매 취소. 예매 좌석 번호를 비우면(생략·빈 목록) 남은 좌석 전부를 취소한다. */
+	public record Cancel(
+		List<@NotNull(message = "예매 좌석 번호가 비어 있습니다.") Long> bookingSeatIds
+	) {
+	}
 }

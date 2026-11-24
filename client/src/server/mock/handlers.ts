@@ -11,6 +11,7 @@ import type {
   SeatStatus,
   Zone,
 } from "@/lib/types";
+import arenaVenue from "@/server/mock/concert-arena-44.json";
 import { consoleRoutes } from "@/server/mock/console";
 import { fetchSpringPerformance } from "@/server/spring";
 import {
@@ -29,6 +30,7 @@ export type MockContext = {
   pathname: string;
   search: URLSearchParams;
   cookies: Map<string, string>;
+  header: (name: string) => string | null;
   json: () => Promise<unknown>;
   // 예매 화면이 어느 공연의 회차인지 알려 주는 값 (Spring API 에는 영향 없는 보조 헤더)
   performanceId: number | null;
@@ -244,29 +246,71 @@ function performanceDetail(performanceId: number): Response {
 
 // ---------- 좌석 ----------
 
-const ZONE_DEFS = [
+// 구역 정의. 기본 공연장(구역 5개, 격자)과 인스파이어 아레나(시드 V105 와 같은 구역 44개)를 공연 번호로 나눈다.
+type ZoneDef = {
+  zoneId: number;
+  name: string;
+  floor: string;
+  gradeIdx: number;
+  // 등급 코드로 정하는 구역(아레나). 없으면 gradeIdx 번째로 비싼 등급이다.
+  gradeName?: string;
+  labels: { row: string; number: string }[];
+};
+
+const BASIC_ZONES: ZoneDef[] = [
   { zoneId: 1, name: "A구역", floor: "1층", gradeIdx: 0 },
   { zoneId: 2, name: "B구역", floor: "1층", gradeIdx: 1 },
   { zoneId: 3, name: "C구역", floor: "1층", gradeIdx: 1 },
   { zoneId: 4, name: "D구역", floor: "2층", gradeIdx: 2 },
   { zoneId: 5, name: "E구역", floor: "2층", gradeIdx: 2 },
-];
+].map((def) => ({
+  ...def,
+  labels: Array.from({ length: ROWS * COLS }, (_, i) => ({ row: `${Math.floor(i / COLS) + 1}열`, number: String((i % COLS) + 1) })),
+}));
 
+export const ARENA_PERFORMANCE_ID = 107;
+
+// 시연 공연(V107)과 같은 규칙: 플로어=VIP, 제한석 5곳=A, 300번대=S, 나머지=R
+function arenaGrade(name: string): string {
+  if (name.startsWith("플로어")) return "VIP";
+  if (["101구역", "115구역", "201구역", "215구역", "315구역"].includes(name)) return "A";
+  return name.startsWith("3") ? "S" : "R";
+}
+
+type ArenaZoneJson = { name: string; floor: string; rows: { label: string; from: number; to: number }[] };
+
+const ARENA_ZONES: ZoneDef[] = (arenaVenue.zones as ArenaZoneJson[]).map((zone, index) => ({
+  zoneId: index + 1,
+  name: zone.name,
+  floor: zone.floor,
+  gradeIdx: 0,
+  gradeName: arenaGrade(zone.name),
+  // 번호는 열 안의 칸 위치라서 from~to 그대로 펼친다.
+  labels: zone.rows.flatMap((row) =>
+    Array.from({ length: row.to - row.from + 1 }, (_, i) => ({ row: row.label, number: String(row.from + i) })),
+  ),
+}));
+
+function isArenaSchedule(scheduleId: number): boolean {
+  return Math.floor(scheduleId / 10) === ARENA_PERFORMANCE_ID;
+}
+
+function zonesOf(scheduleId: number): ZoneDef[] {
+  return isArenaSchedule(scheduleId) ? ARENA_ZONES : BASIC_ZONES;
+}
+
+// 좌석 번호: 회차 x 구역 x 구역 안 순번. 아레나는 구역 하나가 수백 석이라 칸을 넉넉히 둔다.
 function seatIdOf(scheduleId: number, zoneId: number, index: number): number {
-  return MOCK_SEAT_BASE + scheduleId * 1000 + zoneId * 100 + index;
+  return MOCK_SEAT_BASE + scheduleId * 10_000_000 + zoneId * 10_000 + index;
 }
 
 function decodeSeatId(seatId: number) {
   const rest = seatId - MOCK_SEAT_BASE;
   return {
-    scheduleId: Math.floor(rest / 1000),
-    zoneId: Math.floor((rest % 1000) / 100),
-    index: rest % 100,
+    scheduleId: Math.floor(rest / 10_000_000),
+    zoneId: Math.floor((rest % 10_000_000) / 10_000),
+    index: rest % 10_000,
   };
-}
-
-function seatLabel(index: number) {
-  return { row: `${Math.floor(index / COLS) + 1}열`, number: String((index % COLS) + 1) };
 }
 
 function seatMap(scheduleId: number): Map<number, SeatRecord> {
@@ -274,8 +318,8 @@ function seatMap(scheduleId: number): Map<number, SeatRecord> {
   let map = s.seats.get(scheduleId);
   if (!map) {
     map = new Map();
-    for (const zone of ZONE_DEFS) {
-      for (let i = 0; i < ROWS * COLS; i += 1) {
+    for (const zone of zonesOf(scheduleId)) {
+      for (let i = 0; i < zone.labels.length; i += 1) {
         const id = seatIdOf(scheduleId, zone.zoneId, i);
         // 일부는 이미 팔린 좌석으로 시작해서 화면이 비어 보이지 않게 한다.
         const sold = ((id % 9973) * 7919) % 100 < 22;
@@ -287,9 +331,10 @@ function seatMap(scheduleId: number): Map<number, SeatRecord> {
   return map;
 }
 
-function gradeForZone(performance: PerformanceDetail, gradeIdx: number) {
+function gradeForZone(performance: PerformanceDetail, def: ZoneDef) {
+  if (def.gradeName) return performance.grades.find((g) => g.name === def.gradeName);
   const grades = [...performance.grades].sort((a, b) => b.price - a.price);
-  return grades[Math.min(gradeIdx, grades.length - 1)];
+  return grades[Math.min(def.gradeIdx, grades.length - 1)];
 }
 
 // 만료된 결제 대기 예매를 정리하고 좌석을 풀어 준다. (실서비스의 스케줄러 역할)
@@ -317,10 +362,10 @@ async function zoneSummary(ctx: MockContext, scheduleId: number): Promise<Respon
   sweep();
   const performance = await resolvePerformance(ctx.performanceId, scheduleId);
   const map = seatMap(scheduleId);
-  const zones: Zone[] = ZONE_DEFS.map((def) => {
-    const grade = gradeForZone(performance, def.gradeIdx);
+  const zones: Zone[] = zonesOf(scheduleId).map((def) => {
+    const grade = gradeForZone(performance, def);
     let remaining = 0;
-    for (let i = 0; i < ROWS * COLS; i += 1) {
+    for (let i = 0; i < def.labels.length; i += 1) {
       if (map.get(seatIdOf(scheduleId, def.zoneId, i))?.status === "AVAILABLE") remaining += 1;
     }
     return {
@@ -330,21 +375,21 @@ async function zoneSummary(ctx: MockContext, scheduleId: number): Promise<Respon
       grade: grade?.name ?? null,
       price: grade?.price ?? null,
       remaining,
-      total: ROWS * COLS,
+      total: def.labels.length,
     };
   });
-  return ok({ scheduleId, layoutKey: "mock-hall", zones });
+  return ok({ scheduleId, layoutKey: isArenaSchedule(scheduleId) ? "concert-arena-44" : "mock-hall", zones });
 }
 
 function zoneSeats(scheduleId: number, zoneId: number): Response {
   sweep();
-  const def = ZONE_DEFS.find((z) => z.zoneId === zoneId);
+  const def = zonesOf(scheduleId).find((z) => z.zoneId === zoneId);
   if (!def) return fail(404, "COMMON002", "구역을 찾을 수 없습니다.");
   const map = seatMap(scheduleId);
   const seats: Seat[] = [];
-  for (let i = 0; i < ROWS * COLS; i += 1) {
+  for (let i = 0; i < def.labels.length; i += 1) {
     const id = seatIdOf(scheduleId, zoneId, i);
-    const { row, number } = seatLabel(i);
+    const { row, number } = def.labels[i];
     seats.push({ seatId: id, row, number, sortOrder: i + 1, status: map.get(id)?.status ?? "AVAILABLE" });
   }
   return ok({ zoneId, name: def.name, seats });
@@ -472,9 +517,9 @@ async function createBooking(ctx: MockContext, scheduleId: number): Promise<Resp
   const expiresAtMs = Date.now() + HOLD_DURATION;
   const seats: MockBookingSeat[] = ids.map((seatId) => {
     const { zoneId, index } = decodeSeatId(seatId);
-    const def = ZONE_DEFS.find((z) => z.zoneId === zoneId)!;
-    const grade = gradeForZone(performance, def.gradeIdx);
-    const { row, number } = seatLabel(index);
+    const def = zonesOf(scheduleId).find((z) => z.zoneId === zoneId)!;
+    const grade = gradeForZone(performance, def);
+    const { row, number } = def.labels[index];
     map.set(seatId, { status: "HELD", holdUntil: expiresAtMs, bookingId });
     return {
       bookingSeatId: s.nextBookingSeatId++,
@@ -732,7 +777,10 @@ async function signup(ctx: MockContext): Promise<Response> {
   const body = (await ctx.json().catch(() => null)) as {
     email?: string;
     password?: string;
+    passwordConfirm?: string;
     nickname?: string;
+    name?: string;
+    phone?: string;
     agreedTermIds?: number[];
   } | null;
   const problems: string[] = [];
@@ -743,7 +791,10 @@ async function signup(ctx: MockContext): Promise<Response> {
   if (!body?.nickname || body.nickname.length < 2 || body.nickname.length > 20) {
     problems.push("nickname: 2~20자로 입력해 주세요");
   }
+  if (!body?.name?.trim() || body.name.trim().length > 50) problems.push("name: 이름을 50자 이하로 입력해 주세요");
+  if (!/^01[0-9]{8,9}$/.test(body?.phone ?? "")) problems.push("phone: 하이픈 없는 휴대폰 번호를 입력해 주세요");
   if (problems.length > 0) return fail(400, "COMMON000", problems.join(", "));
+  if (body!.password !== body!.passwordConfirm) return fail(400, "AUTH005", "비밀번호와 비밀번호 확인이 다릅니다.");
   const required = MOCK_TERMS.filter((t) => t.required).map((t) => t.termId);
   if (!required.every((id) => body?.agreedTermIds?.includes(id))) {
     return fail(400, "TERMS000", "필수 약관에 동의해 주세요.");
@@ -776,7 +827,7 @@ function me(ctx: MockContext): Response {
     nickname: profile?.nickname ?? nameOf(session.email),
     phone: "01012345678",
     profileImg: profile?.profileImg ?? null,
-    birthDate: "1990-01-01",
+    emailVerified: verified().has(session.key),
     createdAt: isoLocal(new Date(Date.now() - 30 * DAY)),
   });
 }
@@ -807,6 +858,33 @@ function withdraw(ctx: MockContext): Response {
   return logout();
 }
 
+// ---------- 이메일 인증 ----------
+
+// 인증을 마친 계정. 목에서는 처음엔 모두 미인증이라, 예매하기에서 인증 화면이 뜨는 흐름을 볼 수 있다.
+const verifiedGlobal = globalThis as unknown as { __ticktingVerified?: Set<string> };
+const verified = () => (verifiedGlobal.__ticktingVerified ??= new Set());
+// 목의 인증번호는 항상 123456 이다. (서버가 메일로 보내는 값을 흉내 낸다)
+const MOCK_VERIFY_CODE = "123456";
+
+function sendVerification(ctx: MockContext): Response {
+  const session = requireSession(ctx, "USER");
+  if (session instanceof Response) return session;
+  if (verified().has(session.key)) return fail(409, "AUTH301", "이미 이메일 인증을 마쳤습니다.");
+  const now = Date.now();
+  return ok({ expiresAt: isoLocal(new Date(now + 5 * MINUTE)), resendAvailableAt: isoLocal(new Date(now + MINUTE)) });
+}
+
+async function confirmVerification(ctx: MockContext): Promise<Response> {
+  const session = requireSession(ctx, "USER");
+  if (session instanceof Response) return session;
+  if (verified().has(session.key)) return fail(409, "AUTH301", "이미 이메일 인증을 마쳤습니다.");
+  const body = (await ctx.json().catch(() => ({}))) as { code?: string };
+  if (!/^[0-9]{6}$/.test(body.code ?? "")) return fail(400, "COMMON000", "code: 숫자 6자리를 입력해 주세요.");
+  if (body.code !== MOCK_VERIFY_CODE) return fail(400, "AUTH305", "인증번호가 맞지 않습니다. (목 데이터의 인증번호는 123456 입니다)");
+  verified().add(session.key);
+  return ok({ emailVerifiedAt: isoLocal(new Date()) });
+}
+
 // ---------- 대기열 ----------
 
 // 대기 화면을 확인할 수 있게, 처음 한 번은 줄을 서게 하고 상태를 세 번 확인하면 입장시킨다.
@@ -830,6 +908,10 @@ function queueStatus(key: string): Response {
 function queueEnter(ctx: MockContext, scheduleId: string): Response {
   const session = requireSession(ctx, "USER");
   if (session instanceof Response) return session;
+  // 확인 순서는 서버와 같다: 캡챠 → 이메일 인증 → 회차. 목은 토큰이 있으면 통과하고 "fail" 이면 실패한다.
+  const captcha = ctx.header("x-captcha-token");
+  if (!captcha || captcha === "fail") return fail(403, "CAPTCHA000", "자동 입력 방지 확인에 실패했습니다. 다시 시도해 주세요.");
+  if (!verified().has(session.key)) return fail(403, "AUTH307", "이메일 인증이 필요합니다.");
   const key = `${session.key}:${scheduleId}`;
   if (!queues().has(key)) queues().set(key, 0);
   return queueStatus(key);
@@ -877,6 +959,8 @@ const ROUTES: [string, string, Handler][] = [
   ["POST", "/api/v2/auth/logout", () => logout()],
   ["GET", "/api/v1/users/me", (ctx) => me(ctx)],
   ["PATCH", "/api/v1/users/me", (ctx) => updateMe(ctx)],
+  ["POST", "/api/v1/users/me/email-verification", (ctx) => sendVerification(ctx)],
+  ["POST", "/api/v1/users/me/email-verification/confirm", (ctx) => confirmVerification(ctx)],
   ["DELETE", "/api/v1/users/me", (ctx) => withdraw(ctx)],
 
   ["GET", "/api/v1/performances", (ctx) => listPerformances(ctx)],

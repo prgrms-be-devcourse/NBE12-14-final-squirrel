@@ -12,8 +12,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -54,4 +57,12 @@ public class PerformanceSchedule extends BaseTimeEntity {
 	/** 판매 좌석을 만든 시각. 비어 있으면 아직 안 만든 회차다. 끝난 회차의 좌석을 지워도 값은 남아 다시 만들지 않는다. */
 	@Column
 	private LocalDateTime seatsGeneratedAt;
+
+	/**
+	 * 연기 이력(읽기 전용). 최신 이력이 먼저다. 연기 무료 취소는 가장 최근 이력만 보고 판단한다.
+	 * 연기 이력은 SchedulePostponement 를 직접 저장해서 만들고, 이 목록으로는 저장하지 않는다.
+	 */
+	@OneToMany(mappedBy = "schedule")
+	@OrderBy("id DESC")
+	private List<SchedulePostponement> postponements;
 }
