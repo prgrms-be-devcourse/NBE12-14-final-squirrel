@@ -35,6 +35,9 @@ export function Footer() {
           <Link href="/login" className="block text-secondary hover:text-foreground">
             로그인
           </Link>
+          <Link href="/seller/login" className="block text-secondary hover:text-foreground">
+            판매자 센터
+          </Link>
         </nav>
       </div>
       <p className="border-t border-line py-6 text-center text-xs text-muted">

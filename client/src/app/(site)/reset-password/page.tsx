@@ -13,8 +13,8 @@ import { Loading } from "@/components/ui";
 type Phase =
   | { kind: "checking" }
   | { kind: "expired" }
-  | { kind: "form"; token: string; title: string }
-  | { kind: "done" };
+  | { kind: "form"; token: string; title: string; loginHref: string }
+  | { kind: "done"; loginHref: string };
 
 const TITLE = { USER: "예매자 비밀번호 재설정", SELLER: "판매자 비밀번호 재설정" } as const;
 
@@ -54,7 +54,13 @@ export default function ResetPasswordPage() {
         if (cancelled) return;
         setPhase(
           result.valid && result.accountType && result.accountType !== "ADMIN"
-            ? { kind: "form", token, title: TITLE[result.accountType] }
+            ? {
+                kind: "form",
+                token,
+                title: TITLE[result.accountType],
+                // 판매자는 판매자 로그인 화면으로 돌려보낸다.
+                loginHref: result.accountType === "SELLER" ? "/seller/login" : "/login",
+              }
             : { kind: "expired" },
         );
       } catch {
@@ -84,7 +90,7 @@ export default function ResetPasswordPage() {
       // 자동 로그인은 하지 않는다. 로그인 화면으로 보낸다. 새 비밀번호는 화면에 남지 않게 지운다.
       setPassword("");
       setPasswordConfirm("");
-      setPhase({ kind: "done" });
+      setPhase({ kind: "done", loginHref: phase.loginHref });
     } catch (error) {
       if (error instanceof ApiError && error.code === "AUTH309") setPhase({ kind: "expired" });
       else setMessage(error instanceof ApiError ? error.message : "비밀번호를 바꾸지 못했습니다");
@@ -115,7 +121,7 @@ export default function ResetPasswordPage() {
         <div className="card space-y-4 p-6">
           <h1 className="text-xl font-semibold">비밀번호를 바꿨습니다</h1>
           <p className="text-sm text-secondary">새 비밀번호로 로그인해 주세요</p>
-          <Link href="/login" className="btn btn-primary w-full">
+          <Link href={phase.loginHref} className="btn btn-primary w-full">
             로그인하러 가기
           </Link>
         </div>
