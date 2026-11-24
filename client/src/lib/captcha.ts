@@ -43,7 +43,11 @@ function loadScript(siteKey: string): Promise<Grecaptcha> {
 }
 
 export async function getCaptchaToken(action: string): Promise<string> {
-  if (!SITE_KEY) return LOCAL_TOKEN;
+  if (!SITE_KEY) {
+    // 운영에서 사이트 키가 빠졌는데 임시 값을 보내면 서버가 거절해서 원인을 알기 어렵다. 설정 오류로 바로 드러낸다.
+    if (process.env.NODE_ENV === "production") throw new Error("reCAPTCHA 사이트 키가 설정되지 않았습니다");
+    return LOCAL_TOKEN;
+  }
   const grecaptcha = await loadScript(SITE_KEY);
   await new Promise<void>((resolve) => grecaptcha.ready(resolve));
   return grecaptcha.execute(SITE_KEY, { action });

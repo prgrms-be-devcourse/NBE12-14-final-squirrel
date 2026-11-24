@@ -811,6 +811,25 @@ async function signup(ctx: MockContext): Promise<Response> {
   });
 }
 
+// 판매자 가입 신청. 목은 형식만 확인하고 접수한 것으로 답한다. (관리자 심사 목록에는 더하지 않는다)
+async function sellerSignup(ctx: MockContext): Promise<Response> {
+  const body = (await ctx.json().catch(() => null)) as Record<string, unknown> | null;
+  const text = (key: string) => (typeof body?.[key] === "string" ? (body[key] as string).trim() : "");
+  const problems: string[] = [];
+  if (!text("email").includes("@")) problems.push("email: 이메일 형식이 올바르지 않습니다");
+  const password = text("password");
+  if (password.length < 8 || password.length > 25) problems.push("password: 8~25자로 입력해 주세요");
+  if (!text("name")) problems.push("name: 이름을 입력해 주세요");
+  if (!/^01[0-9]{8,9}$/.test(text("phone"))) problems.push("phone: 하이픈 없는 휴대폰 번호를 입력해 주세요");
+  if (!text("companyName")) problems.push("companyName: 상호를 입력해 주세요");
+  if (!text("representativeName")) problems.push("representativeName: 대표자명을 입력해 주세요");
+  if (!/^[0-9]{10}$/.test(text("businessNumber"))) problems.push("businessNumber: 하이픈 없는 숫자 10자리로 입력해 주세요");
+  if (body?.termsAgreed !== true) problems.push("termsAgreed: 판매자 약관에 동의해 주세요");
+  if (problems.length > 0) return fail(400, "COMMON000", problems.join(", "));
+  if (password !== text("passwordConfirm")) return fail(400, "AUTH005", "비밀번호와 비밀번호 확인이 다릅니다.");
+  return ok({ businessId: 100 + Math.floor(Math.random() * 900), status: "PENDING" }, 201);
+}
+
 function logout(): Response {
   return ok(null, 200, { "Set-Cookie": "MOCK_SESSION=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" });
 }
@@ -1003,6 +1022,7 @@ const ROUTES: [string, string, Handler][] = [
   ["POST", "/api/v2/auth/:who/login", (ctx, [who]) =>
     who in ACCOUNT_BY_PATH ? login(ctx, who) : fail(404, "COMMON002", "존재하지 않는 경로입니다.")],
   ["POST", "/api/v2/auth/users/signup", (ctx) => signup(ctx)],
+  ["POST", "/api/v1/auth/sellers/signup", (ctx) => sellerSignup(ctx)],
   ["POST", "/api/v2/auth/logout", () => logout()],
   ["POST", "/api/v1/auth/users/email-verification", (ctx) => sendVerification(ctx)],
   ["POST", "/api/v1/auth/users/email-verification/confirm", (ctx) => confirmVerification(ctx)],

@@ -115,6 +115,14 @@ export default function LoginPage() {
           </Link>
         </p>
       )}
+      {tab.type === "SELLER" && (
+        <p className="mt-4 text-center text-sm text-muted">
+          판매자로 등록하려면{" "}
+          <Link href="/signup/seller" className="text-foreground underline">
+            가입 신청
+          </Link>
+        </p>
+      )}
     </div>
   );
 }
