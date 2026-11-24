@@ -8,10 +8,10 @@
 --     그 차이가 도면의 모양이 된다. (예: 플로어 B구역 1열 1~18, 12열 5~18) 번호를 1..n 으로 다시 매기거나 열 길이를 맞추면 모양이 깨진다.
 --   - 열 이름(row_label)도 JSON 의 label 그대로다.
 --   - 구역 안의 좌석 sort_order 는 JSON 의 열 순서, 같은 열 안에서는 번호 순서다.
---   - 열 하나가 아래 VALUES 한 줄이다. (V100 의 Floor석처럼 열 이름을 직접 지정해서 번호 범위를 펼친다)
+--   - 열 하나가 아래 VALUES 한 줄이다. (예전 로컬 시드의 Floor석처럼 열 이름을 직접 지정해서 번호 범위를 펼친다)
 -- JSON 의 memo 에 [근사] 가 붙은 구역(43개)은 사진을 보고 읽은 대략적인 모양이라 열 길이가 실제와 다를 수 있다.
 -- 이 시드는 모든 환경(운영 포함)에 적용된다. 공연장 생성 API 가 아직 없어서 시드로 넣는다.
--- 개발용 공연장(가상 아레나·소극장)은 앱 시드에서 빼고 테스트 전용 시드(src/test/resources/db/test-seed)로 옮겼다. 시드는 V100 번대를 쓴다.
+-- 개발용 공연장(가상 아레나·소극장)은 앱 시드에서 빼고 테스트 전용 시드(src/test/resources/db/test-seed)로 옮겼다. 시드 번호는 스키마 마이그레이션과 한 줄로 만든 순서대로 이어 쓴다.
 
 INSERT INTO venue (name, address, region, total_seats, layout_key, status, created_at, updated_at) VALUES
     ('인스파이어 아레나', '인천광역시 중구 공항문화로 127', '인천', 0, 'concert-arena-44', 'ACTIVE', NOW(), NOW());
