@@ -796,7 +796,7 @@ async function signup(ctx: MockContext): Promise<Response> {
   if (problems.length > 0) return fail(400, "COMMON000", problems.join(", "));
   if (body!.password !== body!.passwordConfirm) return fail(400, "AUTH005", "비밀번호와 비밀번호 확인이 다릅니다.");
   // 인증을 마친 이메일로만 가입할 수 있다. 유효 시간(20분)이 지났으면 다시 인증해야 한다.
-  const verifiedEmail = body!.email!.trim().toLowerCase();
+  const verifiedEmail = verifiedKey("user", body!.email!);
   if ((verifiedEmails().get(verifiedEmail) ?? 0) < Date.now()) {
     return fail(400, "AUTH307", "이메일 인증이 필요합니다. 인증이 만료됐다면 다시 인증해 주세요.");
   }
@@ -827,6 +827,13 @@ async function sellerSignup(ctx: MockContext): Promise<Response> {
   if (body?.termsAgreed !== true) problems.push("termsAgreed: 판매자 약관에 동의해 주세요");
   if (problems.length > 0) return fail(400, "COMMON000", problems.join(", "));
   if (password !== text("passwordConfirm")) return fail(400, "AUTH005", "비밀번호와 비밀번호 확인이 다릅니다.");
+  // 서버처럼 로그인 이메일의 인증을 마친 판매자 인증이 있어야 한다. 예매자로 인증한 것으로는 되지 않는다.
+  const verifiedEmail = verifiedKey("seller", text("email"));
+  if ((verifiedEmails().get(verifiedEmail) ?? 0) < Date.now()) {
+    return fail(400, "AUTH307", "이메일 인증이 필요합니다. 인증이 만료됐다면 다시 인증해 주세요.");
+  }
+  // 신청에 성공한 인증은 다시 쓰지 못하게 지운다.
+  verifiedEmails().delete(verifiedEmail);
   return ok({ businessId: 100 + Math.floor(Math.random() * 900), status: "PENDING" }, 201);
 }
 
@@ -886,32 +893,39 @@ function withdraw(ctx: MockContext): Response {
 // ---------- 이메일 인증 (가입 전) ----------
 
 // 인증을 마친 이메일 → 유효 시각(ms). 개발 서버가 다시 컴파일돼도 유지되게 globalThis 에 둔다.
+// 서버처럼 예매자(user)와 판매자(seller)의 인증 상태를 따로 둔다. 키는 "종류:이메일"이다.
 const verifiedGlobal = globalThis as unknown as { __ticktingVerifiedEmails?: Map<string, number> };
 const verifiedEmails = () => (verifiedGlobal.__ticktingVerifiedEmails ??= new Map());
+type VerifyKind = "user" | "seller";
+const verifiedKey = (kind: VerifyKind, email: string) => `${kind}:${email.trim().toLowerCase()}`;
 const VERIFIED_DURATION = 20 * MINUTE;
 // 목의 인증번호는 항상 123456 이다. (서버가 메일로 보내는 값을 흉내 낸다)
 const MOCK_VERIFY_CODE = "123456";
 
-async function sendVerification(ctx: MockContext): Promise<Response> {
+async function sendVerification(ctx: MockContext, kind: VerifyKind): Promise<Response> {
   const body = (await ctx.json().catch(() => ({}))) as { email?: string };
   if (!body.email?.includes("@")) return fail(400, "COMMON000", "email: 이메일 형식이 올바르지 않습니다.");
   // 서버는 가입 전 인증번호 발송에 캡챠를 건다. 목은 토큰이 있으면 통과하고 "fail" 이면 실패한다.
   const captcha = ctx.header("x-captcha-token");
   if (!captcha || captcha === "fail") return fail(403, "CAPTCHA000", "자동 입력 방지 확인에 실패했습니다. 다시 시도해 주세요.");
   // 목에서는 taken@ 로 시작하는 이메일을 이미 가입한 이메일로 본다.
-  if (body.email.trim().toLowerCase().startsWith("taken@")) return fail(409, "USER000", "이미 가입한 이메일입니다.");
+  if (body.email.trim().toLowerCase().startsWith("taken@")) {
+    return kind === "seller"
+      ? fail(409, "SELLER000", "이미 사용 중인 이메일입니다.")
+      : fail(409, "USER000", "이미 가입한 이메일입니다.");
+  }
   const now = Date.now();
   return ok({ expiresAt: isoLocal(new Date(now + 5 * MINUTE)), resendAvailableAt: isoLocal(new Date(now + MINUTE)) });
 }
 
-async function confirmVerification(ctx: MockContext): Promise<Response> {
+async function confirmVerification(ctx: MockContext, kind: VerifyKind): Promise<Response> {
   const body = (await ctx.json().catch(() => ({}))) as { email?: string; code?: string };
   if (!body.email?.includes("@") || !/^[0-9]{6}$/.test(body.code ?? "")) {
     return fail(400, "COMMON000", "email, code: 이메일과 숫자 6자리 인증번호를 입력해 주세요.");
   }
   if (body.code !== MOCK_VERIFY_CODE) return fail(400, "AUTH305", "인증번호가 올바르지 않습니다. (목 데이터의 인증번호는 123456 입니다)");
   const until = Date.now() + VERIFIED_DURATION;
-  verifiedEmails().set(body.email.trim().toLowerCase(), until);
+  verifiedEmails().set(verifiedKey(kind, body.email), until);
   return ok({ verifiedUntil: isoLocal(new Date(until)) });
 }
 
@@ -1024,8 +1038,10 @@ const ROUTES: [string, string, Handler][] = [
   ["POST", "/api/v2/auth/users/signup", (ctx) => signup(ctx)],
   ["POST", "/api/v1/auth/sellers/signup", (ctx) => sellerSignup(ctx)],
   ["POST", "/api/v2/auth/logout", () => logout()],
-  ["POST", "/api/v1/auth/users/email-verification", (ctx) => sendVerification(ctx)],
-  ["POST", "/api/v1/auth/users/email-verification/confirm", (ctx) => confirmVerification(ctx)],
+  ["POST", "/api/v1/auth/users/email-verification", (ctx) => sendVerification(ctx, "user")],
+  ["POST", "/api/v1/auth/users/email-verification/confirm", (ctx) => confirmVerification(ctx, "user")],
+  ["POST", "/api/v1/auth/sellers/email-verification", (ctx) => sendVerification(ctx, "seller")],
+  ["POST", "/api/v1/auth/sellers/email-verification/confirm", (ctx) => confirmVerification(ctx, "seller")],
   ["POST", "/api/v1/auth/users/password-reset/request", (ctx) => passwordResetRequest(ctx, "예매자")],
   ["POST", "/api/v1/auth/sellers/password-reset/request", (ctx) => passwordResetRequest(ctx, "판매자")],
   ["POST", "/api/v1/auth/password-reset/validate", (ctx) => passwordResetValidate(ctx)],

@@ -11,6 +11,7 @@ import com.squirrel.tickting.domain.terms.infra.repository.TermsRepository;
 import com.squirrel.tickting.domain.terms.type.TermsType;
 import com.squirrel.tickting.global.jwt.JwtProperties;
 import com.squirrel.tickting.global.jwt.JwtProvider;
+import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.util.EmailUtil;
 import com.squirrel.tickting.support.EmailTestConfiguration.ControllableClock;
 import com.squirrel.tickting.support.EmailTestConfiguration.ControllableEmailSendExecutor;
@@ -180,7 +181,7 @@ public abstract class IntegrationTestSupport {
 	 * (가입이 아니라 다른 기능을 확인하는 테스트가 인증 절차를 매번 거치지 않게 하려는 것이다. 인증 절차 자체는 EmailVerificationApiTest 가 확인한다)
 	 */
 	protected Map<String, Object> userSignupBody(String email) {
-		emailVerificationCodeService.markVerified(EmailUtil.normalize(email));
+		emailVerificationCodeService.markVerified(AccountType.USER, EmailUtil.normalize(email));
 		return unverifiedUserSignupBody(email);
 	}
 
@@ -197,7 +198,17 @@ public abstract class IntegrationTestSupport {
 		return body;
 	}
 
+	/**
+	 * 판매자 가입 신청 본문. 예매자와 같이, 인증을 마친 것으로 표시해 두고 만든다. (인증 절차 자체는 EmailVerificationApiTest 가 확인한다)
+	 * 판매자용 인증 표시는 예매자와 따로라서 SELLER 로 표시한다.
+	 */
 	protected Map<String, Object> sellerSignupBody(String email, String businessNumber) {
+		emailVerificationCodeService.markVerified(AccountType.SELLER, EmailUtil.normalize(email));
+		return unverifiedSellerSignupBody(email, businessNumber);
+	}
+
+	/** 인증 표시를 하지 않은 판매자 가입 본문. 인증 없이 가입하면 막히는지 확인할 때 쓴다. */
+	protected Map<String, Object> unverifiedSellerSignupBody(String email, String businessNumber) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("email", email);
 		body.put("password", PASSWORD);

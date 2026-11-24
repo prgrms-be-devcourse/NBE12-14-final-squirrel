@@ -48,7 +48,7 @@ public class AuthSessionFacade {
 		HttpServletResponse httpResponse) {
 		// Redis 만 보는 검사라 DB 를 쓰는 약관·중복 확인보다 먼저 한다
 		String email = EmailUtil.normalize(request.email());
-		emailVerificationCodeService.requireVerified(email);
+		emailVerificationCodeService.requireVerified(AccountType.USER, email);
 		LocalDateTime verifiedAt = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
 
 		CustomUserDetails account = transactionTemplate.execute(status -> {
@@ -59,7 +59,7 @@ public class AuthSessionFacade {
 			return userMemberService.toAccount(user);
 		});
 		// 가입에 성공한 인증은 다시 쓰지 못하게 지운다. 실패한 가입은 지우지 않아 인증을 다시 하지 않고 고쳐 낼 수 있다
-		emailVerificationCodeService.clearVerified(email);
+		emailVerificationCodeService.clearVerified(AccountType.USER, email);
 		return startSession(account, httpRequest, httpResponse);
 	}
 
