@@ -2,9 +2,7 @@ package com.squirrel.tickting.domain.queue.facade;
 
 import com.squirrel.tickting.domain.performance.service.ScheduleService;
 import com.squirrel.tickting.domain.queue.dto.QueueResponse;
-import com.squirrel.tickting.domain.queue.service.QueueProperties;
 import com.squirrel.tickting.domain.queue.service.QueueService;
-import com.squirrel.tickting.domain.user.service.UserMemberService;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -20,19 +18,13 @@ public class QueueFacade {
 
 	private final ScheduleService scheduleService;
 	private final QueueService queueService;
-	private final UserMemberService userMemberService;
-	private final QueueProperties queueProperties;
 
 	/**
-	 * 이메일 인증을 안 한 예매자는 AUTH307, 판매 중이 아닌 회차는 BOOKING002, 없는 회차는 BOOKING004 로 거절한다. (예매와 같은 기준)
-	 * 인증 확인이 회차 확인보다 먼저다. 줄을 서기 전에 막아야, 줄을 다 선 뒤 막혀 기다린 시간을 잃거나 인증하는 동안 입장 시간이 줄지 않는다.
-	 * 인증 여부는 DB 에서 읽는다. 입장(POST)은 사람마다 예매하기를 누를 때 한 번이고, 대기 중 상태 확인(GET)에는 붙지 않는다.
-	 * 대기열을 끈 상태(enabled=false, 테스트·로컬 확인용)에서는 이 확인도 함께 빠진다.
+	 * 판매 중이 아닌 회차는 BOOKING002, 없는 회차는 BOOKING004 로 거절한다. (예매와 같은 기준)
+	 * 이메일 인증은 가입 때 마치므로 여기서 확인하지 않는다. 오픈 순간 입장이 몰리는 곳이라 모든 입장에 DB 조회를 붙이지 않으려는 것이다.
+	 * (탈퇴한 회원은 입장할 수 있어도 예매 단계의 회원 조회에서 막힌다)
 	 */
 	public QueueResponse enter(Long userId, Long scheduleId) {
-		if (queueProperties.enabled()) {
-			userMemberService.requireEmailVerified(userId);
-		}
 		if (!queueService.isKnownOpen(scheduleId)) {
 			scheduleService.getBookable(scheduleId, LocalDateTime.now());
 			queueService.markOpen(scheduleId);

@@ -23,8 +23,8 @@ public class EmailVerificationResponse {
 	@Builder
 	@Schema(name = "EmailVerificationConfirmed", description = "이메일 인증 결과")
 	public record Confirmed(
-		@Schema(description = "인증한 시각")
-		LocalDateTime emailVerifiedAt
+		@Schema(description = "이 인증이 유효한 시각. 이때까지 가입을 마쳐야 하고, 넘기면 다시 인증해야 한다")
+		LocalDateTime verifiedUntil
 	) {
 	}
 }

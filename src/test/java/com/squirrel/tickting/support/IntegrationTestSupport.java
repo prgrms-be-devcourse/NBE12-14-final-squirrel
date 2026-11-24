@@ -5,11 +5,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.TestcontainersConfiguration;
+import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService;
 import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.infra.repository.TermsRepository;
 import com.squirrel.tickting.domain.terms.type.TermsType;
 import com.squirrel.tickting.global.jwt.JwtProperties;
 import com.squirrel.tickting.global.jwt.JwtProvider;
+import com.squirrel.tickting.global.util.EmailUtil;
 import com.squirrel.tickting.support.EmailTestConfiguration.ControllableClock;
 import com.squirrel.tickting.support.EmailTestConfiguration.ControllableEmailSendExecutor;
 import com.squirrel.tickting.support.EmailTestConfiguration.FakeEmailSender;
@@ -118,6 +120,9 @@ public abstract class IntegrationTestSupport {
 	protected ControllableEmailSendExecutor emailSendExecutor;
 
 	@Autowired
+	private EmailVerificationCodeService emailVerificationCodeService;
+
+	@Autowired
 	protected ControllableClock emailClock;
 
 	/** 인증번호·재발송 간격·하루 횟수는 Redis 에 남아서 다음 테스트에 섞일 수 있다. 가짜 메일함·실행기·시계와 함께 테스트마다 비운다. */
@@ -170,7 +175,17 @@ public abstract class IntegrationTestSupport {
 
 	// ---- 요청 만들기 ----
 
+	/**
+	 * 예매자 가입 본문. 가입은 이메일 인증을 마친 이메일만 받으므로, 인증을 마친 것으로 표시해 두고 만든다.
+	 * (가입이 아니라 다른 기능을 확인하는 테스트가 인증 절차를 매번 거치지 않게 하려는 것이다. 인증 절차 자체는 EmailVerificationApiTest 가 확인한다)
+	 */
 	protected Map<String, Object> userSignupBody(String email) {
+		emailVerificationCodeService.markVerified(EmailUtil.normalize(email));
+		return unverifiedUserSignupBody(email);
+	}
+
+	/** 인증 표시를 하지 않은 예매자 가입 본문. 인증 없이 가입하면 막히는지 확인할 때 쓴다. */
+	protected Map<String, Object> unverifiedUserSignupBody(String email) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("email", email);
 		body.put("password", PASSWORD);
@@ -203,18 +218,6 @@ public abstract class IntegrationTestSupport {
 		body.put("email", email);
 		body.put("password", password);
 		return body;
-	}
-
-	/** 이메일 인증을 마친 상태로 만든다. 가짜 메일에서 번호를 읽어 진짜 발송·확인 API 를 거친다. */
-	protected void verifyEmail(String email, String bearer) throws Exception {
-		mockMvc.perform(post("/api/v1/users/me/email-verification").header("Authorization", bearer))
-			.andExpect(status().isOk());
-		String code = fakeEmailSender.lastCode(email);
-		mockMvc.perform(post("/api/v1/users/me/email-verification/confirm")
-				.header("Authorization", bearer)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"code\":\"" + code + "\"}"))
-			.andExpect(status().isOk());
 	}
 
 	protected ResultActions postJson(String url, Object body) throws Exception {

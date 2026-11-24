@@ -56,7 +56,7 @@ class SmtpEmailSenderTest {
 	}
 
 	private static EmailVerificationProperties properties() {
-		return new EmailVerificationProperties(Duration.ofMinutes(5), 5, Duration.ofSeconds(60), 10, "리셀노",
+		return new EmailVerificationProperties(Duration.ofMinutes(5), Duration.ofMinutes(20), 5, Duration.ofSeconds(60), 10, "리셀노",
 			"no-reply@tickting.local", 10, 200);
 	}
 

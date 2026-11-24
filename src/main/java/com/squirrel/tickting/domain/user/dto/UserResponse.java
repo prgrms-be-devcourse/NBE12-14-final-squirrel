@@ -30,9 +30,7 @@ public class UserResponse {
 		@Schema(description = "프로필 이미지 주소. 없으면 null")
 		String profileImg,
 		@Schema(description = "가입 일시")
-		LocalDateTime createdAt,
-		@Schema(description = "이메일 인증을 마쳤는지. false 면 예매하기(대기열 입장)가 403(AUTH307)이라 인증번호 받기(AUTH-17)로 인증해야 한다")
-		boolean emailVerified
+		LocalDateTime createdAt
 	) {
 
 		public static Me from(UserMember user) {
@@ -44,7 +42,6 @@ public class UserResponse {
 				.phone(user.getPhone())
 				.profileImg(user.getProfileImg())
 				.createdAt(user.getCreatedAt())
-				.emailVerified(user.isEmailVerified())
 				.build();
 		}
 	}

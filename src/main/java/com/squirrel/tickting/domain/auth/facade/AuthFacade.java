@@ -3,6 +3,7 @@ package com.squirrel.tickting.domain.auth.facade;
 import com.squirrel.tickting.domain.admin.service.AdminMemberService;
 import com.squirrel.tickting.domain.auth.dto.AuthRequest;
 import com.squirrel.tickting.domain.auth.dto.AuthResponse;
+import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService;
 import com.squirrel.tickting.domain.auth.service.TokenService;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.service.SellerMemberService;
@@ -15,6 +16,10 @@ import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import com.squirrel.tickting.global.util.EmailUtil;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -39,6 +44,8 @@ public class AuthFacade {
 	private final TokenService tokenService;
 	private final TransactionTemplate transactionTemplate;
 	private final LoginFailureLimiter loginFailureLimiter;
+	private final EmailVerificationCodeService emailVerificationCodeService;
+	private final Clock clock;
 
 	/**
 	 * 예매자 가입. 약관 확인, 회원 저장, 약관 동의 기록이 한 트랜잭션이다.
@@ -48,13 +55,20 @@ public class AuthFacade {
 	 * 동시 요청의 중복(DB UNIQUE 인덱스 위반)은 GlobalExceptionHandler 가 409 로 바꾼다.
 	 */
 	public AuthResponse.Token userSignup(AuthRequest.UserSignup request, HttpServletResponse response) {
+		// Redis 만 보는 검사라 DB 를 쓰는 약관·중복 확인보다 먼저 한다
+		String email = EmailUtil.normalize(request.email());
+		emailVerificationCodeService.requireVerified(email);
+		LocalDateTime verifiedAt = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
+
 		CustomUserDetails account = transactionTemplate.execute(status -> {
 			List<Terms> agreedTerms = termsService.validateAgreement(request.agreedTermIds());
 			UserMember user = userMemberService.create(request.email(), request.password(), request.passwordConfirm(),
-				request.nickname(), request.name(), request.phone());
+				request.nickname(), request.name(), request.phone(), verifiedAt);
 			termsService.recordAgreements(user.getId(), agreedTerms);
 			return userMemberService.toAccount(user);
 		});
+		// 가입에 성공한 인증은 다시 쓰지 못하게 지운다. 실패한 가입은 지우지 않아 인증을 다시 하지 않고 고쳐 낼 수 있다
+		emailVerificationCodeService.clearVerified(email);
 		return tokenService.issue(account, response);
 	}
 

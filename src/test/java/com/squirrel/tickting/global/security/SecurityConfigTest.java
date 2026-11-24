@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.squirrel.tickting.domain.captcha.interceptor.CaptchaInterceptor;
 import com.squirrel.tickting.domain.captcha.verifier.CaptchaVerifier;
 import com.squirrel.tickting.domain.queue.service.QueueProperties;
 import com.squirrel.tickting.domain.queue.service.QueueService;
@@ -71,6 +72,12 @@ class SecurityConfigTest {
 		@Bean
 		CaptchaVerifier captchaVerifier() {
 			return (token, action) -> true;
+		}
+
+		/** 캡챠 인터셉터 팩토리는 HandlerInterceptor 가 아니라서 @WebMvcTest 가 만들어 주지 않는다. WebMvcConfig 가 쓰므로 직접 넣는다. */
+		@Bean
+		CaptchaInterceptor captchaInterceptor(CaptchaVerifier captchaVerifier) {
+			return new CaptchaInterceptor(captchaVerifier);
 		}
 	}
 
