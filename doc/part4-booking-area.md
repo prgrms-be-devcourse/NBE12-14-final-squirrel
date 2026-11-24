@@ -12,89 +12,6 @@
 
 ---
 
-## 이 부의 ERD
-
-```mermaid
-erDiagram
-    BOOKING {
-        Long id PK
-        String booking_no
-        Long user_id FK
-        Long schedule_id FK
-        Long performance_id FK
-        enum status "PENDING PAID PARTIAL_CANCELED CANCELED EXPIRED"
-        enum receive_type "ONSITE DELIVERY"
-        String orderer_name
-        String orderer_phone
-        String orderer_email
-        String recipient_name
-        String recipient_phone
-        String recipient_address
-        String carrier
-        String tracking_no
-        Integer ticket_amount
-        Integer booking_fee_amount
-        Integer total_amount
-        jsonb cancel_policy_snapshot
-        LocalDateTime expires_at
-        LocalDateTime canceled_at
-        LocalDateTime created_at
-        LocalDateTime updated_at
-    }
-    BOOKING_SEAT {
-        Long id PK
-        Long booking_id FK
-        Long schedule_seat_id FK
-        String zone_name
-        String row_label
-        String seat_number
-        String grade_name
-        Integer price
-        Integer booking_fee
-        Boolean active
-        LocalDateTime canceled_at
-        Integer cancel_fee
-        Long refund_id FK
-    }
-    PAYMENT {
-        Long id PK
-        Long booking_id FK
-        String order_id
-        String payment_key
-        String method
-        Integer amount
-        enum status "READY DONE FAILED PARTIAL_CANCELED CANCELED"
-        String fail_reason
-        LocalDateTime approved_at
-        LocalDateTime created_at
-    }
-    REFUND {
-        Long id PK
-        Long payment_id FK
-        Long booking_id FK
-        Integer amount
-        enum reason_type "USER_CANCEL PERFORMANCE_CANCEL POSTPONE_CANCEL ADMIN"
-        String reason_detail
-        String idempotency_key UK "토스 중복 처리 방지 키"
-        enum status "REQUESTED PROCESSING DONE FAILED"
-        Integer retry_count
-        String fail_reason
-        LocalDateTime requested_at
-        LocalDateTime completed_at
-    }
-
-    USER_MEMBER ||--o{ BOOKING : "예매"
-    PERFORMANCE_SCHEDULE ||--o{ BOOKING : "회차"
-    BOOKING ||--o{ BOOKING_SEAT : "좌석"
-    SCHEDULE_SEAT ||--o{ BOOKING_SEAT : "원본(비울 수 있음)"
-    BOOKING ||--o{ PAYMENT : "결제 시도"
-    PAYMENT ||--o{ REFUND : "환불"
-    BOOKING ||--o{ REFUND : "환불"
-    REFUND ||--o{ BOOKING_SEAT : "취소한 좌석"
-```
-
----
-
 ## 4-1. 큰 그림: 네 테이블의 역할
 
 | 테이블 | 한 줄 설명 | 비유 |
@@ -223,7 +140,7 @@ PENDING ──결제 성공──→ PAID ──일부 좌석 취소──→ PA
 |  | 구역명 | `zone_name` | String | NOT NULL | 스냅샷. 예: F2구역 |
 |  | 열 | `row_label` | String | NOT NULL | 스냅샷. 예: 9열 |
 |  | 좌석 번호 | `seat_number` | String | NOT NULL | 스냅샷. 예: 6 |
-|  | 등급명 | `grade_name` | String | NOT NULL | 스냅샷. 예: R석 |
+|  | 등급 | `grade_name` | String | NOT NULL | 스냅샷. 예매할 때의 등급 코드(3부 3-4, 예: R). 화면 이름은 프론트가 정함 |
 |  | 좌석 가격 | `price` | Integer | NOT NULL | 스냅샷 |
 |  | 예매 수수료 | `booking_fee` | Integer | NOT NULL | 스냅샷. 좌석 1장당 |
 |  | 활성 여부 | `active` | Boolean | NOT NULL | 취소하면 false |
@@ -264,21 +181,27 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |  | 결제 키 | `payment_key` | String | NULL | 토스 승인 후에만 생김. 중복 불가 |
 |  | 결제 수단 | `method` | String | NULL | 카드, 간편결제 등 (승인 후 기록) |
 |  | 결제 금액 | `amount` | Integer | NOT NULL | 서버가 계산한 금액 |
-|  | 상태 | `status` | enum | NOT NULL | READY 준비 / DONE 승인 / FAILED 실패 / PARTIAL_CANCELED 일부 환불 / CANCELED 전액 환불 |
+|  | 상태 | `status` | enum | NOT NULL | READY 준비 / PROCESSING 토스에 승인 요청 중 / DONE 승인 / FAILED 실패 / PARTIAL_CANCELED 일부 환불 / CANCELED 전액 환불 |
 |  | 실패 사유 | `fail_reason` | String | NULL |  |
 |  | 승인 일시 | `approved_at` | LocalDateTime | NULL |  |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 
 **Q. 결제는 어떤 순서로 이루어지나요? (토스페이먼츠)**
 
-1. 결제 준비 때 서버가 `payment`(`READY`)를 만듭니다. (`booking`과 `booking_seat`는 좌석을 점유할 때 이미 만들어져 있습니다.) 이때 **금액은 서버가 계산**하고 `order_id`를 발급합니다.
+1. 결제 준비 때 서버가 `payment`(`READY`)를 만듭니다. (`booking`과 `booking_seat`는 좌석을 점유할 때 이미 만들어져 있습니다.) 이때 **금액은 서버가 계산**하고 `order_id`를 발급합니다. 같은 예매에 준비 건(`READY`)이 이미 있으면 새로 만들지 않고 그것을 돌려줍니다. (새로고침해도 주문 ID가 늘어나지 않게 하려는 것이고, 같은 예매의 요청은 예매 단위 분산락으로 한 번에 하나씩 처리합니다) 이전 시도가 `FAILED`일 때만 `order_id`의 일련번호를 올려 새로 만듭니다.
 2. 프론트가 토스 결제창을 열고, 사용자가 결제합니다.
 3. 결제창이 성공하면 `paymentKey`, `orderId`, `amount`를 들고 돌아옵니다.
-4. 서버가 **금액이 내가 계산한 금액과 같은지 비교**한 뒤 토스에 **결제 승인**을 요청합니다. (클라이언트가 보낸 금액을 그대로 믿으면 안 됩니다)
-5. 승인에 성공하면 `payment`=`DONE`, `booking`=`PAID`, 좌석=`SOLD`로 바꿉니다. **이 세 가지는 한 트랜잭션**입니다.
-6. 실패하면 `payment`=`FAILED`와 사유를 기록하고, 좌석 점유는 시간이 지나면 풀립니다.
+4. 서버가 먼저 **결제 제한 시각(`expires_at`)이 지나지 않았는지**, **금액이 내가 계산한 금액과 같은지** 확인합니다. (클라이언트가 보낸 금액을 그대로 믿으면 안 됩니다) 이미 지났으면 **토스를 호출하지 않고** 거절합니다. 토스는 승인 API를 호출하기 전에는 돈을 빼지 않으므로 돈이 나가지 않습니다.
+5. 통과하면 **한 트랜잭션**으로 `payment`=`PROCESSING`으로 바꾸고, `booking.expires_at`과 `schedule_seat.held_until`을 **지금 + 2분**으로 늘립니다. 토스를 부르는 도중에 7분이 지나 스케줄러가 좌석을 풀어 버리면 돈은 나갔는데 좌석이 다른 사람에게 팔릴 수 있기 때문입니다. 연장은 **남은 시간이 2분보다 짧을 때만** 하고, **예매당 한 번만** 합니다. (승인을 시작했다 실패하고 다시 시작하기를 반복해서 좌석을 계속 잡는 것을 막으려는 것입니다. 이미 승인을 시도한 `payment`가 있는 예매는 연장하지 않습니다)
+6. 트랜잭션 **밖에서** 토스에 **결제 승인**을 요청합니다. (외부 호출은 DB 트랜잭션 밖에서 합니다)
+7. 승인에 성공하면 `payment`=`DONE`, `booking`=`PAID`, 좌석=`SOLD`로 바꿉니다. **이 세 가지는 한 트랜잭션**입니다.
+8. 실패하면 `payment`=`FAILED`와 사유를 기록합니다. 좌석 점유는 연장된 시간까지 유지되고 지나면 풀립니다. 서버가 죽어서 `PROCESSING`으로 오래 남은 건은 스케줄러가 토스에 조회해서 확정합니다. (5부)
 
-처음에는 **Mock(가짜) 결제**로 흐름을 먼저 만들고, 나중에 실제 토스로 바꿉니다. 이때 `payment` 구조는 그대로입니다.
+토스 호출은 `PaymentGateway` 인터페이스 뒤에 두고, 설정(`app.payment.gateway`)으로 실제 토스(`toss`)와 Mock(`mock`)을 고릅니다. (2026-11-17 변경: 처음에는 Mock으로 흐름만 만든 뒤 토스로 바꾸기로 했지만, 토스 테스트 키가 공통 키라 바로 실제 토스 테스트 연동으로 만들었습니다. Mock은 키 없이 로컬·테스트에서 흐름을 돌리고 거절·통신 오류 같은 실패 상황을 만드는 데 남겨 둡니다.)
+
+- **승인 요청의 결과는 둘로 나눕니다.** 토스가 4xx로 거절하면 결제를 `FAILED`로 기록하고 사용자에게 사유를 알립니다. 통신 오류·시간 초과·5xx처럼 **승인됐는지 모르는 경우는 실패로 단정하지 않고 `PROCESSING`으로 남기고** 5분 보정 작업이 토스에 조회해서 확정합니다. 실패로 단정하면 돈은 나갔는데 우리 쪽은 실패로 기록되기 때문입니다.
+- 토스 승인 요청에는 주문 ID를 멱등키(`Idempotency-Key`)로 보내, 같은 요청을 다시 보내도 두 번 승인되지 않게 합니다.
+- 7단계(`DONE`·`PAID`·`SOLD`)에서는 락을 다시 잡지 않습니다. `PROCESSING` 상태가 같은 결제의 다른 승인 요청을 막고 있고, 락 대기에 실패하면 돈이 나간 뒤에 사용자가 409를 받게 되기 때문입니다.
 
 **Q. 결제 수단은 어떻게 하나요?**
 
@@ -314,13 +237,16 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 환불 금액 = Σ(좌석 가격 − 취소 수수료) + Σ(예매 수수료)
 ```
 
-- 예매 수수료(`booking_fee`)는 **취소 시 돌려줍니다.** (제가 정한 기본값이며, 서비스 정책에 따라 바꿀 수 있습니다)
+- 예매 수수료(`booking_fee`)는 **취소 시 돌려줍니다.** 부분 취소면 **취소한 좌석 몫만** 돌려줍니다. 예매 수수료가 좌석 1장당 붙기 때문입니다. (임시 정책, 서비스 정책에 따라 바꿀 수 있습니다)
+- **남은 일수는 달력 날짜 차이로 셉니다.** (한국 시간 기준, 연기되면 바뀐 시작 일시) 공연 11/30 19시를 11/27 23시에 취소하면 3일 전입니다. 시간으로 세면 68시간이라 2일 전이 되어, 규정표("3·4·5·6일 전")를 읽은 사용자의 예상과 수수료가 달라집니다. (2026-11-24)
+- 회차가 이미 시작했으면 규정과 상관없이 사용자 취소를 막습니다. 연기 무료 취소 대상은 당일이거나 새 일정이 미정이어도 0%로 취소할 수 있습니다.
 - **연기 무료 취소, 공연 취소, 판매자 취소**는 취소 수수료를 **0%**로 합니다. (연기 무료 취소 대상인지 판단하는 규칙은 3부 "연기가 생기면 어떤 테이블이 바뀌나요?"에 있습니다.)
 - 취소 수수료 `cancelable=false` 구간(당일)에는 사용자 취소를 막습니다.
 
 **Q. 환불이 실패하면요?**
 
-- `refund.status`=`FAILED`로 두고 자동으로 **3회까지 재시도**(`retry_count`)합니다.
+- 예매 취소는 그대로 끝나고(좌석 취소는 이미 커밋됨) `refund.status`=`FAILED`와 실패 사유(`fail_reason`)를 남깁니다. 사용자에게는 200과 함께 환불 상태 `FAILED`를 알려 줍니다. (API 명세 BKG-06)
+- 자동으로 **3회까지 재시도**(`retry_count`)합니다. (재시도 스케줄러는 아직 없음)
 - 그래도 실패하면 관리자 화면에서 수동으로 다시 처리합니다. (5부)
 
 **Q. `idempotency_key`와 `PROCESSING`은 왜 있나요?**
@@ -340,13 +266,13 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |---|---|---|
 | 1 | 좌석 선택 → 점유 요청 (**한 트랜잭션**, 4-7 참고) | 사용자별 매수 검사 → `schedule_seat`: `AVAILABLE` → `HELD`, `held_by`, `held_until` = 지금 + 7분 → `booking`(PENDING, `expires_at`, `performance_id`), `booking_seat`(스냅샷) **추가** |
 | 2 | 결제 준비 | 수령 방법·배송지 확정, `payment`(READY) **추가** |
-| 3 | 결제 승인 | `payment` → DONE, `booking` → PAID, `schedule_seat` → SOLD (한 트랜잭션) |
+| 3 | 결제 승인 | 시작 때 `payment` → PROCESSING, 만료 시각 2분 연장(예매당 한 번). 토스 승인 성공 후 `payment` → DONE, `booking` → PAID, `schedule_seat` → SOLD (한 트랜잭션, 4-4) |
 
 ### ② 결제하지 않고 7분이 지남
 
 | 일어나는 일 | 바뀌는 테이블 |
 |---|---|
-| 스케줄러가 만료된 점유를 정리 | `schedule_seat`: `HELD` → `AVAILABLE`, `held_by`·`held_until` 비움 |
+| 스케줄러(1분마다, 주기는 설정값)가 만료된 점유를 정리 | `schedule_seat`: `HELD` → `AVAILABLE`, `held_by`·`held_until` 비움 |
 | 예매 만료 처리 | `booking` → EXPIRED, `booking_seat.active` → false, `payment` → FAILED 또는 그대로 |
 
 ### ③ 일부 좌석 취소 (3장 중 1장)
@@ -371,11 +297,27 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 
 **Q. 동시에 같은 좌석을 눌러도 안 꼬이는 이유는?**
 
-세 겹으로 막습니다.
+동시성을 제어하는 방법은 **Redis 분산락 하나**입니다. (2026-11-17 변경: 기본 방어를 DB 행 잠금(`FOR UPDATE`)에서 Redis 분산락으로 바꿨습니다. 멘토 피드백에 따라 여러 방식을 겹치지 않고 하나로 정리했습니다)
 
-1. `schedule_seat` 행을 `SELECT ... FOR UPDATE`로 잠그고 `AVAILABLE`일 때만 `HELD`로 바꿉니다. (기본 방어)
-2. `version` 비교로 낙관적 락 방식도 실험할 수 있습니다.
-3. 마지막으로 `booking_seat`의 **부분 UNIQUE 인덱스**가 중복 판매를 막습니다.
+**분산락**: 좌석별 락(`seat:{scheduleSeatId}`)과 사용자·공연별 락(`user-performance:{userId}:{performanceId}`)을 잡습니다. 서버가 여러 대여도 같은 Redis의 락을 보므로 어느 서버로 요청이 와도 한 번에 한 요청만 들어갑니다. 락을 먼저 잡고 **그 안에서** DB 트랜잭션을 열어 커밋한 **뒤에** 풉니다.
+
+아래 두 가지는 동시성 제어 방식이 아니라 **데이터가 틀어지지 않게 하는 DB의 장치**입니다. 별도의 방어층으로 세지 않습니다.
+- **상태 조건이 있는 UPDATE**: 좌석을 `HELD`로 바꾸는 쿼리 자체가 `UPDATE schedule_seat SET status = 'HELD', ... WHERE id IN (...) AND status = 'AVAILABLE'`입니다. 갱신된 행 수가 요청한 좌석 수와 다르면 실패시킵니다.
+- **부분 UNIQUE 인덱스**(`uq_booking_seat_active`): 스키마 제약이라 코드가 늘지 않습니다.
+
+Redis 락이 만료되거나 Redis에 장애가 나도 이 둘이 중복 판매를 막아 주지만, 발표나 설명에서 동시성 제어는 분산락 하나로 말합니다.
+
+`SELECT ... FOR UPDATE`와 `version` 낙관적 락은 쓰지 않습니다. (`version` 컬럼은 남겨 둡니다)
+
+**Q. 왜 DB 잠금이 아니라 Redis 락인가요?**
+
+DB 행 잠금은 인기 좌석에 요청이 몰리면 **모두 DB 연결을 잡고 기다립니다.** Redis 락은 DB에 닿기 전에 짧게 기다리다가 못 잡으면 바로 실패(`COMMON004`, 409)시켜서 DB 연결을 아낍니다. 대신 Redis 락은 만료나 장애 때 뚫릴 수 있어서, 상태 조건이 있는 UPDATE와 UNIQUE 인덱스가 안전장치로 남습니다.
+
+**지켜야 할 구현 규칙** (`DistributedLockExecutor`, 코드와 테스트로 고정)
+- **락은 트랜잭션 커밋 뒤에 풀려야 합니다.** 커밋 전에 풀리면 다음 요청이 반영되지 않은 값을 읽어 중복이 생깁니다. 그래서 이미 트랜잭션이 열려 있으면 락 실행기가 거부합니다.
+- **여러 락은 항상 같은 순서(이름 정렬)로 잡습니다.** 순서가 다르면 두 요청이 서로를 기다리는 데드락이 생깁니다.
+- **기다리는 시간은 짧게 둡니다.** 시간 안에 못 잡으면 `COMMON004`로 바로 실패합니다.
+- 락을 잡은 서버가 죽으면 10초 뒤 락이 풀리고, 살아 있는 동안은 자동으로 연장됩니다.
 
 **Q. 결제는 됐는데 서버가 죽어서 예매가 `PAID`로 안 바뀌면요?**
 
@@ -406,22 +348,29 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 결과: 6장 확보 (한도 초과)
 ```
 
-같은 좌석은 부분 UNIQUE 인덱스가 최후로 막아 주지만, "사람별 합계"는 여러 행에 걸친 규칙이라 DB 제약으로 막을 수 없습니다. **잠금이 유일한 방어선**입니다.
+같은 좌석은 부분 UNIQUE 인덱스가 최후로 막아 주지만, "사람별 합계"는 여러 행에 걸친 규칙이라 DB 제약으로 막을 수 없습니다. **사용자·공연 락이 유일한 방어선**입니다.
 
-**점유 요청 트랜잭션의 순서**
+**점유 요청의 순서** (2026-11-17 변경: DB 잠금 → Redis 분산락)
 
-1. **사용자·공연 단위 잠금**을 잡습니다. 트랜잭션이 끝나면 자동으로 풀립니다.
-   ```sql
-   SELECT pg_advisory_xact_lock(hashtextextended(:userId || ':' || :performanceId, 0));
-   ```
-   (대안: `user_member` 행을 `FOR UPDATE`로 잠그기. 더 단순하지만 같은 회원의 다른 갱신과 부딪힙니다.)
-2. 위 쿼리로 현재 활성 매수를 세고, `현재 + 요청 매수 > max_per_person`이면 거절합니다.
-3. 좌석을 **id 오름차순**으로 잠그고 `HELD`로 바꿉니다.
-4. `booking`(PENDING)과 `booking_seat`를 만듭니다.
+0. **락을 잡기 전에 입력을 확인합니다.** 좌석 번호가 비었거나 중복이면 400, 요청 매수가 공연의 `max_per_person`보다 크면 바로 거절합니다. 락 이름에 공연 번호가 필요해서 회차와 공연은 락 밖에서 먼저 읽습니다. (읽기만 하고 쓰지 않습니다)
+1. **락을 잡습니다.** 사용자·공연 락 1개와 요청한 좌석마다 좌석 락을 `DistributedLockExecutor`로 한꺼번에 잡습니다. 이름순으로 정렬해서 잡으므로 요청마다 순서가 달라 생기는 데드락이 없습니다. **기다리는 시간은 1초**(설정값)이고, 넘으면 `COMMON004`(409)로 바로 실패합니다.
+2. **락 안에서 트랜잭션을 엽니다.**
+   1. **점유할 수 있는지 확인합니다.** 공연이 공개 상태이고, 지금이 판매 오픈~종료 사이이며, 회차가 `ON_SALE`이고 아직 시작 전이어야 합니다. 좌석은 그 회차의 것이어야 하고 `BLOCKED`·`RESERVED`면 안 됩니다.
+   2. 위 쿼리로 현재 활성 매수를 세고, `현재 + 요청 매수 > max_per_person`이면 거절합니다.
+   3. 좌석을 `AVAILABLE`일 때만 `HELD`로 바꾸는 **조건부 갱신**을 하고, 갱신된 행 수가 요청 좌석 수와 다르면 실패합니다. 만료된 `HELD`는 **바로 가져가지 않습니다.** 스케줄러(1분)가 `AVAILABLE`로 되돌린 뒤에 잡을 수 있습니다.
+   4. `booking`(PENDING)과 `booking_seat`를 만듭니다. 커밋합니다.
+3. **커밋 뒤에 락을 풉니다.**
 
-잠금 순서는 항상 **"사용자 잠금 → 좌석 잠금(id 오름차순)"**으로 고정해야 데드락이 안 생깁니다. 서로 다른 사용자는 사용자 잠금에서 부딪히지 않아서, 인기 공연에서도 병목은 좌석 행 하나입니다.
+**점유할 때 채우는 값**
+- **예매번호**(`booking_no`): `yyyyMMdd` + 영문 대문자·숫자 7자리. (예: `20261109KCZB03R`) 겹치면 `uq_booking_no`가 막아 `COMMON003`이 나가고, 겹칠 확률이 아주 낮아서 재시도 코드는 두지 않습니다.
+- **수령 방법**(`receive_type`): 공연이 `BOTH`면 `ONSITE`, 배송만이면 `DELIVERY`, 현장만이면 `ONSITE`. 결제 준비 때 확정합니다.
+- **예매 수수료**: 공연의 `booking_fee`를 좌석마다 적용하고, 값이 비어 있으면 0원입니다.
+- **취소 규정 스냅샷**: 위 JSON 모양 그대로 `daysFrom`이 큰 구간부터 저장합니다.
+- **만료 시각**: 점유 시각 + 7분.
 
-**테스트**: 같은 사용자가 스레드 10개로 동시에 요청해도 한도를 넘지 않는 **동시성 테스트**를 만듭니다. 사용자 잠금을 빼면 이 테스트가 실패한다는 것도 같이 보여 줍니다. (좌석 중복 방지 테스트와 한 쌍)
+서로 다른 사용자가 서로 다른 좌석을 요청하면 락이 겹치지 않아 병렬로 처리됩니다. 인기 공연에서 병목은 같은 좌석 하나의 락입니다.
+
+**테스트**: 같은 사용자가 스레드 10개로 동시에 요청해도 한도를 넘지 않는 **동시성 테스트**를 만듭니다. 사용자·공연 락을 빼면 이 테스트가 실패한다는 것도 같이 보여 줍니다. (좌석 중복 방지 테스트와 한 쌍) 락 실행기 자체는 "락 안에서 트랜잭션을 열면 값을 잃지 않고, 락 없이 하면 갱신을 덮어쓴다"를 `DistributedLockExecutorTest`로 확인합니다.
 
 **정리: 정책 (임시)**
 
@@ -430,6 +379,9 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 | 취소·만료한 좌석 | 한도에서 빠짐 (취소하면 다시 구매 가능) |
 | `max_per_person` 수정 | 예매가 생긴 뒤에는 늘리는 것만 가능 |
 | 한 번 요청한 매수 | 요청 매수 자체가 남은 한도를 넘으면 전체 거절 (일부만 잡지 않음) |
+| 결제 대기(PENDING) 중인 좌석 | 한도에 포함됨. 한도 안이면 추가 점유 가능 |
+| 내가 이미 점유한 좌석을 다시 요청 | `BOOKING000` (409) |
+| 만료된 좌석 | 스케줄러(1분)가 풀 때까지 점유 불가. 그 사이 한도 집계에도 남아 있을 수 있음 (최대 1분) |
 
 **조회에 쓰는 인덱스(권장)**
 
@@ -469,7 +421,7 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 - `booking_seat`는 구역·열·번호·등급·가격을 **복사해서 저장**한다. 그래서 끝난 회차의 판매 좌석을 지워도 기록이 남는다.
 - **부분 취소**가 가능하다. 취소한 좌석만 `active=false`가 되고, 환불은 취소 묶음마다 1행이다.
 - 취소 규정은 예매 때 **JSON 컬럼으로 복사**해 둔다. 규정이 바뀌어도 이미 한 예매는 그대로다.
-- 중복 판매는 **행 잠금 → 낙관적 락 → 부분 UNIQUE 인덱스** 세 겹으로 막는다.
+- 중복 판매는 **Redis 분산락 하나**로 제어한다. 상태 조건이 있는 UPDATE와 부분 UNIQUE 인덱스는 데이터를 지키는 안전장치다.
 - 환불은 `refund`가 상태를 따로 가지며, 실패하면 자동 3회 재시도 후 관리자가 처리한다. 환불마다 **중복 방지 키**를 두어, 응답이 끊겨도 이중 환불이 되지 않게 한다.
 
 다음은 **5부. 감사 로그와 운영 문제 상황** (`audit_log`, 환불 실패 재처리, 결제 불일치 보정 등)입니다.

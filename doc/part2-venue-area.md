@@ -267,7 +267,7 @@ erDiagram
 ```json
 // 1단계: 구역 요약 (구역별 잔여석)
 [
-  { "zoneId": 12, "name": "F2구역", "floor": "1층", "grade": "R석", "price": 154000, "remaining": 38, "total": 220 }
+  { "zoneId": 12, "name": "F2구역", "floor": "1층", "grade": "R", "price": 154000, "remaining": 38, "total": 220 }
 ]
 
 // 2단계: 구역을 눌렀을 때 좌석 상태

@@ -1,0 +1,36 @@
+package com.squirrel.tickting.global.exception.code;
+
+import com.squirrel.tickting.global.exception.ExceptionCode;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+
+/**
+ * 도메인에 묶이지 않는 공통 에러 코드.
+ * 요청 검증 실패, 처리하지 못한 서버 오류에 사용한다.
+ *
+ * 코드 형식은 "도메인 접두사 + 3자리 숫자"로 통일한다. (예: COMMON000, AUTH001)
+ */
+@Getter
+@RequiredArgsConstructor
+public enum CommonExceptionCode implements ExceptionCode {
+
+	/** @Valid 실패 등 요청 값/형식이 잘못된 경우 (400) */
+	INVALID_INPUT("COMMON000", HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
+	/** 경로는 맞지만 허용되지 않는 HTTP 메서드로 요청한 경우 (405) */
+	METHOD_NOT_ALLOWED("COMMON001", HttpStatus.METHOD_NOT_ALLOWED, "이 경로에서 지원하지 않는 요청 방식입니다."),
+	/** 존재하지 않는 경로로 요청한 경우 (404) */
+	ENDPOINT_NOT_FOUND("COMMON002", HttpStatus.NOT_FOUND, "존재하지 않는 경로입니다."),
+	/** DB 제약에 걸린 요청. 동시에 같은 값으로 저장하려는 등 코드가 미리 막지 못한 충돌 (409) */
+	CONFLICT("COMMON003", HttpStatus.CONFLICT, "요청이 현재 상태와 충돌합니다. 잠시 후 다시 시도해 주세요."),
+	/** 분산락을 기다리는 시간 안에 잡지 못함. 같은 좌석·같은 사용자의 요청이 몰렸을 때 기다리지 않고 바로 실패시킨다 (409) */
+	LOCK_ACQUISITION_FAILED("COMMON004", HttpStatus.CONFLICT, "요청이 몰려 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+	/** 비밀번호 해시(BCrypt) 계산이 몰려 기다리는 시간 안에 자리가 나지 않음. 서버 CPU 를 지키려고 넘친 요청을 바로 돌려보낸다 (503, Retry-After 헤더) */
+	SERVER_BUSY("COMMON005", HttpStatus.SERVICE_UNAVAILABLE, "요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+	/** 예상하지 못한 서버 예외. 원문 메시지는 클라이언트에 노출하지 않는다 (500) */
+	INTERNAL_ERROR("COMMON999", HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다.");
+
+	private final String code;
+	private final HttpStatus status;
+	private final String message;
+}

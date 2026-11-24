@@ -1,0 +1,124 @@
+"use client";
+
+import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { ApiError, api } from "@/lib/api";
+import { clearBooking } from "@/lib/booking-cache";
+import { notifyPaid, useBookingWindow } from "@/lib/popup";
+import { dateTimeText, won } from "@/lib/format";
+import type { PaymentConfirmed } from "@/lib/types";
+import { Loading } from "@/components/ui";
+
+type Failure = { code: string; message: string };
+
+// 결제 결과를 모르는(502) 경우와 이미 처리된(409) 경우는 다시 결제하면 안 된다.
+const NO_RETRY_CODES = new Set(["PAYMENT006", "PAYMENT003"]);
+
+export default function PaySuccessPage() {
+  const { id } = useParams<{ id: string }>();
+  const { inPopup, prefix, goTo, close, toLogin } = useBookingWindow();
+  const params = useSearchParams();
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [done, setDone] = useState<PaymentConfirmed | null>(null);
+  // 개발 모드(StrictMode)에서 효과가 두 번 돌아도 승인은 한 번만 보낸다. 새로고침으로 다시 오면 서버가 409 로 막는다.
+  const started = useRef(false);
+
+  const paymentKey = params.get("paymentKey");
+  const orderId = params.get("orderId");
+  const amount = Number(params.get("amount"));
+
+  const invalid = !paymentKey || !orderId || !Number.isInteger(amount) || amount <= 0;
+
+  useEffect(() => {
+    if (started.current || invalid) return;
+    started.current = true;
+    // 승인은 서버가 토스를 불러서 한다. 금액은 서버가 저장한 값과 비교하므로 여기서는 받은 값을 그대로 넘긴다.
+    api<PaymentConfirmed>("/api/v1/payments/confirm", {
+      method: "POST",
+      body: { paymentKey, orderId, amount },
+    })
+      .then((confirmed) => {
+        // 결제가 끝났으니 결제 화면에 쓰던 예매 정보는 지운다. 예매 상세 API 가 없어도 이 화면이 결과를 보여 준다.
+        clearBooking(id);
+        // 예매 창이면 본 창에 알려서 내 예매로 옮기게 한다.
+        notifyPaid(confirmed.bookingId);
+        setDone(confirmed);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) {
+          toLogin();
+          return;
+        }
+        setFailure(
+          error instanceof ApiError
+            ? { code: error.code, message: error.message }
+            : { code: "CLIENT", message: "결제를 확인하지 못했습니다" },
+        );
+      });
+    // toLogin 은 창 상태가 바뀔 때만 달라진다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, invalid, paymentKey, orderId, amount]);
+
+  const shown = failure ?? (invalid ? { code: "CLIENT", message: "결제 정보가 올바르지 않습니다" } : null);
+
+  if (done) {
+    return (
+      <div className="card mx-auto max-w-lg space-y-4 p-6 text-center">
+        <h1 className="text-xl font-semibold">결제가 완료되었습니다</h1>
+        <dl className="mx-auto grid max-w-xs grid-cols-[88px_1fr] gap-x-4 gap-y-2 text-left text-sm">
+          <dt className="text-muted">예매번호</dt>
+          <dd>{done.bookingNo}</dd>
+          <dt className="text-muted">결제 금액</dt>
+          <dd>{won(done.amount)}</dd>
+          <dt className="text-muted">결제 수단</dt>
+          <dd>{done.method}</dd>
+          <dt className="text-muted">승인 시각</dt>
+          <dd>{dateTimeText(done.approvedAt)}</dd>
+        </dl>
+        <div className="flex justify-center gap-2">
+          {inPopup ? (
+            <button type="button" className="btn" onClick={close}>
+              창 닫기
+            </button>
+          ) : (
+            <Link href="/" className="btn">
+              홈으로
+            </Link>
+          )}
+          <button type="button" className="btn btn-primary" onClick={() => goTo("/bookings")}>
+            내 예매 보기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!shown) {
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center">
+        <Loading />
+        <p className="mt-2 text-sm text-secondary">결제를 확인하고 있습니다. 창을 닫지 마세요</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card mx-auto max-w-lg space-y-4 p-6 text-center">
+      <h1 className="text-xl font-semibold">결제를 완료하지 못했습니다</h1>
+      <p role="alert" className="text-sm text-secondary">
+        {shown.message}
+      </p>
+      <div className="flex justify-center gap-2">
+        <button type="button" className="btn" onClick={() => goTo("/bookings")}>
+          내 예매 보기
+        </button>
+        {!NO_RETRY_CODES.has(shown.code) && (
+          <Link href={`${prefix}/bookings/${id}/pay`} className="btn btn-primary">
+            다시 결제하기
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -68,15 +68,15 @@ erDiagram
     SEAT_GRADE {
         Long id PK
         Long performance_id FK
-        String name
+        enum name "VIP R S A B C OP VIEW_LIMITED ALL STANDING VIP_STANDING RESERVED"
         Integer price
-        String color
     }
     ZONE_GRADE {
         Long id PK
         Long performance_id FK
         Long zone_id FK
-        Long grade_id FK
+        Long grade_id FK "ASSIGNED일 때만 값이 있음"
+        enum assignment_status "UNSET ASSIGNED INTENTIONALLY_UNSOLD"
     }
     SCHEDULE_SEAT {
         Long id PK
@@ -117,7 +117,7 @@ erDiagram
     PERFORMANCE ||--o{ PERFORMANCE_SCHEDULE : "회차"
     PERFORMANCE ||--o{ SEAT_GRADE : "등급"
     PERFORMANCE ||--o{ ZONE_GRADE : "구역 지정"
-    SEAT_GRADE ||--o{ ZONE_GRADE : "지정"
+    SEAT_GRADE o|--o{ ZONE_GRADE : "등급 (ASSIGNED일 때)"
     PERFORMANCE_SCHEDULE ||--o{ SCHEDULE_POSTPONEMENT : "연기"
     PERFORMANCE_SCHEDULE ||--o{ SCHEDULE_SEAT : "판매 좌석"
     SEAT_GRADE ||--o{ SCHEDULE_SEAT : "등급"
@@ -137,7 +137,7 @@ erDiagram
 ```
 판매자가 공연을 등록한다 ──────────→ performance (+ performance_image)
   └ 등급과 가격을 만든다 ───────────→ seat_grade   (R석 154,000원 ...)
-  └ 구역마다 등급을 지정한다 ───────→ zone_grade   (F2구역 = R석 ...)
+  └ 구역마다 설정 상태와 등급을 정한다 → zone_grade (F2구역 = R석, 의도적 미판매 ...)
   └ 회차를 추가한다 ────────────────→ performance_schedule (11/1 19:00)
        └ 판매 오픈 전날, 공연장 좌석을 복사한다 ─→ schedule_seat (회차 × 좌석 수만큼 행 생성)
 ```
@@ -174,13 +174,15 @@ erDiagram
 |  | 판매자 공지 | `notice` | TEXT | NULL | 이 공연만의 공지 |
 |  | 이용 안내 | `guide` | TEXT | NULL | 이 공연만의 안내 |
 |  | 상태 | `status` | enum | NOT NULL | DRAFT 작성 중 / PUBLISHED 공개 / CANCELED 공연 취소 |
-|  | 판매 오픈 일시 | `sale_open_at` | LocalDateTime | NOT NULL | 모든 회차 공통 |
-|  | 판매 종료 일시 | `sale_close_at` | LocalDateTime | NOT NULL | 모든 회차 공통 |
-|  | 1인 최대 매수 | `max_per_person` | Integer | NOT NULL |  |
-|  | 수령 방법 | `receive_type` | enum | NOT NULL | ONSITE 현장 / DELIVERY 배송 / BOTH 예매자 선택 |
-|  | 예매 수수료 | `booking_fee` | Integer | NOT NULL | 티켓 1장당 원. 판매자가 공연마다 설정 |
+|  | 판매 오픈 일시 | `sale_open_at` | LocalDateTime | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. 모든 회차 공통 |
+|  | 판매 종료 일시 | `sale_close_at` | LocalDateTime | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. 모든 회차 공통 |
+|  | 1인 최대 매수 | `max_per_person` | Integer | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수 |
+|  | 수령 방법 | `receive_type` | enum | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. ONSITE 현장 / DELIVERY 배송 / BOTH 예매자 선택 |
+|  | 예매 수수료 | `booking_fee` | Integer | NULL | DRAFT에서는 미설정 가능. PUBLISHED 전 설정 필수. 티켓 1장당 원. 판매자가 공연마다 설정 |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
+
+판매 오픈·종료 시각, 1인 최대 매수, 수령 방법, 예매 수수료는 `performance`의 일반 필드입니다. 공연 등록·수정 요청에서 함께 관리하며, DRAFT에서는 비워 둘 수 있고 PUBLISHED 전환 시 모두 설정되어 있는지 확인합니다. 별도 판매 정책 저장 API는 두지 않습니다.
 
 **Q. `status`는 왜 3개뿐인가요?**
 
@@ -192,6 +194,15 @@ erDiagram
 | `PUBLISHED` | 공개됨. 예매자 목록에 보임 |
 | `CANCELED` | 공연 전체 취소 |
 
+**Q. 공연은 언제 공개할 수 있나요?**
+
+작성 중(`DRAFT`)인 공연이 아래를 모두 만족할 때만 공개(`PUBLISHED`)할 수 있습니다. 공개하면 되돌릴 수 없습니다.
+
+- 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료가 모두 설정되어 있습니다.
+- 판매 종료가 지나지 않았고, 판매 오픈까지 **3시간보다 더 남아** 있습니다. (임시) 판매 좌석은 오픈 24시간 전부터 스케줄러가 주기적으로 만드는데, 오픈 직전에 공개하면 판매가 열렸는데 좌석이 없는 틈이 생깁니다. 3시간이면 공개 뒤 오픈 전에 스케줄러가 최소 두 번 돌아 첫 생성이 실패해도 다시 만들 수 있습니다. 스케줄러 주기가 바뀌면 이 값도 다시 정합니다.
+- 취소되지 않은 회차가 1개 이상이고, 모든 회차가 판매 오픈보다 늦게 시작합니다. 판매 종료는 마지막 회차 시작보다 늦지 않아야 합니다. (판매 종료 뒤에 공연하는 회차는 괜찮습니다)
+- 설정하지 않은(`UNSET`) 구역이 없고, 판매할(`ASSIGNED`) 구역이 1개 이상이며, 전석과 다른 등급이 함께 지정되어 있지 않습니다. (아래 3-4)
+
 "판매 예정 / 판매 중 / 판매 종료 / 매진"은 **저장하지 않고 계산**합니다. 판매 오픈 시각 전이면 예정, 공연 시각이 지났으면 종료, 남은 좌석이 0이면 매진입니다. 저장하는 상태가 적을수록 값이 서로 안 맞는 버그가 줄어듭니다.
 
 **Q. 판매 시작일과 1인 최대 매수는 왜 공연에 있고 회차에는 없나요?**
@@ -201,7 +212,15 @@ erDiagram
 **1인 최대 매수 규칙** (검사 방법은 4부 4-7)
 - **공연의 모든 회차를 합친 누적** 기준입니다. 11/1 회차에서 2장, 11/2 회차에서 2장을 사면 합계 4장입니다.
 - 취소하거나 만료된 좌석은 빼고 셉니다. (취소하면 그만큼 다시 살 수 있음. 정책은 임시)
-- 예매가 한 건이라도 생긴 뒤에는 **값을 늘리는 것만** 가능하고 줄일 수는 없습니다. 줄이면 이미 한도를 넘긴 사람이 생기기 때문입니다.
+- 좌석을 차지한 예매(결제 대기·결제 완료·일부 취소)가 하나라도 있으면 **값을 늘리는 것만** 가능하고 줄일 수는 없습니다. 줄이면 이미 한도를 넘긴 사람이 생기기 때문입니다. 전체 취소·만료된 예매만 있으면 좌석을 차지한 사람이 없어서 줄일 수 있습니다. (위의 취소·만료 제외 기준과 같습니다)
+
+### 공연장 변경 시점
+
+공연장은 `DRAFT`일 때만 변경할 수 있고, `PUBLISHED` 이후에는 바꿀 수 없습니다. 공연장을 바꾸면 새 공연장 기준으로 모든 회차의 시간 충돌을 다시 확인합니다. 공연 단위 등급(`seat_grade`)은 유지하지만, 기존 구역별 등급 설정은 새 공연장에 적용할 수 없으므로 새 공연장의 모든 구역을 `UNSET`으로 초기화하고 다시 설정합니다.
+
+새 공연을 등록할 때도 공연장에 속한 모든 구역에 `UNSET` 행을 만듭니다. V8 마이그레이션은 기존 등급 연결을 `ASSIGNED`로 유지하고, 기존 DRAFT의 미등록 구역은 `UNSET`, 기존 공개·취소 공연의 미등록 구역은 과거 정책에 따라 `INTENTIONALLY_UNSOLD`로 변환합니다.
+
+판매 좌석이 이미 생성된 회차가 있으면 기존 좌석을 **판매자 보류석(`RESERVED`)까지 모두** 삭제하고 취소되지 않은 회차의 `seats_generated_at`을 비워 새 공연장 기준으로 다시 만들게 합니다. `DRAFT` 공연은 예매·점유가 불가능해서 임시 점유(`HELD`)·판매 완료(`SOLD`) 좌석이 있을 수 없고, 보류석은 판매자 자신의 설정이면서 옛 공연장 자리의 복사본이라 새 공연장으로 옮길 수 없습니다. (거부해도 판매자가 직접 보류를 모두 푼 뒤 같은 결과가 될 뿐이어서 막지 않습니다) 이 초기화는 `DRAFT` 공연장 변경에 한하며, 끝난 회차 좌석 정리 규칙과는 별개입니다.
 
 **Q. 예매 수수료는 어떻게 하나요?**
 
@@ -273,7 +292,11 @@ erDiagram
 
 **Q. 같은 공연장에 시간이 겹치는 회차를 만들 수 있나요?**
 
-안 됩니다. 회차를 만들 때 같은 공연장의 기존 회차와 시간이 겹치는지 검사하고, 겹치면 거절합니다. (겹침 기준은 `start_at` ~ `start_at + running_time`)
+안 됩니다. 회차를 만들거나 바꿀 때 같은 공연장의 기존 회차와 시간이 겹치는지 검사하고, 겹치면 거절합니다.
+
+- **회차가 차지하는 시간**은 `start_at` ~ `start_at + running_time + 1시간`입니다. 1시간은 관객 입·퇴장과 무대 정리 시간입니다. (임시. 끝나는 시각과 다음 회차 시작이 같으면 겹치지 않음)
+- **검사하는 때**: 회차 추가·수정, 공연장 변경(새 공연장 기준으로 모든 회차), 러닝타임을 늘릴 때(같은 공연장 기준으로 모든 회차)
+- **세지 않는 회차**: 취소된 회차, 취소된 공연의 회차, 새 일정이 정해지지 않은 연기 회차(가장 최근 연기 이력의 `new_start_at`이 비어 있음). 다른 공연의 회차는 작성 중(`DRAFT`)이어도 셉니다.
 
 ### schedule_postponement (회차 연기 이력)
 
@@ -346,9 +369,8 @@ erDiagram
 |---|---|---|---|---|---|
 | PK | 등급 번호 | `id` | Long | NOT NULL |  |
 | FK | 공연 번호 | `performance_id` | Long | NOT NULL | 이 공연의 등급 (performance) |
-|  | 등급명 | `name` | String | NOT NULL | 예: VIP석, R석, S석 |
+|  | 등급 | `name` | enum | NOT NULL | 등급 코드 12개 중 하나 (아래 Q). 한 공연에 같은 등급은 하나. 컬럼·API 필드 이름은 `name` 그대로 |
 |  | 가격 | `price` | Integer | NOT NULL | 등급마다 가격 1개 |
-|  | 표시 색 | `color` | String | NULL | 좌석도에 칠할 색 (예: #E8503A) |
 
 ### zone_grade (구역별 등급)
 
@@ -359,7 +381,27 @@ erDiagram
 | PK | 번호 | `id` | Long | NOT NULL |  |
 | FK | 공연 번호 | `performance_id` | Long | NOT NULL | (performance) |
 | FK | 구역 번호 | `zone_id` | Long | NOT NULL | 등급을 지정할 구역 (venue_zone) |
-| FK | 등급 번호 | `grade_id` | Long | NOT NULL | 지정한 등급 (seat_grade) |
+| FK | 등급 번호 | `grade_id` | Long | NULL | `ASSIGNED`일 때 지정한 등급 (seat_grade) |
+|  | 설정 상태 | `assignment_status` | enum | NOT NULL | `UNSET` / `ASSIGNED` / `INTENTIONALLY_UNSOLD` |
+
+**Q. 등급명을 왜 정해진 목록(enum)으로 받나요?**
+
+판매자가 이름을 자유롭게 지으면 `R석`·`R 석`·`r석`처럼 눈으로 같은 등급이 여럿 생기고, 예매자 화면의 표기도 공연마다 달라집니다. 실제 예매처(2026-11-18, NOL 티켓 장르별 인기 순위 40개 공연)에서 쓰는 등급명을 모아 12개로 정했습니다.
+
+| 코드 | 표시 예 | 코드 | 표시 예 |
+|---|---|---|---|
+| `VIP` | VIP석 | `OP` | OP석 |
+| `R` | R석 | `VIEW_LIMITED` | 시야제한석 |
+| `S` | S석 | `ALL` | 전석 |
+| `A` | A석 | `STANDING` | 스탠딩석 |
+| `B` | B석 | `VIP_STANDING` | VIP 스탠딩석 |
+| `C` | C석 | `RESERVED` | 지정석 |
+
+- 서버는 코드만 저장하고 내립니다. 화면에 보이는 이름과 좌석도의 색은 프론트가 코드마다 정합니다. 그래서 등급 색(`color`)은 두지 않습니다.
+- 코드는 추가만 하고 이름을 바꾸거나 지우지 않습니다. 이미 저장된 코드를 프론트가 계속 보여 줘야 하기 때문입니다.
+- 한 공연에 같은 등급은 하나만 둡니다. "R석 1층 15만 원, R석 2층 13만 원"처럼 같은 등급을 가격만 다르게 두 번 쓸 수 없고, 다른 등급으로 나눕니다.
+- 전석(`ALL`)과 다른 등급이 **함께 구역에 지정되면** 막습니다. "전석 5만 원 / R석 7만 원"이 같이 보이면 "전석"이라는 말이 틀린 말이 되기 때문입니다. 만들어 두기만 한 등급은 예매자 화면에 보이지 않아서(구역에 지정된 등급만 보임) 막지 않습니다. 지정석과 R·S석처럼 어색할 뿐 틀린 말은 아닌 조합은 판매자 판단에 맡깁니다.
+- 목록에 없는 이름(작품 이름을 딴 등급, "2층 지정좌석" 같은 층 이름)은 쓸 수 없습니다.
 
 **Q. 가격 종류(일반/청소년 등)는 없나요?**
 
@@ -367,11 +409,19 @@ erDiagram
 
 **Q. 왜 등급을 공연 단위로 만드나요?**
 
-같은 공연장이라도 공연마다 가격 체계가 다르기 때문입니다. `zone_grade`는 "이 공연에서 이 구역은 이 등급"이라는 연결표입니다. 한 공연에서 한 구역은 한 번만 지정할 수 있습니다.
+같은 공연장이라도 공연마다 가격 체계가 다르기 때문입니다. `zone_grade`는 "이 공연에서 이 구역을 어떻게 설정했는가"를 저장합니다. 공연장의 모든 구역마다 행을 하나씩 두고, 한 공연에서 한 구역은 한 번만 저장합니다.
 
 **Q. 등급을 지정하지 않은 구역은요?**
 
-판매하지 않는 구역으로 봅니다. 판매 좌석을 만들 때(3-5) 그 구역의 좌석은 **판매 제외(`BLOCKED`)**로 만들어지고 등급과 가격은 비어 있습니다.
+세 상태를 구분합니다.
+
+| 상태 | 의미 | `grade_id` | 공개 가능 |
+|---|---|---|---|
+| `UNSET` | 아직 판매자가 설정하지 않음 | NULL | 불가 |
+| `ASSIGNED` | 판매할 등급을 지정함 | 등급 번호 | 가능 |
+| `INTENTIONALLY_UNSOLD` | 의도적으로 판매하지 않음 | NULL | 가능 |
+
+구역 등급 API는 일부 구역씩 설정할 수 있습니다. 요청에 포함되지 않은 구역의 상태는 그대로 둡니다. 공연 공개 시 `UNSET`이 남아 있으면 막고, `INTENTIONALLY_UNSOLD` 구역은 허용합니다. 단 **`ASSIGNED` 구역이 하나도 없으면 공개할 수 없습니다.** 모든 구역을 의도적 미판매로 두면 살 수 있는 좌석이 0개인 공연이 공개되기 때문입니다. 의도적 미판매 구역의 좌석은 판매 좌석 생성 시 `BLOCKED`가 됩니다.
 
 ### 샘플 공연장 예시
 
@@ -406,7 +456,7 @@ erDiagram
 |  | 상태 | `status` | enum | NOT NULL | AVAILABLE / HELD 임시 점유 / SOLD / BLOCKED 판매 제외 / RESERVED 판매자 보류 |
 | FK | 점유한 사용자 | `held_by` | Long | NULL | 임시 점유 중일 때만 (user_member) |
 |  | 점유 만료 시각 | `held_until` | LocalDateTime | NULL | 임시 점유 중일 때만 |
-|  | 버전 | `version` | Integer | NOT NULL | 낙관적 락 비교용 |
+|  | 버전 | `version` | Integer | NOT NULL | 쓰지 않지만 남겨 둠 (낙관적 락은 쓰지 않기로 함) |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
 
 ### 언제 만들어지나
@@ -426,7 +476,7 @@ erDiagram
 **그래서 생기는 규칙**
 - 가격은 **좌석을 만드는 시점**에 복사되므로, **좌석 생성 전까지는 등급·가격을 자유롭게 수정**하고 **생성 후에는 수정할 수 없습니다.**
 - 판매자 보류석 지정(`RESERVED`)은 **좌석이 만들어진 뒤에만** 가능합니다. (일찍 하고 싶으면 앞당겨 만들기)
-- 판매 정책을 저장할 때(오픈 일시 지정) 모든 구역에 등급이 지정됐는지 확인합니다. 빠진 구역은 `BLOCKED`로 만들어집니다.
+- 공연 공개와 판매 좌석 생성 전에 `UNSET` 구역이 없는지 확인합니다. `INTENTIONALLY_UNSOLD` 구역은 허용하고, 해당 좌석만 `BLOCKED`로 만듭니다.
 - 좌석이 아직 없는 회차의 총 좌석 수는 `venue.total_seats`로 보여 줍니다.
 
 ### 어떻게 만들어지나
@@ -436,15 +486,17 @@ erDiagram
 ```sql
 INSERT INTO schedule_seat (schedule_id, venue_seat_id, zone_id, grade_id, price, status, version)
 SELECT :scheduleId, vs.id, vs.zone_id,
-       zg.grade_id,                                  -- 지정 안 한 구역은 NULL
-       g.price,                                      -- 그 시점의 가격을 복사
-       CASE WHEN zg.grade_id IS NULL THEN 'BLOCKED' ELSE 'AVAILABLE' END,
+       zg.grade_id,                                  -- 미판매 구역은 NULL
+       g.price,                                      -- ASSIGNED 등급의 가격을 복사
+       CASE WHEN zg.assignment_status = 'ASSIGNED' THEN 'AVAILABLE' ELSE 'BLOCKED' END,
        0
 FROM venue_seat vs
-LEFT JOIN zone_grade zg ON zg.zone_id = vs.zone_id AND zg.performance_id = :performanceId
-LEFT JOIN seat_grade g  ON g.id = zg.grade_id
+JOIN zone_grade zg ON zg.zone_id = vs.zone_id AND zg.performance_id = :performanceId
+LEFT JOIN seat_grade g ON g.id = zg.grade_id AND zg.assignment_status = 'ASSIGNED'
 WHERE vs.venue_id = :venueId;
 ```
+
+좌석 생성 전에 `UNSET`이 없어야 합니다. `ASSIGNED`는 `AVAILABLE`, `INTENTIONALLY_UNSOLD`는 `BLOCKED`로 생성합니다.
 
 - **가격을 복사하는 이유**: 나중에 등급 가격이 바뀌어도 이미 만든 회차와 예매의 가격이 흔들리지 않게 하기 위해서입니다.
 - `zone_id`를 함께 복사하는 이유: "F2구역의 잔여석 수" 같은 구역별 조회를 조인 없이 하기 위해서입니다.
@@ -456,7 +508,7 @@ WHERE vs.venue_id = :venueId;
 | `AVAILABLE` | 판매 가능 | 누구나 선택 가능 | O |
 | `HELD` | 결제 중 임시 점유 | 한 사용자가 결제하는 중. `held_by`, `held_until`이 채워짐 | X |
 | `SOLD` | 판매 완료 | 결제까지 끝남 | X |
-| `BLOCKED` | 판매 제외 | 무대 설치·시야 방해로 없는 자리, 등급 미지정 구역. 등급·가격 없음 | X |
+| `BLOCKED` | 판매 제외 | 무대 설치·시야 방해로 없는 자리 또는 `INTENTIONALLY_UNSOLD` 구역. 등급·가격 없음 | X |
 | `RESERVED` | 판매자 보류 | 초대권, 협찬, 관계자용으로 판매자가 따로 잡아 둔 자리. 나중에 풀어서 판매할 수 있음 | X |
 
 > `HELD`(결제 중 임시 점유)와 `RESERVED`(판매자 보류)는 이름이 비슷해서 헷갈립니다. 팀에서는 **"임시 점유"**와 **"판매자 보류석"**으로 부르기를 권합니다.
@@ -473,7 +525,7 @@ BLOCKED                  (바뀌지 않음)
 
 **Q. 좌석 점유는 어떻게 동시에 눌러도 안 꼬이나요?**
 
-좌석 행 하나를 `SELECT ... FOR UPDATE`로 잠그고 `AVAILABLE`일 때만 `HELD`로 바꿉니다. `version`은 낙관적 락 방식을 비교 실험할 때 쓰는 컬럼이고, 기본은 FOR UPDATE입니다. 상세 흐름은 4부(예매·결제)에서 다룹니다.
+Redis 분산락으로 같은 좌석과 같은 사용자의 요청을 한 번에 하나씩만 들어가게 하고, 그 안에서 `AVAILABLE`일 때만 `HELD`로 바꿉니다. `version` 컬럼은 남겨 두지만 쓰지 않습니다. 상세 흐름은 4부(예매·결제) 4-7에서 다룹니다.
 
 **Q. 점유가 풀리지 않고 남으면요?**
 
@@ -550,13 +602,21 @@ ALTER TABLE schedule_seat SET (fillfactor = 80, autovacuum_vacuum_scale_factor =
 | 2일 ~ 1일 전 | 20% | 1 ~ 2 | O |
 | 당일 | 취소 불가 | 0 ~ 0 | X |
 
+**구간 규칙 (생성·수정 공통)**
+
+- `days_from ~ days_to`는 **양끝 날짜를 포함**합니다. `3 ~ 6`은 공연 3·4·5·6일 전이고, 수수료를 계산할 때도 이 기준으로 구간을 찾습니다.
+- 구간을 `days_from` 순으로 놓았을 때 0일 전(당일)에서 시작하고, 제한 없음(`days_to` 비어 있음) 구간이 하나이며 가장 멀리 있고, 빈 날짜·겹치는 날짜가 없어야 합니다. (`다음 days_from = 앞 days_to + 1`) 그래서 모든 취소 시점이 정확히 한 구간에 걸립니다.
+- 구간은 1~10개, 일수는 0~90, 수수료율은 0~100입니다.
+- 수수료율끼리의 크기와 취소 가능 여부의 조합은 판매자가 정합니다. (모든 구간을 취소 불가로 둘 수도 있습니다) 취소 불가 구간의 `fee_rate`는 계산에서 쓰지 않습니다.
+- 규정 이름은 같은 사업체 안에서 겹칠 수 없습니다. (대소문자 무시, 기본 규정 이름 포함)
+
 **Q. 판매자가 규정을 바꾸고 싶으면요?**
 
-기본 규정을 **복사해서 자기 사업체 규정**(`business_id`가 채워진 행)으로 만들고, 그 구간을 수정합니다. 기본 규정 자체는 건드리지 않습니다. 공연은 `performance.cancel_policy_id`로 쓸 규정을 가리킵니다.
+기본 규정은 예시로 조회할 수 있고, 판매자는 자신의 사업체 규정을 생성·조회·수정할 수 있습니다. 기본 규정은 읽기 전용이며 삭제 기능은 첫 범위에서 제외합니다. (규정이 쌓여 불편해지면 행을 지우지 않는 "보관" 방식을 검토합니다. `later/README.md` 참고) 공연은 `performance.cancel_policy_id`로 적용할 규정을 가리키며, 공연 등록·수정 요청에서 선택합니다. 서버는 기본 규정 또는 로그인한 사업체 소유 규정인지 확인합니다.
 
 **Q. 예매 후에 규정이 바뀌면요?**
 
-예매 시점에 어떤 규정이었는지가 중요하므로, 예매에는 규정 내용을 **스냅샷**으로 저장합니다. (4부에서 다룹니다.) 그래서 규정을 수정해도 이미 한 예매는 바뀌지 않습니다.
+예매 시점의 규정이 중요하므로, 예매에는 규정 내용을 **스냅샷**으로 저장합니다. (4부에서 다룹니다.) 이미 공개되었거나 취소된 공연에 적용 중인 규정은 수정할 수 없습니다. 환불은 스냅샷으로 계산하지만, 판매자가 그 공연에 적용된 기준을 볼 수 있는 곳은 공연의 규정뿐이라 공개 후에는 내용이 바뀌지 않아야 합니다. 작성 중 공연만 쓰는 규정은 고칠 수 있습니다. 규정 변경이 필요하면 새 규정을 만들어 이후 공연에 적용합니다.
 
 ---
 
@@ -603,7 +663,7 @@ ALTER TABLE schedule_seat SET (fillfactor = 80, autovacuum_vacuum_scale_factor =
 | 판매 중지·재개 | `performance_schedule` | 회차 상태 변경, 공연 단위면 모든 회차 |
 | 회차 연기 | `performance_schedule`, `schedule_postponement`, `audit_log` | 3-3 참고 |
 | 판매자 보류석 지정·해제 | `schedule_seat` | `AVAILABLE` ⇄ `RESERVED` (좌석이 만들어진 뒤에만 가능) |
-| 취소 규정 설정 | `cancel_policy`, `cancel_policy_rule` | 기본 규정 복사 후 구간 수정 |
+| 취소 규정 관리 | `cancel_policy`, `cancel_policy_rule` | 기본 규정 조회, 사업체 규정 생성·조회·수정 |
 | 공통 안내 관리 (관리자) | `common_guide` | 유형별 내용 수정 |
 | 공연 목록·검색 (예매자) | `performance`, `performance_schedule`, `venue` | 장르·지역·판매 상태 필터 |
 | 공연 상세 (예매자) | 3-8 참고 | |

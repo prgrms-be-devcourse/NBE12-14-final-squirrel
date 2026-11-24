@@ -2,6 +2,7 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '4.1.2'
 	id 'io.spring.dependency-management' version '1.1.7'
+	id 'jacoco'
 }
 
 group = 'com.squirrel'
@@ -19,13 +20,27 @@ repositories {
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	// Prometheus 가 읽어 가는 지표(/actuator/prometheus). 지표 주소는 application.yaml 의 노출 목록에 넣어야 열린다. (기본은 닫혀 있다)
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	// 이메일 인증번호 메일 발송(SMTP)
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-session-data-redis'
+	implementation 'org.redisson:redisson:4.8.0'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	// 외부 API(토스 등)를 부르는 RestClient 를 쓰기 위한 자동 설정. Spring Boot 4 부터 webmvc 스타터에 들어 있지 않다.
+	implementation 'org.springframework.boot:spring-boot-starter-restclient'
+	// 이미지를 S3에 올리기 위한 AWS SDK. 서버가 업로드 받은 파일을 S3에 올린다.
+	implementation 'software.amazon.awssdk:s3:2.59.0'
 	implementation 'org.flywaydb:flyway-database-postgresql'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -44,6 +59,36 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+jacoco {
+	// JDK 25 로 컴파일한 클래스를 읽으려면 0.8.14 이상이어야 한다. (낮으면 리포트가 비거나 실패한다)
+	toolVersion = '0.8.14'
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
+	// 테스트가 끝나면 커버리지 리포트를 바로 만든다. (CI 에서도 build 한 번으로 리포트가 나온다)
+	finalizedBy 'jacocoTestReport'
+}
+
+tasks.named('jacocoTestReport') {
+	dependsOn 'test'
+	reports {
+		html.required = true
+		xml.required = true
+	}
+	// 로직이 없는 클래스는 비율에서 뺀다. 요청·응답 record, 설정, 에러 코드 목록, 실행 클래스는 테스트 대상이 아니라서 숫자만 흐린다.
+	classDirectories.setFrom(files(classDirectories.files.collect {
+		fileTree(dir: it, exclude: [
+				'**/dto/**',
+				'**/config/**',
+				'**/exception/code/**',
+				'**/TicktingApplication*'
+		])
+	}))
+}
+
+// @Deprecated(forRemoval = true) 로 표시한 코드(JWT v1 전용 클래스 등)를 새로 쓰면 빌드가 실패하게 한다.
+// 기존에 쓰던 곳은 @SuppressWarnings("removal") 로 허용한 표시를 남겼다. 테스트 코드는 경고만 나온다.
+tasks.named('compileJava') {
+	options.compilerArgs += ['-Xlint:removal', '-Werror']
 }

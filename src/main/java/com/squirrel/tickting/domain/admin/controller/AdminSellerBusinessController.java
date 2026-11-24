@@ -1,0 +1,99 @@
+package com.squirrel.tickting.domain.admin.controller;
+
+import com.squirrel.tickting.domain.admin.dto.AdminSellerBusinessRequest;
+import com.squirrel.tickting.domain.admin.dto.AdminSellerBusinessResponse;
+import com.squirrel.tickting.domain.admin.facade.AdminSellerBusinessFacade;
+import com.squirrel.tickting.domain.seller.service.SellerBusinessService;
+import com.squirrel.tickting.domain.seller.type.SellerBusinessSearchStatus;
+import com.squirrel.tickting.global.response.ApiResponse;
+import com.squirrel.tickting.global.response.PageResponse;
+import com.squirrel.tickting.global.security.CustomUserDetails;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@Tag(name = "Admin - Seller Business", description = "관리자의 판매자 사업체 관리 API")
+@RestController
+@RequestMapping("/api/v1/admin/seller-businesses")
+@RequiredArgsConstructor
+public class AdminSellerBusinessController {
+
+	/** 한 번에 너무 많이 긁어가지 못하게 이 API 는 20개까지만 준다. (공통 설정은 50) */
+	private static final int DEFAULT_PAGE_SIZE = 10;
+	private static final int MAX_PAGE_SIZE = 20;
+
+	private final SellerBusinessService sellerBusinessService;
+	/** 상태를 바꾸는 승인·반려는 감사 로그와 함께 처리하므로 파사드로 부른다. 조회는 서비스를 바로 부른다. */
+	private final AdminSellerBusinessFacade adminSellerBusinessFacade;
+
+	@Operation(summary = "사업체 목록·검색",
+		description = "상호·대표자명·사업자번호에서 검색어를 부분 일치로 찾는다. 상태를 주지 않으면 승인 대기만 보이고, "
+			+ "ALL 이면 모든 상태가 보인다. 최신 신청이 먼저 나오고(정렬은 고정) 한 번에 최대 20개까지 준다.")
+	@GetMapping
+	public ResponseEntity<ApiResponse<PageResponse<AdminSellerBusinessResponse.Summary>>> list(
+		@Parameter(description = "검색어. 비우면 전체")
+		@RequestParam(required = false) String keyword,
+		@Parameter(description = "상태. 기본 PENDING, ALL 은 전체")
+		@RequestParam(defaultValue = "PENDING") SellerBusinessSearchStatus status,
+		@PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
+	) {
+		// 클라이언트가 보낸 정렬(sort)은 쓰지 않고 페이지 번호와 크기만 받는다.
+		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(),
+			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
+
+		var page = sellerBusinessService.search(status, keyword, pageRequest)
+			.map(AdminSellerBusinessResponse.Summary::from);
+		PageResponse<AdminSellerBusinessResponse.Summary> response = PageResponse.from(page);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "사업체 상세",
+		description = "승인·반려를 판단할 사업체 정보와 신청과 함께 가입한 대표 계정(이메일·휴대폰·상태)을 준다. "
+			+ "비밀번호는 주지 않는다. 없는 사업체는 404.")
+	@GetMapping("/{businessId}")
+	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Detail>> detail(@PathVariable Long businessId) {
+		AdminSellerBusinessResponse.Detail response = AdminSellerBusinessResponse.Detail.from(
+			sellerBusinessService.getDetail(businessId));
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "사업체 승인",
+		description = "승인 대기 사업체를 승인한다. 승인하면 대표 계정이 로그인할 수 있다. "
+			+ "처리한 관리자와 시각이 기록되고 감사 로그가 남는다. 이미 처리된 사업체는 409, 없으면 404.")
+	@PostMapping("/{businessId}/approve")
+	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Approval>> approve(
+		@AuthenticationPrincipal CustomUserDetails admin,
+		@PathVariable Long businessId
+	) {
+		AdminSellerBusinessResponse.Approval response = adminSellerBusinessFacade.approve(admin.getId(), businessId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "사업체 반려",
+		description = "승인 대기 사업체를 사유와 함께 반려한다. 반려된 사업체는 같은 사업자번호로 다시 신청할 수 없다. "
+			+ "처리한 관리자와 시각이 기록되고 감사 로그가 남는다. 이미 처리된 사업체는 409, 없으면 404.")
+	@PostMapping("/{businessId}/reject")
+	public ResponseEntity<ApiResponse<AdminSellerBusinessResponse.Rejection>> reject(
+		@AuthenticationPrincipal CustomUserDetails admin,
+		@PathVariable Long businessId,
+		@Valid @RequestBody AdminSellerBusinessRequest.Reject request
+	) {
+		AdminSellerBusinessResponse.Rejection response = adminSellerBusinessFacade.reject(
+			admin.getId(), businessId, request.reason());
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+}

@@ -1,0 +1,163 @@
+# tickting 프로젝트 가이드
+
+티켓 예매 백엔드 (취업 포트폴리오). 핵심은 **좌석 동시성 처리, 대기열, 매크로 방어, 토스 결제 연동**이다.
+이 문서는 팀 공통 컨벤션이다. 바꾸고 싶으면 PR로 고친다.
+
+## 설계 문서 (기준)
+
+- 설계의 기준은 `doc/`다. 테이블·흐름·정책은 `doc/part1~5-*.md`와 `doc/appendix.md`를 먼저 본다.
+- 결정 사항과 남은 일은 `doc/project-log.md`, 나중에 할 것은 `doc/later/`에 있다.
+- **코드와 문서가 다르면 추측하지 말고 문서를 확인한다.** 설계를 바꿔야 하면 코드만 고치지 말고 문서도 같이 고친다.
+- `erd-ticketing.md`, `table-guide-for-team.md`는 폐기된 문서다. 참고하지 않는다.
+
+## 빌드·실행
+
+- JDK 25, Spring Boot 4.1.2, Gradle(Groovy DSL). 패키지는 `com.squirrel.tickting`.
+- 빌드: `./gradlew build`, 컴파일만: `./gradlew compileJava`, 테스트: `./gradlew test`
+- DB는 PostgreSQL이다. 테스트는 Testcontainers를 쓰므로 Docker가 켜져 있어야 한다.
+- 터미널에서 `JAVA_HOME`이 JDK 25를 가리켜야 `./gradlew`가 동작한다. IntelliJ는 프로젝트 SDK를 25로 지정한다.
+
+## 패키지 구조
+
+기능은 도메인 폴더 안에 세로로 넣는다.
+
+```
+com.squirrel.tickting
+  domain/{도메인}
+    controller      # API
+    service         # 비즈니스 로직 (자기 도메인만)
+    facade          # 여러 도메인의 서비스를 엮는 흐름 (필요할 때만 만든다)
+    scheduler       # 주기 작업(@Scheduled). 하는 일은 서비스·파사드가 하고 여기서는 부르기만 한다
+    dto             # 요청/응답 (XxxRequest, XxxResponse)
+    infra/entity    # JPA 엔티티
+    infra/repository
+    type            # enum 등
+  global
+    config          # 설정
+    entity          # BaseTimeEntity, SoftDeletableEntity
+    exception       # BusinessException, ExceptionCode, GlobalExceptionHandler
+    exception/code  # 도메인별 XxxExceptionCode
+    response        # ApiResponse
+```
+
+- `global`에는 도메인 로직을 넣지 않는다.
+- **서비스는 다른 서비스를 호출하지 않는다.** 서비스는 자기 도메인의 repository만 쓴다. (서로 부르기 시작하면 순환 의존과 트랜잭션 경계가 흐려진다)
+- 여러 도메인이 얽히는 흐름(가입 = 약관 + 회원 + 토큰 등)은 **파사드(`facade`)**가 각 서비스를 순서대로 호출한다. 컨트롤러는 파사드(또는 서비스 하나)만 부른다.
+- **파사드는 "서로 다른 도메인의 서비스를 엮을 때"만 만든다.** (예: 사업체 승인 + 감사 로그 기록) 서비스 하나로 끝나거나 같은 도메인 안의 리포지토리 여러 개를 읽는 정도면 파사드 없이 컨트롤러가 서비스를 바로 부른다. 파일만 늘어나기 때문이다. **다른 도메인의 값을 읽어서 응답에 붙이기만 하는 조회**도 파사드가 아니라 읽기 전용 연관(아래 엔티티 규칙)으로 꺼낸다. 파사드는 여러 도메인에 쓰기가 걸리는 흐름에 쓴다.
+- 트랜잭션이 여러 서비스에 걸치면 파사드에서 `TransactionTemplate`으로 묶는다. 서비스의 `@Transactional`은 그 트랜잭션에 참여한다.
+- 남의 도메인 repository를 직접 쓰지 않는다.
+- **관리자(`/admin/**`) API의 컨트롤러와 응답 DTO는 `domain/admin`(`controller`, `dto`)에 둔다.** 관리자 기능은 여러 도메인(사업체, 공연장, 환불)에 걸쳐 있어서 진입점을 한곳에 모으고, 로직은 각 도메인의 서비스가 맡는다. 컨트롤러는 그 서비스를 부르고, 감사 로그처럼 서로 다른 도메인을 엮어야 하면 `domain/admin/facade`에 파사드를 둔다. 판매자·예매자 API는 기존대로 해당 도메인에 둔다.
+
+## 응답과 예외
+
+- 모든 응답은 `ApiResponse<T>` (`success`, `code`, `message`, `data`)로 내린다. 컨트롤러는 `ResponseEntity<ApiResponse<...>>`를 반환한다.
+- 비즈니스 규칙 위반은 `throw new BusinessException(XxxExceptionCode.XXX)` 한 줄로 던진다. 응답 변환은 `GlobalExceptionHandler`가 한다.
+- 에러 코드 enum은 도메인마다 `global/exception/code/XxxExceptionCode`에 만들고 `ExceptionCode`를 구현한다.
+- 코드 형식은 **접두사 + 3자리 숫자**다. (`COMMON000`, `AUTH001`, `BOOKING000`) 코드마다 `/** ... */` 주석으로 언제 쓰는지 적는다.
+- 5xx 원인(서버 내부 메시지)은 클라이언트에 노출하지 않는다.
+
+## 엔티티
+
+- `BaseTimeEntity`(created_at, updated_at)를 상속한다. 소프트 삭제가 필요하면 `SoftDeletableEntity`를 상속한다.
+- ID는 `Long`, `@GeneratedValue(strategy = GenerationType.IDENTITY)`.
+- 어노테이션: `@Entity @Getter @NoArgsConstructor(access = AccessLevel.PROTECTED) @Builder`. **setter는 만들지 않는다.** 값 변경은 `post.update(...)`처럼 의도가 드러나는 메서드로 한다.
+- enum 컬럼은 `@Enumerated(EnumType.STRING)`. 금액은 `Integer`(원).
+- **연관관계**: `@ManyToOne(fetch = LAZY)`로 연결하되 **DB에는 FK 제약을 걸지 않는다**(논리 FK). 단 행이 매우 많은 테이블(`schedule_seat`, `booking_seat`)은 연관관계 없이 `Long` ID만 가진다.
+- **다른 도메인의 값을 응답에 붙일 때**는 서비스끼리 부르거나 `Map<Long, X>`로 주고받지 않는다. 그 번호 필드에 **읽기 전용 연관**(`@ManyToOne(fetch = LAZY)` + `@JoinColumn(insertable = false, updatable = false)`, FK 제약 없음)을 하나 더 달고, `from(엔티티)`에서 `booking.getPerformance().getTitle()`처럼 꺼낸다. 저장·락·조건에는 지금처럼 `Long` 번호를 쓰고, 같은 컬럼을 쓰는 `Long` 필드에는 `@Column(name = "…")`을 명시해야 한다. (안 하면 시작할 때 `DuplicateMappingException`) 지연 로딩이라 응답은 서비스에서 트랜잭션 안에 만들고, 행이 없는 깨진 데이터는 `null`이 아니라 오류로 드러난다. 목록은 `default_batch_fetch_size`가 묶어서 읽어서 항목마다 쿼리가 나가지 않는다. 구역 좌석 수처럼 집계가 필요하면 `@Formula`를 쓴다.
+- **소프트 삭제**는 전역 필터(`@SQLRestriction`)를 쓰지 않는다. 조회 메서드 이름에 조건을 드러낸다. (`findByIdAndDeletedAtIsNull`)
+- 동시에 바뀌는 값(수량, 카운터)은 엔티티에서 더하지 않고 `UPDATE ... SET x = x + 1`로 DB에서 바꾼다.
+
+## 비밀 값·환경 설정
+
+- **`.env`에 있어야 할 값(비밀번호, 키, 접속 정보)은 코드·yaml·테스트에 적지 않는다.** `${KEY:기본값}`처럼 대체값을 두지 않는다. (키가 없으면 앱이 뜨지 않는 게 맞다. 저장소에 값이 남으면 유출이다)
+- 비밀 값이 필요한 테스트는 값을 코드에 쓰지 말고 **실행할 때 무작위로 만든다.** (`TestSecrets` 참고)
+- `.env`와 `docker-compose.yml`은 git에 올리지 않는다. 필요한 키 이름은 `application-local.yaml` 주석에 적는다.
+- 로그에 개인정보·토큰·키를 남기지 않는다. 비밀번호는 BCrypt, 본인인증 CI는 해시만 저장한다. 운영의 JWT 키는 로컬과 다른 값을 쓴다.
+
+## 서버가 여러 대로 늘어난다 (로컬과 운영 모두 Nginx + 앱 여러 개)
+
+- 앱은 상태를 갖지 않는다. 로그인·대기열·잠금 정보를 서버 메모리에 두지 않고 DB나 Redis에 둔다. 어느 서버로 요청이 가도 같은 결과가 나와야 한다.
+- 내 PC에서 서버 여러 대를 띄워 확인하는 방법은 `doc/local-multi-server.md`에 있다. (앱 2대는 IntelliJ에서 8081, 8082로 띄우고 Nginx는 Docker로 켠다)
+- **여러 서버가 같은 자원을 바꾸는 흐름(좌석 점유·예매)은 Redis 분산락으로 막는다.** `DistributedLockExecutor`로 락을 먼저 잡고 **그 안에서** `TransactionTemplate`으로 트랜잭션을 열어, **커밋 뒤에** 락이 풀리게 한다. `@Transactional` 메서드 안에서 락을 잡으면 락 실행기가 거부한다. 락 이름은 여러 개를 넘기면 실행기가 정렬해서 잡는다. 락을 못 잡으면 `COMMON004`(409)다. Redis 락만 믿지 않고 DB의 **상태 조건부 UPDATE**와 **UNIQUE 인덱스**를 마지막 방어선으로 함께 둔다. (`doc/part4-booking-area.md` 4-7)
+- 외부 호출(토스 등)은 DB 트랜잭션 밖에서 한다. 외부 서비스는 인터페이스 뒤에 두고 Mock 구현부터 만든다. (`IdentityVerifier` 참고)
+
+## DB·마이그레이션
+
+- 스키마 변경은 **Flyway**만 쓴다. `src/main/resources/db/migration/V{n}__설명.sql`.
+- **이미 적용된 파일은 수정하지 않는다.** 바꿀 것이 있으면 다음 번호로 새 파일을 만든다. (체크섬 오류가 난다)
+- 엔티티를 바꾸면 SQL 마이그레이션도 같이 만든다. `ddl-auto`는 `validate`다.
+- 부분 UNIQUE 인덱스, `jsonb`, `fillfactor` 같은 PostgreSQL 기능은 SQL로 만든다. (설계 문서 참고)
+- 시드는 두 곳이다. 공연장·좌석, 약관, 관리자는 `db/seed`에 두고 **모든 환경(운영 포함)에 적용**한다. 판매자·공연·시연 유저와 예매는 `db/seed-demo`에 두고 **로컬 프로필에서만** 적용한다. (운영은 판매자 가입 → 관리자 승인 → 공연 신청 흐름을 직접 시험한다) 그래서 시드에는 팀이 아는 비밀번호나 개발용 계정을 넣지 않는다. (비밀번호는 무작위로 만든 긴 값의 BCrypt 해시만 넣고, 만든 사람이 따로 보관한다) 테스트만 쓰는 데이터(개발용 공연장 등)는 `src/test/resources/db/test-seed`에 두고 `IntegrationTestSupport`가 그 위치를 더한다. 스키마 변경을 시드 파일에 넣지 않는다. 이미 적용된 시드 파일은 수정하지 않고 새 번호로 추가한다. (지우면 로컬 DB가 "적용한 파일이 없다"고 거부해서 `application-local.yaml`이 `*:missing`을 허용한다)
+- 조회에 쓰는 컬럼은 인덱스를 직접 만든다. (논리 FK라 자동으로 생기지 않는다)
+- **중복(UNIQUE) 에러는 인덱스 이름으로 연결한다.** 서비스가 미리 확인해도 동시 요청은 뚫을 수 있어서 마지막 방어선은 DB의 UNIQUE 인덱스다. 사용자에게 구체적으로 알려야 하는 인덱스는 `UniqueConstraintCodes`에 `인덱스 이름 → 에러 코드`로 한 줄 등록한다. (등록하지 않으면 일반 충돌 `COMMON003`) 서비스에서 실패 후 다시 조회하거나 try/catch 하지 않는다.
+
+## DTO·컨트롤러·서비스
+
+- 요청/응답 DTO는 `record`다. 도메인마다 `XxxRequest`, `XxxResponse`(안에 용도별 record)를 둔다. 응답 record에는 `from(엔티티)` 정적 메서드를 둔다.
+- 요청 검증은 `@Valid` + `jakarta.validation` 어노테이션, 메시지는 한국어로 쓴다.
+- API 경로는 `/api/v1/` 아래에 둔다. 관리자는 `/admin/**`, 판매자는 `/seller/**`로 구분한다. (임시)
+- 서비스는 `@Service @RequiredArgsConstructor`. 쓰기는 `@Transactional`, 읽기는 `@Transactional(readOnly = true)`.
+- **서비스(파사드)는 자기 도메인의 요청·응답 DTO를 알아도 된다.** (2026-11-17 변경: 결과·입력 객체를 따로 만들다 보니 파일만 늘어서 허용했다) 컨트롤러는 요청 DTO(`@Valid @RequestBody`)를 값으로 풀지 않고 서비스(파사드)에 그대로 넘기고, 서비스는 `XxxResponse`를 바로 돌려준다. 컨트롤러는 인증 정보(`account.getId()`)와 경로 변수만 더해 부르고 응답을 감싸기만 한다. 엔티티를 돌려주고 컨트롤러·파사드가 바꾸는 방식도 되지만, DTO로 충분한 곳에 `XxxResult` 같은 클래스를 따로 만들지 않는다. (파사드가 여러 도메인의 값을 모아 서비스에 넘기는 입력처럼 DTO로 표현할 수 없는 경우는 예외다)
+- 서비스끼리 부르지 않는 규칙은 그대로다. 여러 도메인의 값이 한 응답에 섞이더라도 읽기만 하면 읽기 전용 연관으로 꺼내서 서비스가 응답을 만들고, 여러 도메인에 쓰기가 걸리면 파사드가 각 서비스를 순서대로 부른다. 서비스가 다른 도메인의 DTO에 의존하지 않는다.
+- 연관 객체가 필요하면(예: 사업체 + 대표 계정) 서비스가 **트랜잭션 안에서** 읽어서 응답으로 만들거나 엔티티를 담아 돌려준다. 컨트롤러에서 지연 로딩 객체를 꺼내면 트랜잭션이 끝난 뒤라 `LazyInitializationException`이 난다. 응답 DTO를 서비스에서 만들면 이 문제가 생기지 않는다.
+- 의존성은 `@RequiredArgsConstructor`로 만든 생성자 주입만 쓴다. **생성자를 직접 쓰지 않는다.** 생성 후 초기화가 필요하면 `@PostConstruct`를 쓰거나 그 일을 맡는 별도 컴포넌트로 뺀다. (`PasswordVerifier` 참고)
+- 복잡한 조회는 `@Query` 텍스트 블록으로 쓰고 페이징은 `countQuery`를 분리한다.
+- **`Map`은 자유 형식 JSON 값(감사 로그의 before·after)에만 쓴다.** 서비스 반환 타입·record 필드·번호로 끼워 맞추는 `Map<Long, X>`는 쓰지 않는다. (키를 바꿔 넣어도 컴파일이 통과하고 `null`이 숨는다) 조회는 읽기 전용 연관으로, 고정된 대응표는 enum·`switch`로 쓴다. `@Query` 결과도 `Tuple`로 받지 않고 엔티티나 인터페이스 프로젝션(별칭과 같은 이름의 getter)으로 받는다. 행이 많아 프록시 비용이 문제인 조회(구역 좌석 등)는 repository 안의 `record`와 `SELECT new`로 받아도 된다. 이때 record는 repository 맨 아래에 주석 줄을 긋고 모아서 쿼리·인터페이스 프로젝션과 구분한다. (DTO나 엔티티 패키지를 쿼리에서 가져다 쓰지 않는다)
+
+## 권한
+
+권한은 두 단계다. 역할은 시큐리티가, "내 것인가"는 서비스가 확인한다.
+
+- **계정 종류·역할**: 경로 규칙은 `SecurityConfig`에 있다. (공개 조회 `PUBLIC_READ_PATHS`, 예매자 전용 `USER_ONLY_PATHS`, `/seller/**`, `/admin/**`) **새 API를 만들면 어느 규칙에 들어가는지 확인하고, 공개 조회나 예매자 전용이면 해당 목록에 경로를 추가한다.** 빠뜨리면 "로그인만 하면 누구든" 호출할 수 있다.
+- **판매자 대표 전용 기능**: 메서드에 `@PreAuthorize("hasRole('SELLER_OWNER')")`를 붙이고, 담당자 토큰으로 호출하면 403인 테스트를 만든다.
+- **내 것인가**: 시큐리티로 확인할 수 없다. 토큰의 번호(`account.getId()`, `account.getBusinessId()`)를 조회 조건에 넣는다. (`findByIdAndBusinessId`) 요청 본문이나 경로로 사업체 번호를 받지 않는다. 남의 것은 403이 아니라 **404**로 답하고(번호가 존재하는지 알려주지 않으려고), "다른 사람의 것을 호출하면 404"인 테스트를 만든다.
+- 토큰의 역할은 발급 시점 값이다. 계정이 비활성화돼도 액세스 토큰이 만료될 때(15분)까지는 통한다. 되돌리기 어려운 작업에서 최신 상태가 중요하면 서비스에서 DB로 한 번 더 확인한다.
+
+## 인증 방식
+
+- 로그인은 **v2 Redis 세션**(`/api/v2/auth/**`)이 기본이다. 로그인하면 `SESSION` 쿠키가 내려가고, 컨트롤러에서는 JWT 때와 같이 `@AuthenticationPrincipal CustomUserDetails`로 받는다. 업무 API는 JWT(v1)와 세션을 **모두 인정**하므로 경로를 나누지 않는다.
+- **v1 JWT는 `@Deprecated(forRemoval = true)`다.** `JwtProvider`, `JwtProperties`, `JwtAuthenticationFilter`, `TokenService`를 새 코드에서 쓰면 `compileJava`가 실패한다. (`build.gradle`의 `-Werror`) 기존 v1 코드에는 `@SuppressWarnings("removal")`로 허용한 표시가 있다. v1을 새로 확장하지 않는다. 테스트 코드는 경고만 난다.
+- 시큐리티는 세션을 만들지 않는다. (`SessionCreationPolicy.NEVER`) 세션은 로그인 API(`SessionAuthenticator`)만 만든다.
+- `CustomUserDetails`는 직렬화되어 Redis 세션에 저장된다. 필드를 바꾸면 `serialVersionUID`를 올린다. (저장된 세션은 읽지 못해 다시 로그인한다)
+- 쿠키 인증이라 CSRF에 주의한다. 지금은 CSRF 토큰이 없고 `SameSite=Lax` 쿠키에만 의존한다. (알려진 빈틈, `doc/project-log.md` 참고)
+
+## 코드 스타일
+
+- 들여쓰기는 **탭**이다. IDE 설정을 확인한다.
+- Lombok을 쓴다. IDE에서 Lombok 플러그인과 Annotation Processing을 켠다.
+- 주석은 한국어로, **"무엇"이 아니라 "왜"**를 적는다. 코드만 봐서는 알 수 없는 이유와 제약을 남긴다.
+- 사용하지 않는 import, 주석 처리된 코드, 디버그 출력은 남기지 않는다.
+
+## 테스트
+
+- **테스트는 "깨지면 돈·좌석·권한·데이터가 잘못되는 것"만 남긴다.** 많이 만드는 것보다 중요한 것을 확실히 지키는 쪽이다. (2026-11-18 전체 480개에서 150개로 줄였다)
+  - 만든다: 동시성(좌석 점유·예매·결제 승인·락), 권한(역할별 403, 남의 것 404), 돈·상태 전이(금액 검증, 이중 승인, 만료), DB 제약이 마지막 방어선이 되는 것(UNIQUE), 외부 연동(토스, S3), 트랜잭션 롤백
+  - 만들지 않는다: 조회·목록의 응답 모양·정렬·페이징, 입력값 400 검증의 경우의 수, 이미 `SecurityConfigTest`가 확인하는 401/403 반복. 단 "비공개·남의 것이 보이면 안 된다"는 한 개씩 둔다.
+- 통합 테스트: 실제 PostgreSQL·Redis(Testcontainers)에서 API를 호출한다. 서비스 단위 테스트(Mockito)는 통합 테스트와 겹쳐서 쓰지 않는다.
+- 좌석 점유, 예매, 1인 최대 매수처럼 **동시성이 걸리는 로직은 동시성 테스트를 만든다.**
+- 테스트 메서드에는 한국어 `@DisplayName`을 붙여 무엇을 검증하는지 적는다.
+
+## Git·협업
+
+- `dev`가 개발 통합 브랜치다. `main`과 `dev`에는 직접 push하지 않고, 작업 브랜치에서 **`dev`로 PR**을 올린다. (`origin/dev` 기준으로 브랜치를 딴다)
+- 브랜치: `feat/…`, `fix/…`, `docs/…`, `chore/…` (예: `feat/seat-hold`)
+- 커밋 메시지: `feat: 좌석 점유 기능 추가`처럼 `타입: 내용`. 타입은 `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
+- PR은 **기능 하나 단위**로 작게 올린다. 리뷰어 1명 이상의 승인을 받고 머지한다.
+- 리뷰 기준은 "동작하는가"보다 먼저 **"설계 문서와 같은가"**다.
+- 구현 전에 API 명세(요청·응답 예시)를 먼저 맞춘다.
+- **내가 맡은 도메인이 아닌 곳을 건드릴 때는 담당자에게 먼저 연락한다.** 다른 사람의 엔티티·서비스·리포지토리·마이그레이션을 고치거나, 내 기능을 위해 그쪽 변경이 필요하면 직접 고치지 않고 담당자와 이야기한 뒤 진행한다. 담당은 팀 분담표(`doc/appendix.md` 부록 D)를 확인한다. (같은 파일을 동시에 고치면 충돌하고, 담당자가 의도하지 않은 변경이 들어갈 수 있다)
+- 공통 틀(`global/**`), 보안 설정(`SecurityConfig`), 마이그레이션 번호는 모두가 쓰는 곳이라 바꾸기 전에 팀에 먼저 알린다.
+
+## 프로젝트 로그
+
+- 진행 내용과 **고민**(왜 그렇게 정했는지, 버린 대안)은 `doc/project-log.md`의 `변경 이력`에 남긴다. 나중에 발표 자료로 쓴다.
+- 작성자는 각자의 `CLAUDE.local.md`에 적은 닉네임으로 적는다. 파일이나 닉네임이 없으면 임의로 정하지 말고 물어본다.
+- `CLAUDE.local.md`는 개인 설정이라 git에 올리지 않는다. (`.gitignore`에 있다)
+- 한 줄은 `날짜 | 작성자 | 내용`이다. 길어지는 결정은 같은 문서의 "확정된 핵심 결정"에 쓰고 이력에는 요약만 둔다.
+
+## Claude에게
+
+- 작업 전에 관련된 `doc/` 문서의 해당 부분을 읽는다.
+- 기능을 끝내면 위 규칙대로 프로젝트 로그에 진행 내용과 고민을 남긴다. 작성자 닉네임은 `CLAUDE.local.md`에서 읽는다.
+- 설계 문서와 어긋나는 구현이 필요하면 임의로 정하지 말고 먼저 물어본다.
+- 모르는 값(정책, 수치)을 추측해서 코드에 넣지 않는다. 문서의 "임시"/"미정" 표시를 확인한다.

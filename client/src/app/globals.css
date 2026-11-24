@@ -1,0 +1,333 @@
+@import "tailwindcss";
+
+/*
+  밝고 가벼운 바탕에 포스터와 배너의 색을 크게 쓰는 구성.
+  화면 크롬은 흰색과 옅은 회색, 강조색은 하나(ember)로 두고
+  색은 배너·포스터 타일·구역 지도에서만 풍부하게 쓴다.
+*/
+:root {
+  --deep: #f3f4f8;
+  --background: #ffffff;
+  --surface: #ffffff;
+  --raised: #eff1f5;
+  --foreground: #191b21;
+  --secondary: #4e5361;
+  --muted: #747a8a;
+  --line: rgba(25, 27, 33, 0.1);
+  --accent: #d23a1f;
+  --accent-hover: #b93119;
+  --accent-strong: #c2361c;
+  --accent-soft: #fdebe6;
+  --ok: #12804a;
+  --ok-soft: #e0f3e8;
+  --warn: #965808;
+  --warn-soft: #fbefd8;
+  --paper: #fffaf0;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@theme inline {
+  --color-deep: var(--deep);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-foreground: var(--foreground);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --font-sans: var(--font-noto), "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 22px;
+  /* 가격·좌석 번호가 세로로 맞도록 숫자 폭을 같게 한다 */
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 첫 화면 진입에만 한 번, 짧게 */
+.rise {
+  animation: rise 480ms var(--ease) both;
+}
+.rise-2 {
+  animation-delay: 60ms;
+}
+.rise-3 {
+  animation-delay: 120ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+}
+
+/* 가로 스크롤 목록에서 스크롤바를 숨긴다 */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+  }
+
+  .input {
+    width: 100%;
+    height: 44px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0 16px;
+    font-size: 15px;
+    color: var(--foreground);
+    transition-property: border-color;
+    transition-duration: 150ms;
+    transition-timing-function: var(--ease);
+  }
+  .input::placeholder {
+    color: var(--muted);
+  }
+  .input:hover {
+    border-color: rgba(25, 27, 33, 0.25);
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--foreground);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--foreground);
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition-property: background-color, border-color, color, opacity, transform;
+    transition-duration: 150ms;
+    transition-timing-function: var(--ease);
+  }
+  .btn:hover:not(:disabled) {
+    border-color: rgba(25, 27, 33, 0.35);
+    background: var(--deep);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-lg {
+    height: 52px;
+    padding: 0 28px;
+    font-size: 16px;
+    border-radius: 14px;
+  }
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  .btn-dark {
+    background: var(--foreground);
+    border-color: var(--foreground);
+    color: #fff;
+  }
+  .btn-dark:hover:not(:disabled) {
+    background: var(--foreground);
+    border-color: var(--foreground);
+    opacity: 0.88;
+  }
+  .btn-ghost {
+    background: transparent;
+  }
+
+  /* 알약형 선택 버튼 (장르·필터) */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: 40px;
+    border-radius: 9999px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    padding: 0 18px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--secondary);
+    cursor: pointer;
+    transition-property: background-color, border-color, color;
+    transition-duration: 150ms;
+    transition-timing-function: var(--ease);
+  }
+  .chip:hover {
+    border-color: rgba(25, 27, 33, 0.35);
+    color: var(--foreground);
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--foreground);
+    border-color: var(--foreground);
+    color: #fff;
+  }
+
+  /* 상태 배지는 뜻이 있는 것만 색을 쓰고 나머지는 중립 */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    background: var(--raised);
+    color: var(--secondary);
+  }
+  .badge-accent {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+  }
+  .badge-ok {
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
+  .badge-warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--secondary);
+  }
+
+  /* 종이 티켓. 서명인 절취선은 점선과 양쪽 반원 홈이다 */
+  .ticket {
+    position: relative;
+    overflow: hidden;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: 0 8px 24px rgba(25, 27, 33, 0.08);
+  }
+  .ticket-perforation {
+    position: relative;
+    height: 0;
+    border-top: 2px dotted rgba(25, 27, 33, 0.25);
+    margin: 0 20px;
+  }
+  .ticket-perforation::before,
+  .ticket-perforation::after {
+    content: "";
+    position: absolute;
+    top: -11px;
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    background: var(--background);
+    border: 1px solid var(--line);
+  }
+  .ticket-perforation::before {
+    left: -30px;
+  }
+  .ticket-perforation::after {
+    right: -30px;
+  }
+}
+
+/* 구역 지도 (공연장 도면) */
+.arena-zone {
+  cursor: pointer;
+  outline: none;
+}
+.arena-zone polygon {
+  stroke: var(--surface);
+  stroke-width: 2;
+  transition: filter 150ms var(--ease);
+}
+.arena-zone:hover polygon,
+.arena-zone:focus-visible polygon {
+  filter: brightness(1.1);
+}
+.arena-zone:focus-visible polygon {
+  stroke: var(--foreground);
+  stroke-width: 3;
+}
+.arena-zone[data-disabled] {
+  cursor: default;
+}
+.arena-zone-label {
+  fill: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.arena-seat {
+  fill: var(--muted);
+  opacity: 0.5;
+  cursor: pointer;
+}
+.arena-seat:hover {
+  opacity: 0.95;
+}
+.arena-seat-picked {
+  fill: var(--accent);
+  opacity: 1;
+}
+.arena-seat-off {
+  opacity: 0.16;
+  cursor: default;
+}
+.arena-seat-off:hover {
+  opacity: 0.16;
+}
