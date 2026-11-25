@@ -15,6 +15,7 @@ import com.squirrel.tickting.domain.performance.infra.repository.ZoneGradeReposi
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
+import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import com.squirrel.tickting.global.exception.BusinessException;
@@ -178,14 +179,126 @@ public class SellerPerformanceService {
 			.build();
 	}
 
+	/**
+	 * 판매자가 "좌석 지금 생성"을 눌러 한 회차의 판매 좌석을 만든다. 만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없다.
+	 * 남의 회차는 락을 잡기 전에 404 로 끝내서 남의 회차 상태를 드러내지 않는다.
+	 * 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
+	 */
+	public SellerPerformanceResponse.SeatsGenerated generateSeats(Long businessId, Long scheduleId) {
+		PerformanceSchedule schedule = performanceScheduleRepository.findWithPerformanceById(scheduleId)
+			.filter(found -> found.getPerformance().getBusinessId().equals(businessId))
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND));
+		return generateSeatsBySystem(schedule.getPerformance().getId(), scheduleId);
+	}
+
+	/**
+	 * 소유 확인 없이 한 회차의 판매 좌석을 만든다. 시스템이 부르는 길(스케줄러)이 쓴다.
+	 * 공연 락 performance:{공연 번호} 는 등급·구역 수정(SLR-10·11)·공개(SLR-04)와 같은 이름이라, 가격·구역을 복사하는 것과
+	 * 그 값을 고치는 것이 서로 막는다. 락을 못 잡으면 COMMON004 다.
+	 */
+	public SellerPerformanceResponse.SeatsGenerated generateSeatsBySystem(Long performanceId, Long scheduleId) {
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> generateSeatsInTransaction(scheduleId)));
+	}
+
+	/**
+	 * 락과 트랜잭션이 이미 열려 있다고 가정하고 검사·복사한다. 락을 기다리는 사이 상태가 바뀌었을 수 있어 락 밖의 판단은 믿지 않고 다시 읽는다.
+	 * 검사 순서: 공연 상태 → 회차 상태 → 이미 생성됨 → 시작 시각 → 판매 정보 → 구역 설정 → (조건부 UPDATE, 복사).
+	 * 앞의 것일수록 이미 읽은 행 하나로 판단하고, 구역 설정(작은 목록)을 거쳐 수천 행을 만드는 복사가 맨 끝이다. 처리량은 추정이고 측정하지 않았다.
+	 */
+	private SellerPerformanceResponse.SeatsGenerated generateSeatsInTransaction(Long scheduleId) {
+		// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
+		LocalDateTime now = LocalDateTime.now();
+		PerformanceSchedule schedule = performanceScheduleRepository.findWithPerformanceById(scheduleId)
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND));
+		Performance performance = schedule.getPerformance();
+
+		if (performance.getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED);
+		}
+		if (schedule.getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_CANCELED);
+		}
+		if (schedule.getSeatsGeneratedAt() != null) {
+			throw new BusinessException(PerformanceExceptionCode.SEATS_ALREADY_GENERATED);
+		}
+		if (!schedule.getStartAt().isAfter(now)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_ALREADY_STARTED);
+		}
+		// 공개된 공연은 공개 조건이 판매 정보를 보장한다. 작성 중 공연만 비어 있을 수 있어, 빈 초안에서 실수로 눌러 가격이 잠기지 않게 한다.
+		if (performance.getStatus() == PerformanceStatus.DRAFT && hasMissingSaleField(performance)) {
+			throw new BusinessException(PerformanceExceptionCode.SALE_FIELDS_MISSING,
+				"판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료를 모두 설정해야 판매 좌석을 만들 수 있습니다.");
+		}
+
+		List<ZoneGrade> zoneGrades = zoneGradeRepository.findAllWithGradeByPerformanceId(performance.getId());
+		validateZonesForSeats(zoneGrades, performance.getVenue().getZones());
+
+		// 락이 듣지 않아도 한 회차는 한 번만 만든다. 0행이면 그 사이 만들어졌거나 취소됐다.
+		if (performanceScheduleRepository.markSeatsGenerated(scheduleId, ScheduleStatus.CANCELED, now) == 0) {
+			throw new BusinessException(PerformanceExceptionCode.SEATS_ALREADY_GENERATED);
+		}
+		int copied = scheduleSeatRepository.copyFromVenueSeats(scheduleId, performance.getId(), performance.getVenueId(), now);
+		// 판매 구역이 있는데 복사할 공연장 좌석이 없는 깨진 데이터. 예외를 던지면 같은 트랜잭션이라 방금 채운 seats_generated_at 도 함께 되돌아간다.
+		if (copied == 0) {
+			throw new BusinessException(PerformanceExceptionCode.NO_VENUE_SEATS_TO_COPY);
+		}
+		return seatsGeneratedResponse(scheduleId, now);
+	}
+
+	/**
+	 * 좌석 생성 때의 구역 조건. 설정하지 않은(UNSET) 구역이 없어야 하고 판매할(ASSIGNED) 구역이 하나 이상 있어야 한다.
+	 * 판매 구역이 0개면 전부 BLOCKED 인 회차가 만들어져 잠기고, 작성 중 공연은 공개 조건(ASSIGNED 1개 이상)을 영영 채우지 못한다.
+	 * 전석 섞임은 구역 설정(SLR-11)이 이미 막는다. 공개 때만 한 번 더 보는 것이라 여기서는 보지 않는다.
+	 */
+	private void validateZonesForSeats(List<ZoneGrade> zoneGrades, List<VenueZone> venueZones) {
+		List<VenueZone> unsetZones = zonesOf(zoneGrades, ZoneAssignmentStatus.UNSET, venueZones);
+		if (!unsetZones.isEmpty()) {
+			throw new BusinessException(PerformanceExceptionCode.ZONE_UNSET_REMAINS,
+				PerformanceExceptionCode.ZONE_UNSET_REMAINS.getMessage() + ": "
+					+ String.join(", ", unsetZones.stream().map(VenueZone::getName).toList()));
+		}
+		boolean hasAssigned = zoneGrades.stream()
+			.anyMatch(zoneGrade -> zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED);
+		if (!hasAssigned) {
+			throw new BusinessException(PerformanceExceptionCode.NO_ASSIGNED_ZONE,
+				"판매할 구역이 하나 이상 있어야 판매 좌석을 만들 수 있습니다.");
+		}
+	}
+
+	/** 방금 만든 좌석을 DB에서 상태별로 센다. 만든 직후라 AVAILABLE 과 BLOCKED 만 있다. */
+	private SellerPerformanceResponse.SeatsGenerated seatsGeneratedResponse(Long scheduleId, LocalDateTime now) {
+		long available = 0;
+		long blocked = 0;
+		for (ScheduleSeatRepository.SeatStatusCount count : scheduleSeatRepository.countByStatus(List.of(scheduleId))) {
+			if (count.getStatus() == SeatStatus.AVAILABLE) {
+				available = count.getCount();
+			} else if (count.getStatus() == SeatStatus.BLOCKED) {
+				blocked = count.getCount();
+			}
+		}
+		return SellerPerformanceResponse.SeatsGenerated.builder()
+			.scheduleId(scheduleId)
+			.seatsGeneratedAt(now)
+			.totalSeats(available + blocked)
+			.availableSeats(available)
+			.blockedSeats(blocked)
+			.build();
+	}
+
+	/** 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료 중 비어 있는 것이 있는가. 공개와 좌석 생성이 같은 기준을 쓴다. */
+	private boolean hasMissingSaleField(Performance performance) {
+		return performance.getSaleOpenAt() == null || performance.getSaleCloseAt() == null
+			|| performance.getMaxPerPerson() == null || performance.getReceiveType() == null
+			|| performance.getBookingFee() == null;
+	}
+
 	/** 공연 한 행만 보고 판단하는 조건. 작성 중 → 판매 필드 → 판매 종료 → 판매 오픈 순이다. */
 	private void validatePublishable(Performance performance, LocalDateTime now) {
 		if (performance.getStatus() != PerformanceStatus.DRAFT) {
 			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_NOT_DRAFT);
 		}
-		if (performance.getSaleOpenAt() == null || performance.getSaleCloseAt() == null
-			|| performance.getMaxPerPerson() == null || performance.getReceiveType() == null
-			|| performance.getBookingFee() == null) {
+		if (hasMissingSaleField(performance)) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_FIELDS_MISSING);
 		}
 		if (!performance.getSaleCloseAt().isAfter(now)) {

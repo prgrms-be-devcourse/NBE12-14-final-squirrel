@@ -228,6 +228,23 @@ public class SellerPerformanceResponse {
 	) {
 	}
 
+	/** 판매 좌석 생성(SLR-14) 결과. 개수는 만든 좌석을 DB에서 상태별로 센 값이다. */
+	@Builder
+	@Schema(name = "SellerPerformanceSeatsGenerated", description = "판매 좌석 생성 결과")
+	public record SeatsGenerated(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "판매 좌석을 만든 시각")
+		LocalDateTime seatsGeneratedAt,
+		@Schema(description = "만든 좌석 수 (판매 가능 + 판매 제외)", example = "3022")
+		long totalSeats,
+		@Schema(description = "판매 가능(AVAILABLE) 좌석 수", example = "2980")
+		long availableSeats,
+		@Schema(description = "판매 제외(BLOCKED) 좌석 수. 의도적 미판매 구역의 좌석", example = "42")
+		long blockedSeats
+	) {
+	}
+
 	@Schema(name = "SellerPerformanceUnsoldZone", description = "판매하지 않는 구역")
 	public record UnsoldZone(
 		@Schema(description = "구역 번호")
