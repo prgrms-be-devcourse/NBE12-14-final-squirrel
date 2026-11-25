@@ -228,6 +228,28 @@ public class SellerPerformanceResponse {
 	) {
 	}
 
+	/** 회차 추가(SLR-12) 결과. */
+	@Schema(name = "SellerPerformanceScheduleCreated", description = "회차 추가 결과")
+	public record ScheduleCreated(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "공연 번호")
+		Long performanceId,
+		@Schema(description = "공연 일시")
+		LocalDateTime startAt,
+		@Schema(description = "회차 판매 상태. 추가 직후에는 항상 ON_SALE", example = "ON_SALE")
+		ScheduleStatus status,
+		@Schema(description = "판매 좌석을 바로 만들었으면 그 시각, 아니면 null", nullable = true)
+		LocalDateTime seatsGeneratedAt
+	) {
+
+		/** 좌석 생성 시각은 일괄 UPDATE 로 채워 엔티티에 반영되지 않으므로 따로 받는다. */
+		public static ScheduleCreated from(PerformanceSchedule schedule, LocalDateTime seatsGeneratedAt) {
+			return new ScheduleCreated(schedule.getId(), schedule.getPerformance().getId(), schedule.getStartAt(),
+				schedule.getStatus(), seatsGeneratedAt);
+		}
+	}
+
 	/** 판매 좌석 생성(SLR-14) 결과. 개수는 만든 좌석을 DB에서 상태별로 센 값이다. */
 	@Builder
 	@Schema(name = "SellerPerformanceSeatsGenerated", description = "판매 좌석 생성 결과")

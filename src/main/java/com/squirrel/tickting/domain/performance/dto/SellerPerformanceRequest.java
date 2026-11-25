@@ -5,6 +5,7 @@ import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -129,6 +130,17 @@ public class SellerPerformanceRequest {
 		public Image {
 			url = trim(url);
 		}
+	}
+
+	/** 회차 추가 본문. 지난 시각(지금 포함)은 여기서 막고, 공연 상태·판매 기간에 따른 조건은 서비스가 본다. */
+	@Schema(name = "SellerScheduleSaveRequest", description = "회차 추가 요청")
+	public record ScheduleSave(
+
+		@NotNull(message = "공연 일시를 입력해 주세요.")
+		@Future(message = "공연 일시는 지금보다 늦어야 합니다.")
+		@Schema(description = "공연 일시", example = "2026-12-20T19:00:00")
+		LocalDateTime startAt
+	) {
 	}
 
 	private static String trim(String value) {
