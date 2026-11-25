@@ -15,7 +15,9 @@ import { Loading } from "@/components/ui";
 // 좌석은 묶음을 열 때 그 묶음의 구역만 불러온다. (구역 좌석 API 는 구역 하나씩이라 묶음 크기만큼 동시에 부른다)
 
 const ZOOM_MIN = 1;
-const ZOOM_MAX = 3;
+const ZOOM_MAX = 4;
+// 묶음 전체가 한 화면에 들어오게 그릴 때의 기준 높이(px). 이 높이에 맞는 너비까지만 키우고, 더 보려면 확대한다.
+const FIT_HEIGHT = 840;
 
 // 도면에 없는 구역(DB 에는 있는데 도면에 이름이 없는 구역)을 보여 줄 때 쓰는 임시 모양
 const FALLBACK_SHAPE = (name: string): ZoneShape => ({
@@ -53,10 +55,11 @@ export function ArenaMap({ layout, zones, scheduleId, pickedIds, onToggle, versi
   if (view) {
     const shapes = view.map((name) => ({ name, shape: shapeOf(name) }));
     const all = boundsOf(shapes.flatMap((s) => s.shape.points));
-    const pad = 6;
+    // 좌석 바탕과 열 번호가 구역 모양 밖으로 조금 나오므로 여유를 둔다.
+    const pad = 14;
     const box = { x: all.x0 - pad, y: all.y0 - pad, w: all.width + 2 * pad, h: all.height + 2 * pad };
-    // 묶음 전체가 한 화면(높이 약 640px)에 들어오는 너비를 기준으로 하고, 확대하면 그 너비를 배로 키운다.
-    const fitWidth = Math.round((640 * box.w) / box.h);
+    // 묶음 전체가 한 화면(높이 FIT_HEIGHT)에 들어오는 너비를 기준으로 하고, 확대하면 그 너비를 배로 키운다.
+    const fitWidth = Math.round((FIT_HEIGHT * box.w) / box.h);
     return (
       <section>
         <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -87,7 +90,7 @@ export function ArenaMap({ layout, zones, scheduleId, pickedIds, onToggle, versi
             </button>
           </span>
         </div>
-        <div className="card overflow-auto bg-deep p-2" style={{ maxHeight: "78vh" }}>
+        <div className="card overflow-auto bg-deep p-2" style={{ maxHeight: "84vh" }}>
           <svg
             viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`}
             className="mx-auto block"
@@ -251,18 +254,21 @@ function ZoneLayer({
     () => (seats.data ? layoutZoneSeats(shape, seats.data.seats, venueCenterX) : null),
     [seats.data, shape, venueCenterX],
   );
-  const clipId = `clip-${name}`;
   const points = shape.points.map((p) => p.join(",")).join(" ");
   const { x0, y0, width } = boundsOf(shape.points);
+  const hasBackdrop = laid !== null && laid.backdrop.length > 0;
+  // 좌석을 불러오기 전에는 구역 모양을 임시 바탕으로 쓰고, 불러온 뒤에는 좌석이 있는 칸을 따라가는 바탕으로 바꾼다.
+  const backdropPath = hasBackdrop
+    ? laid.backdrop.map((r) => `M${r.x} ${r.y}h${r.w}v${r.h}h${-r.w}z`).join("")
+    : null;
+  const titleX = hasBackdrop ? laid.titleX : x0 + width / 2;
+  const titleY = hasBackdrop ? laid.titleY : y0 + 9;
 
   return (
     <g>
-      <clipPath id={clipId}>
-        <polygon points={points} />
-      </clipPath>
-      <polygon points={points} fill="var(--surface)" />
-      <g clipPath={`url(#${clipId})`}>
-        <text x={x0 + width / 2} y={y0 + 9} textAnchor="middle" fontSize={9} fontWeight={500} fill="var(--secondary)">
+      {backdropPath ? <path d={backdropPath} fill="var(--surface)" /> : <polygon points={points} fill="var(--surface)" />}
+      <g>
+        <text x={titleX} y={titleY} textAnchor="middle" fontSize={9} fontWeight={500} fill="var(--secondary)">
           {shape.label}
         </text>
         {seats.loading && (
@@ -288,7 +294,7 @@ function ZoneLayer({
               key={seat.seatId}
               cx={x}
               cy={y}
-              r={laid.pitch * 0.37}
+              r={laid.pitch * 0.42}
               className={chosen ? "arena-seat arena-seat-picked" : available ? "arena-seat" : "arena-seat arena-seat-off"}
               onClick={() => zone && (available || chosen) && onToggle(seat, zone)}
             >
