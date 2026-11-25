@@ -26,7 +26,7 @@ export default function AdminOverviewPage() {
           label="다시 처리할 환불"
           value={refunds.data?.totalElements ?? "-"}
           tone={refunds.data?.totalElements ? "accent" : undefined}
-          hint="재시도 3회를 넘겨 실패한 환불"
+          hint="자동 재시도를 다 쓰고도 실패한 환불"
         />
       </div>
 

@@ -42,6 +42,20 @@ export type Helpers = {
 };
 
 const DAY = 24 * 3_600_000;
+const HOUR = 3_600_000;
+
+// 서버 규칙의 "임시" 값(api-spec SLR-04·12). 서버가 바뀌면 같이 고친다.
+const PUBLISH_LEAD = 3 * HOUR; // 공개·작성 중 회차는 지금부터 이 시간보다 뒤여야 한다
+const TURNAROUND = HOUR; // 회차 뒤 정리 시간. 회차가 차지하는 시간 = 러닝타임 + 이 값
+const PRE_GENERATE = DAY; // 판매 오픈 이만큼 전부터는 회차를 추가하면서 판매 좌석을 바로 만든다
+
+// 환불: 자동 재시도 횟수(서버 설정 app.payment.refund-retry.max-count)와 토스 멱등키 유효 기간
+const REFUND_MAX_RETRY = 3;
+const REFUND_KEY_DAYS = 15;
+
+const toMs = (iso: string) => new Date(iso).getTime();
+const clockText = (iso: string) => iso.slice(0, 16).replace("T", " ");
+const occupyEnd = (startMs: number, runningTime: number) => startMs + runningTime * 60_000 + TURNAROUND;
 
 type PerfRec = SellerPerformanceDetail & {
   grades: Grade[];
@@ -174,22 +188,35 @@ function seedRefunds(): RefundRec[] {
     {
       refundId: 288, bookingId: 874, bookingNo: "20261110QWRT91K", paymentId: 702, amount: 156000,
       reasonType: "PERFORMANCE_CANCEL", reasonDetail: "출연자 사정으로 회차 취소", status: "FAILED",
-      retryCount: 3, failReason: "PG 응답 시간 초과", requestedAt: at(5),
+      retryCount: 3, failReason: "PG 응답 시간 초과", requestedAt: at(5), lastAttemptedAt: at(4.9),
     },
     {
+      // 다시 처리해도 토스가 계속 거절하는 건. 200 인데 status 가 FAILED 로 남는 경로를 시험한다.
       refundId: 291, bookingId: 880, bookingNo: "20261111M3ZA7PD", paymentId: 709, amount: 99000,
       reasonType: "USER_CANCEL", reasonDetail: null, status: "FAILED",
-      retryCount: 3, failReason: "카드사 점검으로 승인 취소 거절", requestedAt: at(4),
+      retryCount: 3, failReason: "카드사 점검으로 승인 취소 거절", requestedAt: at(4), lastAttemptedAt: at(3.9),
     },
     {
       refundId: 295, bookingId: 891, bookingNo: "20261112K8CC02X", paymentId: 716, amount: 330000,
       reasonType: "PERFORMANCE_CANCEL", reasonDetail: "공연 전체 취소", status: "FAILED",
-      retryCount: 1, failReason: "PG 일시 오류", requestedAt: at(3),
+      retryCount: 1, failReason: "PG 일시 오류", requestedAt: at(3), lastAttemptedAt: at(2.9),
+    },
+    {
+      // 처음 요청한 지 15일이 지난 건. 토스 멱등키가 만료돼 서버가 다시 처리를 거절한다. (PAYMENT010)
+      refundId: 270, bookingId: 842, bookingNo: "20261101T7RB44Q", paymentId: 671, amount: 121000,
+      reasonType: "POSTPONE_CANCEL", reasonDetail: "공연 연기로 인한 취소", status: "FAILED",
+      retryCount: 3, failReason: "카드 승인 취소 기간 초과", requestedAt: at(20), lastAttemptedAt: at(19),
+    },
+    {
+      // 스케줄러나 다른 요청이 토스에 보내는 중인 건. (PAYMENT009)
+      refundId: 299, bookingId: 899, bookingNo: "20261124P9XK30D", paymentId: 724, amount: 66000,
+      reasonType: "USER_CANCEL", reasonDetail: null, status: "PROCESSING",
+      retryCount: 1, failReason: null, requestedAt: at(1), lastAttemptedAt: at(0.01),
     },
     {
       refundId: 280, bookingId: 860, bookingNo: "20261105H2LL81B", paymentId: 690, amount: 77000,
       reasonType: "USER_CANCEL", reasonDetail: null, status: "DONE",
-      retryCount: 0, failReason: null, requestedAt: at(12),
+      retryCount: 0, failReason: null, requestedAt: at(12), lastAttemptedAt: at(12),
     },
   ];
 }
@@ -298,7 +325,44 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
     rules: normalizeRules(p.rules),
   });
 
-  const totalSeats = () => ZONES.reduce((sum, z) => sum + z.seatCount, 0);
+  // 공연이 가진 구역의 좌석 합. 구역은 공연장마다 달라서 공연 기준으로 센다.
+  const totalSeats = (perf: PerfRec) => perf.zones.reduce((sum, z) => sum + z.seatCount, 0);
+  const seatsByStatus = (perf: PerfRec, status: ZoneAssignment["assignmentStatus"]) =>
+    perf.zones.filter((z) => z.assignmentStatus === status).reduce((sum, z) => sum + z.seatCount, 0);
+
+  const activeSchedules = (perf: PerfRec) => perf.schedules.filter((s) => s.status !== "CANCELED");
+  const salesInfoSet = (perf: PerfRec) =>
+    Boolean(perf.saleOpenAt && perf.saleCloseAt) && perf.maxPerPerson != null && perf.receiveType != null && perf.bookingFee != null;
+
+  // 전석(ALL)과 다른 등급이 함께 구역에 지정됐는지. 요청을 적용한 뒤의 최종 상태로 판단하려고 구역·등급을 받는다.
+  const allMixed = (zones: ZoneAssignment[], grades: Grade[]) => {
+    const names = new Set(
+      zones.filter((z) => z.assignmentStatus === "ASSIGNED").map((z) => grades.find((x) => x.gradeId === z.gradeId)?.name),
+    );
+    return names.has("ALL") && names.size > 1;
+  };
+
+  // 같은 공연장의 다른 회차와 시간이 겹치는지. 회차가 차지하는 시간은 시작 ~ 시작 + 러닝타임 + 1시간이고
+  // 끝나는 시각과 다음 시작이 같으면 겹치지 않는다. 취소된 회차·공연은 세지 않는다. (api-spec SLR-12)
+  function findClash(venueId: number, startMs: number, runningTime: number, ignoreScheduleId?: number) {
+    const endMs = occupyEnd(startMs, runningTime);
+    for (const p of state().performances) {
+      if (p.venue.venueId !== venueId || p.status === "CANCELED") continue;
+      for (const x of p.schedules) {
+        if (x.status === "CANCELED" || x.scheduleId === ignoreScheduleId) continue;
+        const xs = toMs(x.startAt);
+        const xe = occupyEnd(xs, p.runningTime);
+        if (startMs < xe && xs < endMs) return { perf: p, schedule: x, endMs: xe };
+      }
+    }
+    return null;
+  }
+  const clashMessage = (clash: NonNullable<ReturnType<typeof findClash>>) => {
+    const end = isoLocal(new Date(clash.endMs));
+    // 끝나는 날이 다르면 날짜까지 적는다.
+    const endText = end.slice(0, 10) === clash.schedule.startAt.slice(0, 10) ? end.slice(11, 16) : clockText(end);
+    return `같은 공연장의 다른 회차와 시간이 겹칩니다: ${clash.perf.title} ${clockText(clash.schedule.startAt)} (${endText}까지 사용)`;
+  };
 
   const gradesView = (perf: PerfRec) => ({
     locked: perf.schedules.some((s) => s.status !== "CANCELED" && s.seatsGeneratedAt),
@@ -435,22 +499,61 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
       if (s instanceof Response) return s;
       const perf = findPerf(id);
       if (!perf) return notFound();
-      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE005", "취소된 공연은 수정할 수 없습니다");
       const b = await body<PerformanceForm>(ctx);
       const problems = validatePerformance(b);
       if (problems.length > 0) return fail(400, "COMMON000", problems.join(", "));
       if (b.saleOpenAt && b.saleCloseAt && b.saleCloseAt <= b.saleOpenAt) {
         return fail(400, "PERFORMANCE001", "판매 종료는 판매 오픈보다 늦어야 합니다");
       }
-      if (perf.status === "PUBLISHED" && b.cancelPolicyId !== perf.cancelPolicyId) {
-        return fail(409, "PERFORMANCE006", "공개된 공연은 취소 규정을 바꿀 수 없습니다");
+      // 검사 순서는 api-spec SLR-03의 "검사 순서"를 따른다.
+      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE002", "취소된 공연은 수정할 수 없습니다");
+      const now = Date.now();
+      const published = perf.status === "PUBLISHED";
+      const venueChanged = b.venueId !== undefined && b.venueId !== perf.venue.venueId;
+      const newVenueId = b.venueId ?? perf.venue.venueId;
+      // 화면은 분 단위까지만 보내서 초는 비교에서 뺀다.
+      const sameMinute = (a: string | null | undefined, c: string | null | undefined) => (a ?? "").slice(0, 16) === (c ?? "").slice(0, 16);
+      const openChanged = !sameMinute(b.saleOpenAt, perf.saleOpenAt);
+      if (published) {
+        if (venueChanged) return fail(409, "PERFORMANCE003", "공개된 공연은 공연장을 바꿀 수 없습니다");
+        if (b.cancelPolicyId !== undefined && b.cancelPolicyId !== perf.cancelPolicyId) {
+          return fail(409, "PERFORMANCE004", "공개된 공연은 취소 규정을 바꿀 수 없습니다");
+        }
+        if (!b.saleOpenAt || !b.saleCloseAt || b.maxPerPerson == null || !b.receiveType || b.bookingFee == null) {
+          return fail(400, "PERFORMANCE401", "공개된 공연은 판매 정보를 비울 수 없습니다");
+        }
+        if (openChanged && perf.saleOpenAt && toMs(perf.saleOpenAt) <= now) {
+          return fail(409, "PERFORMANCE005", "판매가 열린 뒤에는 예매 오픈 일시를 바꿀 수 없습니다");
+        }
+        if (toMs(b.saleCloseAt) <= now) return fail(400, "PERFORMANCE405", "예매 종료 일시는 지금보다 늦어야 합니다");
+        if (openChanged && toMs(b.saleOpenAt) - now <= PUBLISH_LEAD) {
+          return fail(400, "PERFORMANCE406", "예매 오픈까지 3시간보다 더 남아 있어야 합니다");
+        }
       }
-      if (b.venueId !== undefined && b.venueId !== perf.venue.venueId) {
-        if (perf.status !== "DRAFT") return fail(409, "PERFORMANCE007", "공개된 공연은 공연장을 바꿀 수 없습니다");
-        const venue = state().venues.find((v) => v.venueId === b.venueId);
-        if (!venue) return fail(404, "VENUE000", "공연장을 찾을 수 없습니다");
-        perf.venue = { venueId: venue.venueId, name: venue.name };
-        perf.zones = unsetZones(venue.venueId);
+      if (b.cancelPolicyId !== undefined && !state().policies.some((p) => p.cancelPolicyId === b.cancelPolicyId)) {
+        return fail(404, "PERFORMANCE100", "취소 규정을 찾을 수 없습니다");
+      }
+      const newVenue = state().venues.find((v) => v.venueId === newVenueId);
+      if (venueChanged && !newVenue) return fail(404, "VENUE000", "공연장을 찾을 수 없습니다");
+      if (published && b.saleOpenAt && b.saleCloseAt) {
+        const open = toMs(b.saleOpenAt);
+        const early = activeSchedules(perf).find((x) => toMs(x.startAt) <= open);
+        if (early) return fail(400, "PERFORMANCE407", `예매 오픈보다 먼저 시작하는 회차가 있습니다: ${clockText(early.startAt)}`);
+        const starts = activeSchedules(perf).map((x) => toMs(x.startAt));
+        if (starts.length > 0 && toMs(b.saleCloseAt) > Math.max(...starts)) {
+          return fail(400, "PERFORMANCE408", "예매 종료가 마지막 회차 시작보다 늦을 수 없습니다");
+        }
+      }
+      // 공연장을 바꾸거나 러닝타임을 늘리면 회차가 차지하는 시간이 달라져서 겹침을 다시 본다.
+      if (venueChanged || (b.runningTime ?? 0) > perf.runningTime) {
+        for (const x of activeSchedules(perf)) {
+          const clash = findClash(newVenueId, toMs(x.startAt), b.runningTime!, x.scheduleId);
+          if (clash) return fail(409, "PERFORMANCE007", `같은 공연장의 다른 회차와 시간이 겹칩니다: ${clockText(x.startAt)}`);
+        }
+      }
+      if (venueChanged && newVenue) {
+        perf.venue = { venueId: newVenue.venueId, name: newVenue.name };
+        perf.zones = unsetZones(newVenue.venueId);
       }
       Object.assign(perf, {
         title: b.title!.trim(),
@@ -477,20 +580,34 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
       if (s instanceof Response) return s;
       const perf = findPerf(id);
       if (!perf) return notFound();
-      if (perf.status !== "DRAFT") return fail(409, "PERFORMANCE008", "작성 중인 공연만 공개할 수 있습니다");
-      if (
-        !perf.saleOpenAt || !perf.saleCloseAt || perf.maxPerPerson == null ||
-        !perf.receiveType || perf.bookingFee == null
-      ) {
-        return fail(400, "PERFORMANCE009", "판매 정보(예매 기간, 1인 최대 매수, 수령 방법, 예매 수수료)를 모두 입력해 주세요");
+      // 에러는 한 번에 하나씩, api-spec SLR-04의 순서대로 먼저 걸린 것이 나온다.
+      if (perf.status !== "DRAFT") return fail(409, "PERFORMANCE400", "작성 중인 공연만 공개할 수 있습니다");
+      if (!salesInfoSet(perf)) {
+        return fail(400, "PERFORMANCE401", "판매 정보(예매 기간, 1인 최대 매수, 수령 방법, 예매 수수료)를 모두 입력해 주세요");
       }
-      if (perf.schedules.length === 0) return fail(400, "PERFORMANCE010", "회차를 하나 이상 추가해 주세요");
+      const now = Date.now();
+      const open = toMs(perf.saleOpenAt!);
+      const close = toMs(perf.saleCloseAt!);
+      if (close <= now) return fail(400, "PERFORMANCE405", "예매 종료 일시가 지났습니다");
+      if (open - now <= PUBLISH_LEAD) {
+        return fail(400, "PERFORMANCE406", "예매 오픈까지 3시간보다 더 남아 있어야 공개할 수 있습니다");
+      }
+      const active = activeSchedules(perf);
+      if (active.length === 0) return fail(400, "PERFORMANCE402", "취소되지 않은 회차를 하나 이상 추가해 주세요");
+      const early = active.find((x) => toMs(x.startAt) <= open);
+      if (early) return fail(400, "PERFORMANCE407", `예매 오픈보다 먼저 시작하는 회차가 있습니다: ${clockText(early.startAt)}`);
+      if (close > Math.max(...active.map((x) => toMs(x.startAt)))) {
+        return fail(400, "PERFORMANCE408", "예매 종료가 마지막 회차 시작보다 늦을 수 없습니다");
+      }
       const unset = perf.zones.filter((z) => z.assignmentStatus === "UNSET");
       if (unset.length > 0) {
-        return fail(400, "PERFORMANCE011", `등급을 정하지 않은 구역이 있습니다: ${unset.map((z) => z.name).join(", ")}`);
+        return fail(400, "PERFORMANCE403", `등급을 정하지 않은 구역이 있습니다: ${unset.map((z) => z.name).join(", ")}`);
       }
       if (!perf.zones.some((z) => z.assignmentStatus === "ASSIGNED")) {
-        return fail(400, "PERFORMANCE012", "판매하는 구역이 하나도 없습니다");
+        return fail(400, "PERFORMANCE404", "판매하는 구역이 하나도 없습니다");
+      }
+      if (allMixed(perf.zones, perf.grades)) {
+        return fail(409, "PERFORMANCE303", "전석 등급과 다른 등급을 함께 구역에 지정할 수 없습니다");
       }
       perf.status = "PUBLISHED";
       perf.updatedAt = isoLocal(new Date());
@@ -534,12 +651,14 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
     ["POST", "/api/v1/seller/performances/:id/grades", async (ctx, [id]) => {
       const s = seller(ctx);
       if (s instanceof Response) return s;
-      const perf = findPerf(id);
-      if (!perf) return notFound();
+      // 판정 순서(api-spec SLR-09): 입력 형식 400 → 공연 404 → 취소된 공연 409 → 같은 등급 409 → locked 409
       const b = await body<Grade>(ctx);
       if (!GRADE_CODES.includes(b.name ?? "") || typeof b.price !== "number" || b.price < 0 || b.price > 10_000_000) {
         return fail(400, "COMMON000", "name, price: 등급 코드와 0원 이상 1,000만원 이하의 가격을 입력해 주세요");
       }
+      const perf = findPerf(id);
+      if (!perf) return notFound();
+      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE002", "취소된 공연의 등급은 바꿀 수 없습니다");
       if (perf.grades.some((x) => x.name === b.name)) {
         return fail(409, "PERFORMANCE302", "이미 같은 등급이 있습니다");
       }
@@ -551,16 +670,23 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
     ["PUT", "/api/v1/seller/performances/:id/grades/:gradeId", async (ctx, [id, gradeId]) => {
       const s = seller(ctx);
       if (s instanceof Response) return s;
-      const perf = findPerf(id);
-      if (!perf) return notFound();
-      const grade = perf.grades.find((x) => x.gradeId === Number(gradeId));
-      if (!grade) return fail(404, "PERFORMANCE300", "등급을 찾을 수 없습니다");
+      // 판정 순서(api-spec SLR-10): 입력 형식 400 → 공연 404 → 취소된 공연 409 → 등급 404 → 같은 등급 409 → 전석 섞임 409 → locked 409
       const b = await body<Grade>(ctx);
       if (!GRADE_CODES.includes(b.name ?? "") || typeof b.price !== "number" || b.price < 0 || b.price > 10_000_000) {
         return fail(400, "COMMON000", "name, price: 등급 코드와 0원 이상 1,000만원 이하의 가격을 입력해 주세요");
       }
+      const perf = findPerf(id);
+      if (!perf) return notFound();
+      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE002", "취소된 공연의 등급은 바꿀 수 없습니다");
+      const grade = perf.grades.find((x) => x.gradeId === Number(gradeId));
+      if (!grade) return fail(404, "PERFORMANCE300", "등급을 찾을 수 없습니다");
       if (perf.grades.some((x) => x.gradeId !== grade.gradeId && x.name === b.name)) {
         return fail(409, "PERFORMANCE302", "이미 같은 등급이 있습니다");
+      }
+      // 이름을 바꾼 뒤의 등급 목록으로 전석 섞임을 본다. 구역에 지정되지 않은 등급은 검사하지 않는다.
+      const renamed = perf.grades.map((x) => (x.gradeId === grade.gradeId ? { ...x, name: b.name! } : x));
+      if (allMixed(perf.zones, renamed)) {
+        return fail(409, "PERFORMANCE303", "전석 등급과 다른 등급이 함께 구역에 지정됩니다");
       }
       if (gradesView(perf).locked) return fail(409, "PERFORMANCE301", "판매 좌석을 만든 뒤에는 등급을 바꿀 수 없습니다");
       Object.assign(grade, { name: b.name!, price: b.price });
@@ -569,25 +695,42 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
     ["PATCH", "/api/v1/seller/performances/:id/zone-grades", async (ctx, [id]) => {
       const s = seller(ctx);
       if (s instanceof Response) return s;
-      const perf = findPerf(id);
-      if (!perf) return notFound();
-      if (gradesView(perf).locked) return fail(409, "PERFORMANCE014", "판매 좌석을 만든 뒤에는 구역 설정을 바꿀 수 없습니다");
       const b = await body<{
         assignments: { zoneId: number; assignmentStatus: ZoneAssignment["assignmentStatus"]; gradeId: number | null }[];
       }>(ctx);
-      for (const a of b.assignments ?? []) {
-        const zone = perf.zones.find((z) => z.zoneId === a.zoneId);
-        if (!zone) return fail(400, "COMMON000", "다른 공연장의 구역입니다");
-        if (a.assignmentStatus === "ASSIGNED") {
-          if (!perf.grades.some((x) => x.gradeId === a.gradeId)) {
-            return fail(400, "COMMON000", "이 공연의 등급이 아닙니다");
-          }
-          zone.gradeId = a.gradeId;
-        } else {
-          zone.gradeId = null;
-        }
-        zone.assignmentStatus = a.assignmentStatus;
+      // 검사 순서(api-spec SLR-11): 요청 형식 400 → 상태·gradeId 조합 400 → 공연 404 → 취소된 공연 409
+      //   → 공연장에 없는 구역 400 → 공연에 없는 등급 400 → 전석 섞임 409 → 좌석 생성 후 409
+      const list = b.assignments;
+      const statuses: ZoneAssignment["assignmentStatus"][] = ["ASSIGNED", "INTENTIONALLY_UNSOLD", "UNSET"];
+      if (
+        !Array.isArray(list) || list.length === 0 ||
+        list.some((a) => typeof a.zoneId !== "number" || !statuses.includes(a.assignmentStatus)) ||
+        new Set(list.map((a) => a.zoneId)).size !== list.length
+      ) {
+        return fail(400, "COMMON000", "assignments: 구역 설정을 한 개 이상, 같은 구역 없이 보내 주세요");
       }
+      if (list.some((a) => (a.assignmentStatus === "ASSIGNED") !== (a.gradeId != null))) {
+        return fail(400, "PERFORMANCE306", "지정(ASSIGNED)에는 등급이 필요하고, 미설정·판매 제외에는 등급을 보내지 않습니다");
+      }
+      const perf = findPerf(id);
+      if (!perf) return notFound();
+      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE002", "취소된 공연의 구역은 바꿀 수 없습니다");
+      if (list.some((a) => !perf.zones.some((z) => z.zoneId === a.zoneId))) {
+        return fail(400, "PERFORMANCE304", "이 공연의 공연장에 없는 구역입니다");
+      }
+      if (list.some((a) => a.assignmentStatus === "ASSIGNED" && !perf.grades.some((x) => x.gradeId === a.gradeId))) {
+        return fail(400, "PERFORMANCE305", "이 공연의 등급이 아닙니다");
+      }
+      // 하나라도 틀리면 아무것도 바꾸지 않아야 해서, 적용한 뒤의 상태를 먼저 만들어 검사하고 한꺼번에 반영한다.
+      const next = perf.zones.map((z) => {
+        const a = list.find((x) => x.zoneId === z.zoneId);
+        return a ? { ...z, assignmentStatus: a.assignmentStatus, gradeId: a.assignmentStatus === "ASSIGNED" ? a.gradeId : null } : z;
+      });
+      if (allMixed(next, perf.grades)) {
+        return fail(409, "PERFORMANCE303", "전석 등급과 다른 등급이 함께 구역에 지정됩니다");
+      }
+      if (gradesView(perf).locked) return fail(409, "PERFORMANCE301", "판매 좌석을 만든 뒤에는 구역 설정을 바꿀 수 없습니다");
+      perf.zones = next;
       return ok(gradesView(perf));
     }],
 
@@ -595,21 +738,52 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
     ["POST", "/api/v1/seller/performances/:id/schedules", async (ctx, [id]) => {
       const s = seller(ctx);
       if (s instanceof Response) return s;
+      // 에러는 한 번에 하나씩, api-spec SLR-12의 순서대로 먼저 걸린 것이 나온다.
+      const b = await body<{ startAt: string }>(ctx);
+      const now = Date.now();
+      if (!b.startAt || Number.isNaN(toMs(b.startAt)) || toMs(b.startAt) <= now) {
+        return fail(400, "COMMON000", "startAt: 지금보다 늦은 공연 일시를 입력해 주세요");
+      }
       const perf = findPerf(id);
       if (!perf) return notFound();
-      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE005", "취소된 공연에는 회차를 추가할 수 없습니다");
-      const b = await body<{ startAt: string }>(ctx);
-      if (!b.startAt || Number.isNaN(new Date(b.startAt).getTime())) {
-        return fail(400, "COMMON000", "startAt: 공연 일시를 입력해 주세요");
-      }
+      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE002", "취소된 공연에는 회차를 추가할 수 없습니다");
       const startAt = b.startAt.length === 16 ? `${b.startAt}:00` : b.startAt;
-      const gap = perf.runningTime * 60_000 + 30 * 60_000;
-      const clash = state().performances
-        .filter((p) => p.venue.venueId === perf.venue.venueId && p.status !== "CANCELED")
-        .flatMap((p) => p.schedules)
-        .some((x) => x.status !== "CANCELED" && Math.abs(new Date(x.startAt).getTime() - new Date(startAt).getTime()) < gap);
-      if (clash) return fail(409, "SCHEDULE001", "같은 공연장의 다른 회차와 시간이 겹칩니다");
-      const schedule = { scheduleId: state().nextScheduleId++, startAt, status: "ON_SALE" as const, seatsGeneratedAt: null };
+      const startMs = toMs(startAt);
+      if (perf.saleOpenAt && startMs <= toMs(perf.saleOpenAt)) {
+        return fail(400, "PERFORMANCE407", "회차는 예매 오픈보다 늦게 시작해야 합니다");
+      }
+      const published = perf.status === "PUBLISHED";
+      if (!published && startMs <= now + PUBLISH_LEAD) {
+        return fail(400, "PERFORMANCE009", "작성 중인 공연의 회차는 지금부터 3시간보다 뒤여야 합니다");
+      }
+      if (published) {
+        const live = activeSchedules(perf);
+        if (live.length > 0 && live.every((x) => toMs(x.startAt) <= now)) {
+          return fail(409, "PERFORMANCE010", "모든 회차가 이미 시작한 공연에는 회차를 추가할 수 없습니다");
+        }
+        if (perf.saleCloseAt && toMs(perf.saleCloseAt) <= now) {
+          return fail(400, "PERFORMANCE405", "예매가 끝난 공연에는 회차를 추가할 수 없습니다");
+        }
+      }
+      // 공개 공연은 판매 오픈 24시간 전부터 회차를 추가하면서 판매 좌석을 바로 만든다. 만들 수 없으면 회차도 추가되지 않는다.
+      const immediate = published && perf.saleOpenAt != null && toMs(perf.saleOpenAt) - now <= PRE_GENERATE;
+      if (immediate) {
+        const unset = perf.zones.filter((z) => z.assignmentStatus === "UNSET");
+        if (unset.length > 0) {
+          return fail(400, "PERFORMANCE403", `등급을 정하지 않은 구역이 있습니다: ${unset.map((z) => z.name).join(", ")}`);
+        }
+        if (!perf.zones.some((z) => z.assignmentStatus === "ASSIGNED")) {
+          return fail(400, "PERFORMANCE404", "판매하는 구역이 하나도 없습니다");
+        }
+      }
+      const clash = findClash(perf.venue.venueId, startMs, perf.runningTime);
+      if (clash) return fail(409, "PERFORMANCE007", clashMessage(clash));
+      const schedule = {
+        scheduleId: state().nextScheduleId++,
+        startAt,
+        status: "ON_SALE" as const,
+        seatsGeneratedAt: immediate ? isoLocal(new Date(now)) : null,
+      };
       perf.schedules.push(schedule);
       perf.schedules.sort((a, c) => a.startAt.localeCompare(c.startAt));
       return ok({ ...schedule, performanceId: perf.performanceId }, 201);
@@ -630,25 +804,33 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
     ["POST", "/api/v1/seller/schedules/:sid/seats/generate", (ctx, [sid]) => {
       const s = seller(ctx);
       if (s instanceof Response) return s;
+      // 에러는 한 번에 하나씩, api-spec SLR-14의 순서대로 먼저 걸린 것이 나온다.
       const found = findSchedule(sid);
-      if (!found) return fail(404, "SCHEDULE000", "회차를 찾을 수 없습니다");
+      if (!found) return fail(404, "PERFORMANCE008", "회차를 찾을 수 없습니다");
       const { perf, schedule } = found;
-      if (schedule.seatsGeneratedAt) return fail(409, "SCHEDULE002", "이미 판매 좌석을 만들었습니다");
-      if (!perf.saleOpenAt || perf.bookingFee == null) {
-        return fail(400, "PERFORMANCE009", "판매 정보를 먼저 입력해 주세요");
+      if (perf.status === "CANCELED") return fail(409, "PERFORMANCE002", "취소된 공연의 판매 좌석은 만들 수 없습니다");
+      if (schedule.status === "CANCELED") return fail(409, "PERFORMANCE501", "취소된 회차의 판매 좌석은 만들 수 없습니다");
+      if (schedule.seatsGeneratedAt) return fail(409, "PERFORMANCE500", "이미 판매 좌석을 만들었습니다");
+      if (toMs(schedule.startAt) <= Date.now()) return fail(400, "PERFORMANCE502", "이미 시작한 회차의 판매 좌석은 만들 수 없습니다");
+      if (perf.status === "DRAFT" && !salesInfoSet(perf)) {
+        return fail(400, "PERFORMANCE401", "판매 정보(예매 기간, 1인 최대 매수, 수령 방법, 예매 수수료)를 먼저 입력해 주세요");
       }
-      if (perf.zones.some((z) => z.assignmentStatus === "UNSET")) {
-        return fail(400, "PERFORMANCE011", "등급을 정하지 않은 구역이 있습니다");
+      const unset = perf.zones.filter((z) => z.assignmentStatus === "UNSET");
+      if (unset.length > 0) {
+        return fail(400, "PERFORMANCE403", `등급을 정하지 않은 구역이 있습니다: ${unset.map((z) => z.name).join(", ")}`);
+      }
+      if (!perf.zones.some((z) => z.assignmentStatus === "ASSIGNED")) {
+        return fail(400, "PERFORMANCE404", "판매하는 구역이 하나도 없습니다");
       }
       schedule.seatsGeneratedAt = isoLocal(new Date());
-      const blocked = perf.zones
-        .filter((z) => z.assignmentStatus === "INTENTIONALLY_UNSOLD")
-        .reduce((sum, z) => sum + z.seatCount, 0);
+      // 판매 구역은 AVAILABLE, 판매 제외 구역은 BLOCKED 로 만들고 판매자 보류석(RESERVED)은 만들지 않는다.
+      const available = seatsByStatus(perf, "ASSIGNED");
+      const blocked = seatsByStatus(perf, "INTENTIONALLY_UNSOLD");
       return ok({
         scheduleId: schedule.scheduleId,
         seatsGeneratedAt: schedule.seatsGeneratedAt,
-        totalSeats: totalSeats(),
-        availableSeats: totalSeats() - blocked,
+        totalSeats: available + blocked,
+        availableSeats: available,
         blockedSeats: blocked,
       });
     }],
@@ -679,7 +861,7 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
         if (!x.seatsGeneratedAt) {
           return {
             scheduleId: x.scheduleId, startAt: x.startAt, status: x.status, seatsGenerated: false,
-            totalSeats: totalSeats(), soldSeats: null, heldSeats: null, availableSeats: null,
+            totalSeats: totalSeats(perf), soldSeats: null, heldSeats: null, availableSeats: null,
             reservedSeats: null, blockedSeats: null,
           };
         }
@@ -687,8 +869,8 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
         const held = 4;
         return {
           scheduleId: x.scheduleId, startAt: x.startAt, status: x.status, seatsGenerated: true,
-          totalSeats: totalSeats(), soldSeats: sold, heldSeats: held,
-          availableSeats: totalSeats() - sold - held - blocked, reservedSeats: 0, blockedSeats: blocked,
+          totalSeats: totalSeats(perf), soldSeats: sold, heldSeats: held,
+          availableSeats: totalSeats(perf) - sold - held - blocked, reservedSeats: 0, blockedSeats: blocked,
         };
       });
       return ok({ schedules });
@@ -883,21 +1065,44 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
       const s = admin(ctx);
       if (s instanceof Response) return s;
       const status = ctx.search.get("status") ?? "FAILED";
+      if (!["REQUESTED", "PROCESSING", "DONE", "FAILED"].includes(status)) {
+        return fail(400, "COMMON000", "status: 모르는 상태 값입니다");
+      }
+      // exhaustedOnly 는 상태와 상관없이 재시도 횟수로 거른다. (서버: 켜면 최소 3회, 끄면 0회)
       const exhaustedOnly = (ctx.search.get("exhaustedOnly") ?? "true") === "true";
+      // 오래 기다린 요청부터. 정렬은 고정이고 sort 는 무시한다.
       const items = state().refunds
-        .filter((r) => r.status === status && (!exhaustedOnly || r.retryCount >= 3))
-        .sort((a, b) => b.refundId - a.refundId);
-      return ok(pageOf(items, ctx.search));
+        .filter((r) => r.status === status && r.retryCount >= (exhaustedOnly ? REFUND_MAX_RETRY : 0))
+        .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt) || a.refundId - b.refundId);
+      return ok(pageOf(items, ctx.search, 20, 20));
     }],
     ["POST", "/api/v1/admin/refunds/:id/retry", (ctx, [id]) => {
       const s = admin(ctx);
       if (s instanceof Response) return s;
+      // 판정 순서(api-spec ADM-06): 없음 → 처리 중 → 실패가 아님 → 15일 지남
       const refund = state().refunds.find((r) => r.refundId === Number(id));
-      if (!refund) return fail(404, "REFUND000", "환불을 찾을 수 없습니다");
-      if (refund.status !== "FAILED") return fail(409, "REFUND001", "실패한 환불만 다시 처리할 수 있습니다");
+      if (!refund) return fail(404, "PAYMENT007", "환불을 찾을 수 없습니다");
+      if (refund.status === "PROCESSING") return fail(409, "PAYMENT009", "다른 곳에서 처리 중인 환불입니다. 잠시 후 다시 확인해 주세요");
+      if (refund.status !== "FAILED") return fail(409, "PAYMENT008", "실패한 환불만 다시 처리할 수 있습니다");
+      if (Date.now() - toMs(refund.requestedAt) > REFUND_KEY_DAYS * DAY) {
+        return fail(409, "PAYMENT010", "처음 요청한 지 15일이 지나 다시 보낼 수 없습니다. 토스에서 실제 환불 여부를 확인해 주세요");
+      }
+      // 보낼 때마다 횟수가 1 늘어난다. 토스가 또 실패해도 200 이고 status 가 FAILED 로 남는다.
+      refund.retryCount += 1;
+      refund.lastAttemptedAt = isoLocal(new Date());
+      if (refund.refundId === 291) {
+        refund.failReason = "카드사 점검으로 승인 취소 거절 (REJECT_CARD_COMPANY)";
+        return ok({ refundId: refund.refundId, status: refund.status, retryCount: refund.retryCount, failReason: refund.failReason, completedAt: null });
+      }
       refund.status = "DONE";
       refund.failReason = null;
-      return ok({ refundId: refund.refundId, status: refund.status });
+      return ok({
+        refundId: refund.refundId,
+        status: refund.status,
+        retryCount: refund.retryCount,
+        failReason: null,
+        completedAt: refund.lastAttemptedAt,
+      });
     }],
   ];
 

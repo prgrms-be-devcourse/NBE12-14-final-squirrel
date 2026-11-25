@@ -410,6 +410,17 @@ export type RefundItem = {
   retryCount: number;
   failReason: string | null;
   requestedAt: string;
+  // 마지막으로 토스에 보낸 시각. 토스 장애 시간과 맞춰 볼 때 쓴다.
+  lastAttemptedAt: string | null;
+};
+
+// 환불 다시 처리(ADM-06) 응답. 토스가 또 실패해도 200 이라서 status 로 성공 여부를 가려야 한다.
+export type RefundRetryResult = {
+  refundId: number;
+  status: RefundStatus;
+  retryCount: number;
+  failReason: string | null;
+  completedAt: string | null;
 };
 
 export type VenueRow = {
