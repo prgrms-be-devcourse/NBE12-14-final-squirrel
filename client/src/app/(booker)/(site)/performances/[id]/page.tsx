@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { useApi } from "@/lib/api";
-import { openBookingWindow } from "@/lib/popup";
 import { GENRE_LABEL, SALE_LABEL, dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { CancelRule, PerformanceDetail } from "@/lib/types";
 import { ErrorBox, Loading, Poster } from "@/components/ui";
@@ -169,10 +168,6 @@ export default function PerformanceDetailPage() {
             <Link
               href={`/performances/${p.performanceId}/schedules/${selectedSchedule.scheduleId}`}
               className="btn btn-primary btn-lg mt-8 w-full"
-              onClick={(event) => {
-                // PC 에서는 별도 예매 창을 연다. 열지 못하면(차단) 링크 그대로 같은 창에서 이동한다.
-                if (openBookingWindow(p.performanceId, selectedSchedule.scheduleId)) event.preventDefault();
-              }}
             >
               좌석 선택하기
               <ArrowRight size={16} strokeWidth={1.5} />
