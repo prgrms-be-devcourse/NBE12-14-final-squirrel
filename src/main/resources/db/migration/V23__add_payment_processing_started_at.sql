@@ -5,5 +5,7 @@ ALTER TABLE payment ADD COLUMN processing_started_at TIMESTAMP;
 -- 이미 승인 중으로 남은 결제가 있으면 준비한 시각으로 채운다. 보정 작업이 곧바로 대상으로 삼아 토스에 조회해서 확정한다.
 UPDATE payment SET processing_started_at = created_at WHERE status = 'PROCESSING';
 
--- 보정 대상(준비·승인 중)만 담는 부분 인덱스. 승인이 끝난 결제가 쌓여도 스케줄러가 읽는 인덱스는 작게 유지된다.
-CREATE INDEX idx_payment_reconcile ON payment (created_at) WHERE status IN ('READY', 'PROCESSING');
+-- 보정 대상만 담는 부분 인덱스. 승인이 끝난 결제가 쌓여도 스케줄러가 읽는 인덱스는 작게 유지된다.
+-- 승인 중(돈이 걸린 건)과 준비(이탈한 건)를 따로 읽는다. 하나로 합치면 이탈이 몰려 준비가 수천 건 쌓였을 때 승인 중을 고르려고 그 사이를 훑어야 한다.
+CREATE INDEX idx_payment_reconcile_processing ON payment (processing_started_at) WHERE status = 'PROCESSING';
+CREATE INDEX idx_payment_reconcile_ready ON payment (created_at) WHERE status = 'READY';

@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.payment.type.PaymentStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -75,12 +76,16 @@ public class PaymentService {
 	}
 
 	/**
-	 * 보정 작업이 다시 확인할 때가 된 결제 번호. 준비(READY)는 준비한 지 readyCutoff 이전인 것, 승인 중(PROCESSING)은
-	 * 승인을 시작한 지 processingCutoff 이전인 것이다. 오래된 것부터 limit 건까지 돌려준다. (부분 인덱스 idx_payment_reconcile)
+	 * 보정 작업이 다시 확인할 때가 된 결제 번호. 승인 중(PROCESSING)을 먼저, 그다음 준비(READY)를 돌려준다.
+	 * 승인 중은 승인을 시작한 지 processingCutoff 이전인 것을 processingLimit 건까지, 준비는 준비한 지 readyCutoff 이전인 것을
+	 * readyLimit 건까지다. 둘 다 오래된 것부터다. 승인 중은 돈이 걸려 있어서 이탈로 쌓인 준비 뒤로 밀리면 안 된다.
 	 */
 	@Transactional(readOnly = true)
-	public List<Long> findReconcileDue(LocalDateTime readyCutoff, LocalDateTime processingCutoff, int limit) {
-		return paymentRepository.findReconcileDueIds(readyCutoff, processingCutoff, limit);
+	public List<Long> findReconcileDue(LocalDateTime readyCutoff, LocalDateTime processingCutoff, int processingLimit,
+		int readyLimit) {
+		List<Long> due = new ArrayList<>(paymentRepository.findProcessingDueIds(processingCutoff, processingLimit));
+		due.addAll(paymentRepository.findReadyDueIds(readyCutoff, readyLimit));
+		return due;
 	}
 
 	/** 결제를 읽는다. 호출한 쪽의 트랜잭션 밖에서 부르면 값만 읽는 용도이고, 안에서 부르면 이어서 고칠 수 있다. */

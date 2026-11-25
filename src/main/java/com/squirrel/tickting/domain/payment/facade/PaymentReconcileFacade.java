@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +41,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 준비(READY)로 오래 남은 결제를 토스에 조회해서 확정한다. (doc/part5-operations-area.md 5-2 ②)
  * 결제(payment), 예매(booking), 판매 좌석(schedule_seat), 환불(refund), 감사 로그가 얽혀서 서비스끼리 부르지 않고 이 파사드가 엮는다.
  *
- * 토스에 조회한 결과로 나눈다. 돈이 나갔는지가 기준이고, 모르면 아무것도 바꾸지 않는다.
+ * 승인 중(PROCESSING)을 준비(READY)보다 먼저 처리한다. 승인 중은 돈이 걸려 있어서, 이탈로 쌓인 준비 뒤로 밀리면 안 된다.
+ * 준비는 토스에 조회하지 않고 바로 닫는다. 승인 요청은 반드시 결제를 승인 중으로 바꾼 뒤 토스를 부르므로, 승인을 한 번도 시도하지 않은
+ * 결제에는 토스에서 나간 돈이 없다. 닫은 뒤 늦게 승인 요청이 와도 결제가 준비 상태가 아니라 거절된다.
+ *
+ * 승인 중 결제는 토스에 조회한 결과로 나눈다. 돈이 나갔는지가 기준이고, 모르면 아무것도 바꾸지 않는다.
  *   1. 결제됨 + 예매가 아직 결제 대기(좌석이 아직 내 것): 예매를 확정한다. 결제 DONE, 예매 PAID, 좌석 SOLD.
  *   2. 결제됨 + 예매가 이미 만료됐거나 다른 결제로 끝남: 받은 돈을 돌려준다. 결제 DONE 으로 기록한 뒤 환불(사유 SYSTEM)을 만들어
  *      토스에 보내고 결제를 CANCELED 로 바꾼다. 만료된 예매는 CANCELED 로 바꾼다. 감사 로그(SYSTEM)를 남긴다.
@@ -50,7 +55,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   4. 아직 모름(토스가 끝나지 않았다고 답함, 조회 실패): 아무것도 바꾸지 않고 다음 주기에 다시 조회한다.
  *      단 토스가 끝나지 않았다고만 답하며 giveUpAfter 가 지난 결제는 3번으로 본다. (더 이상 결제될 수 없다)
  *
- * 서버가 여러 대여도 안전하다. 결제를 바꾸는 쪽은 예매 단위 분산락(booking:{id}) 안에서 결제가 아직 닫히지 않았는지 다시 확인하고,
+ * 서버가 여러 대여도 안전하고 낭비도 없다. 서버들이 같은 오래된 결제부터 고르므로, 결제마다 선점 락(reconcile-payment:{id})을 기다리지 않고
+ * 시도해서 다른 서버가 처리 중인 결제는 건너뛰고 다음 결제로 넘어간다. (안 그러면 두 서버가 같은 결제를 토스에 중복 조회한다)
+ * 결제를 바꾸는 쪽은 예매 단위 분산락(booking:{id}) 안에서 결제가 아직 닫히지 않았는지 다시 확인하고,
  * 다른 서버나 승인 요청이 먼저 끝냈다면 아무것도 하지 않는다. 같은 락을 결제 승인·예매 취소도 쓴다.
  * 토스를 부르는 조회와 환불은 DB 트랜잭션과 락 밖에서 한다.
  */
@@ -89,7 +96,8 @@ public class PaymentReconcileFacade {
 	}
 
 	/** 결제 보정 결과를 센다. result: confirmed 확정, refunded 자동 환불, closed 결제 안 됨으로 닫음, undecided 모름, lookup_failed 조회 실패,
-	 *  unchanged 다른 서버·승인이 먼저 끝냄, needs_review 사람이 확인해야 함, skipped 락 때문에 건너뜀, error 예외 */
+	 *  unchanged 다른 서버·승인이 먼저 끝냄, needs_review 사람이 확인해야 함, skipped 예매 락 때문에 건너뜀,
+	 *  claimed_elsewhere 다른 서버가 처리 중이라 건너뜀, error 예외 */
 	private void count(String result) {
 		meterRegistry.counter(METRIC_RESULT, "result", result).increment();
 	}
@@ -103,7 +111,8 @@ public class PaymentReconcileFacade {
 	}
 
 	/**
-	 * 확인할 때가 된 결제를 batchSize 건까지 하나씩 차례로 조회해서 확정한다. 한 건이 예외로 끝나도 나머지는 이어서 처리한다.
+	 * 확인할 때가 된 결제를 하나씩 차례로 처리한다. 승인 중은 batchSize 건까지 토스에 조회해서 확정하고, 준비는 readyBatchSize 건까지
+	 * 조회 없이 닫는다. 한 건이 예외로 끝나도 나머지는 이어서 처리한다.
 	 *
 	 * @return 이번에 상태를 바꾼 결제 수
 	 */
@@ -111,12 +120,12 @@ public class PaymentReconcileFacade {
 		Timer.Sample cycle = Timer.start(meterRegistry);
 		try {
 			List<Long> paymentIds = paymentService.findReconcileDue(now.minus(properties.readyAfter()),
-				now.minus(properties.processingAfter()), properties.batchSize());
+				now.minus(properties.processingAfter()), properties.batchSize(), properties.readyBatchSize());
 			lastDue.set(paymentIds.size());
 			int reconciled = 0;
 			for (Long paymentId : paymentIds) {
 				try {
-					if (reconcile(paymentId, now)) {
+					if (reconcileClaimed(paymentId, now)) {
 						reconciled++;
 					}
 				} catch (BusinessException e) {
@@ -135,10 +144,35 @@ public class PaymentReconcileFacade {
 		}
 	}
 
+	/**
+	 * 다른 서버가 이 결제를 처리 중이면 기다리지 않고 건너뛴다. 서버들이 같은 오래된 결제부터 고르기 때문에, 이 락이 없으면 서로 같은
+	 * 결제를 토스에 중복 조회하고 처리량은 서버를 늘려도 그대로다. 락 이름은 예매 락(booking:)과 달라서 결제·예매 취소를 막지 않는다.
+	 * 락을 못 잡은 것(건너뜀)과 안에서 예매 락을 못 잡은 것을 가르려고 안에 들어갔는지를 따로 적어 둔다.
+	 */
+	private boolean reconcileClaimed(Long paymentId, LocalDateTime now) {
+		AtomicBoolean entered = new AtomicBoolean();
+		try {
+			return lockExecutor.execute(List.of("reconcile-payment:" + paymentId), Duration.ZERO, () -> {
+				entered.set(true);
+				return reconcile(paymentId, now);
+			});
+		} catch (BusinessException e) {
+			if (entered.get()) {
+				throw e;
+			}
+			count("claimed_elsewhere");
+			return false;
+		}
+	}
+
 	private boolean reconcile(Long paymentId, LocalDateTime now) {
 		Payment payment = paymentService.find(paymentId).orElse(null);
 		if (payment == null || !isUnsettled(payment)) {
 			return false;
+		}
+		if (payment.getStatus() == PaymentStatus.READY) {
+			// 승인을 한 번도 시도하지 않았다. 토스에서 결제될 수 없으니 조회하지 않고 닫는다.
+			return settleUnpaid(payment, now, "결제를 준비만 하고 승인하지 않은 채 오래 지남");
 		}
 
 		GatewayLookup lookup;
@@ -162,21 +196,23 @@ public class PaymentReconcileFacade {
 			log.info("토스에서 끝나지 않은 채 오래된 결제를 결제되지 않은 것으로 닫는다. 결제 번호: {}", paymentId);
 			outcome = GatewayLookup.Outcome.NOT_PAID;
 		}
-		return outcome == GatewayLookup.Outcome.PAID ? settlePaid(payment, lookup, now) : settleUnpaid(payment, now);
+		return outcome == GatewayLookup.Outcome.PAID ? settlePaid(payment, lookup, now)
+			: settleUnpaid(payment, now, "토스 조회 결과 결제되지 않음");
 	}
 
 	// ---------------------------------------------------------------- 결제 안 됨
 
-	private boolean settleUnpaid(Payment snapshot, LocalDateTime now) {
+	private boolean settleUnpaid(Payment snapshot, LocalDateTime now, String reason) {
 		Boolean closed = withBookingLock(snapshot.getBookingId(), () -> transactionTemplate.execute(status -> {
 			Optional<Payment> current = paymentService.findUnsettled(snapshot.getId());
-			if (current.isEmpty()) {
-				// 조회하는 사이 승인 요청이나 다른 서버가 먼저 끝냈다.
+			if (current.isEmpty() || current.get().getStatus() != snapshot.getStatus()) {
+				// 조회하는 사이 승인 요청이나 다른 서버가 먼저 끝냈다. 준비로 읽은 결제가 그 사이 승인 중으로 바뀌었어도
+				// 토스에 돈이 나갔을 수 있어서 조회 없이 닫지 않는다. 다음 주기에 승인 중으로 다시 고른다.
 				return false;
 			}
 			Payment payment = current.get();
 			// 결제 엔티티를 먼저 바꾼다. 예매·좌석의 일괄 UPDATE 는 영속성 컨텍스트를 비워서, 그 뒤에 엔티티를 바꾸면 저장되지 않는다.
-			paymentService.abandon(payment, "토스 조회 결과 결제되지 않음");
+			paymentService.abandon(payment, reason);
 			if (!paymentService.existsOtherLivePayment(payment.getBookingId(), payment.getId())) {
 				List<Long> scheduleSeatIds = bookingService.expire(payment.getBookingId(), now);
 				scheduleSeatService.releaseHeld(scheduleSeatIds, now);
@@ -195,13 +231,6 @@ public class PaymentReconcileFacade {
 	// ---------------------------------------------------------------- 결제됨
 
 	private boolean settlePaid(Payment snapshot, GatewayLookup lookup, LocalDateTime now) {
-		if (snapshot.getStatus() == PaymentStatus.READY) {
-			// 승인 요청은 반드시 결제를 승인 중으로 바꾼 뒤 토스를 부르므로 일어날 수 없는 일이다. 돈이 걸려서 임의로 처리하지 않는다.
-			log.error("승인을 시작하지 않은(READY) 결제가 토스에서 결제 완료로 조회됐다. 자동으로 처리하지 않으니 사람이 확인해야 한다. "
-				+ "결제 번호: {}, 주문 ID: {}", snapshot.getId(), snapshot.getOrderId());
-			count("needs_review");
-			return false;
-		}
 		if (!snapshot.getAmount().equals(lookup.amount())) {
 			count("needs_review");
 			log.error("토스에서 결제된 금액이 우리가 계산한 금액과 다르다. 자동으로 처리하지 않으니 사람이 확인해야 한다. "

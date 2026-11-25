@@ -11,6 +11,7 @@ import com.squirrel.tickting.domain.payment.facade.PaymentReconcileFacade;
 import com.squirrel.tickting.domain.payment.gateway.GatewayLookup;
 import com.squirrel.tickting.domain.payment.gateway.GatewayPayment;
 import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway;
+import com.squirrel.tickting.domain.payment.service.PaymentService;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -38,6 +39,9 @@ class PaymentReconcileTest extends BookingTestSupport {
 
 	@Autowired
 	MockPaymentGateway gateway;
+
+	@Autowired
+	PaymentService paymentService;
 
 	@Autowired
 	BookingExpiryFacade bookingExpiryFacade;
@@ -110,6 +114,10 @@ class PaymentReconcileTest extends BookingTestSupport {
 	private void tossPaid(Order order, int tossAmount) {
 		gateway.reportLookup(order.orderId(),
 			GatewayLookup.paid(new GatewayPayment("pay_real", "카드", LocalDateTime.now().withNano(0)), tossAmount));
+	}
+
+	private Long paymentId(String orderId) {
+		return jdbc.queryForObject("SELECT id FROM payment WHERE order_id = ?", Long.class, orderId);
 	}
 
 	private String paymentStatus(String orderId) {
@@ -349,8 +357,8 @@ class PaymentReconcileTest extends BookingTestSupport {
 	}
 
 	@Test
-	@DisplayName("준비만 하고 결제하지 않은 채 15분이 지난 결제는 토스에서 결제 안 됨으로 확인되면 FAILED 로 닫고 예매를 만료시킨다")
-	void closesAbandonedReadyPayment() throws Exception {
+	@DisplayName("준비만 하고 결제하지 않은 채 15분이 지난 결제는 토스에 조회하지 않고 FAILED 로 닫고 예매를 만료시킨다")
+	void closesAbandonedReadyPaymentWithoutLookup() throws Exception {
 		Show show = show(2);
 		User user = signup("first");
 		Order order = prepareOrder(user, show, 1);
@@ -358,9 +366,38 @@ class PaymentReconcileTest extends BookingTestSupport {
 		int reconciled = reconcileFacade.reconcileDue(now.plusMinutes(20));
 
 		assertThat(reconciled).isEqualTo(1);
-		assertThat(gateway.lookedUpOrderIds()).containsExactly(order.orderId());
+		assertThat(gateway.lookedUpOrderIds()).isEmpty();
 		assertThat(paymentStatus(order.orderId())).isEqualTo("FAILED");
 		assertThat(bookingStatus(order.bookingId())).isEqualTo("EXPIRED");
+	}
+
+	@Test
+	@DisplayName("보정이 닫은 준비 결제로 뒤늦게 승인 요청이 와도 거절되고 토스에 승인을 보내지 않는다 (돈이 나가지 않는다)")
+	void confirmIsRejectedAfterReadyPaymentWasClosed() throws Exception {
+		Show show = show(2);
+		User user = signup("first");
+		Order order = prepareOrder(user, show, 1);
+		reconcileFacade.reconcileDue(now.plusMinutes(20));
+		assertThat(paymentStatus(order.orderId())).isEqualTo("FAILED");
+
+		confirm(user, "load_late", order.orderId(), order.amount()).andExpect(status().is4xxClientError());
+
+		assertThat(gateway.confirmedOrderIds()).isEmpty();
+		assertThat(paymentStatus(order.orderId())).isEqualTo("FAILED");
+	}
+
+	@Test
+	@DisplayName("보정 대상은 돈이 걸린 승인 중을 먼저, 그다음 준비를 고른다 (이탈로 쌓인 오래된 준비가 승인 중을 밀어내지 못한다)")
+	void processingComesBeforeOlderReady() throws Exception {
+		Show show = show(3);
+		Order processing = lostApproval(signup("first"), show, 1);
+		Order ready = prepareOrder(signup("second"), show, 1, 1);
+		// 준비 결제가 승인 중보다 훨씬 오래된 것으로 만든다. 예전처럼 오래된 순서로만 고르면 준비가 먼저 나온다.
+		jdbc.update("UPDATE payment SET created_at = created_at - interval '1 hour' WHERE order_id = ?", ready.orderId());
+
+		List<Long> due = paymentService.findReconcileDue(later, later, 1, 1);
+
+		assertThat(due).containsExactly(paymentId(processing.orderId()), paymentId(ready.orderId()));
 	}
 
 	// ---------------------------------------------------------------- 서버가 여러 대
@@ -377,6 +414,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 		List<Integer> results = runConcurrently(5, i -> () -> reconcileFacade.reconcileDue(later));
 
 		assertThat(results.stream().mapToInt(Integer::intValue).sum()).isEqualTo(1);
+		assertThat(gateway.lookedUpOrderIds()).containsExactly(order.orderId());
 		assertThat(refundCount()).isEqualTo(1);
 		assertThat(gateway.cancelCalls()).hasSize(1);
 		assertThat(paymentStatus(order.orderId())).isEqualTo("CANCELED");
@@ -384,7 +422,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 	}
 
 	@Test
-	@DisplayName("서버 여러 대가 같은 결제를 동시에 보정해도 승인 중 결제는 한 번만 확정되고 좌석은 한 번만 판매 완료가 된다")
+	@DisplayName("서버 여러 대가 같은 결제를 동시에 보정해도 승인 중 결제는 한 번만 확정되고 좌석은 한 번만 판매 완료가 되며 토스 조회도 한 번이다")
 	void concurrentReconcileConfirmsOnce() throws Exception {
 		Show show = show(2);
 		User user = signup("first");
@@ -394,6 +432,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 		List<Integer> results = runConcurrently(5, i -> () -> reconcileFacade.reconcileDue(later));
 
 		assertThat(results.stream().mapToInt(Integer::intValue).sum()).isEqualTo(1);
+		assertThat(gateway.lookedUpOrderIds()).containsExactly(order.orderId());
 		assertThat(paymentStatus(order.orderId())).isEqualTo("DONE");
 		assertThat(bookingStatus(order.bookingId())).isEqualTo("PAID");
 		assertThat(refundCount()).isZero();
