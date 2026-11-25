@@ -96,6 +96,11 @@ export default function SellerPerformanceDetailPage() {
         actions={
           <>
             <span className={PERFORMANCE_BADGE[p.status]}>{PERFORMANCE_LABEL[p.status]}</span>
+            {draft && (
+              <Link href={`/seller/performances/${id}/setup`} className="btn">
+                단계별로 이어서 만들기
+              </Link>
+            )}
             {!canceled && (
               <Link href={`/seller/performances/${id}/edit`} className="btn">
                 <Pencil size={16} strokeWidth={1.5} />
