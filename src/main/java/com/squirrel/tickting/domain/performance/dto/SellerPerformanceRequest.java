@@ -133,7 +133,7 @@ public class SellerPerformanceRequest {
 	}
 
 	/** 회차 추가 본문. 지난 시각(지금 포함)은 여기서 막고, 공연 상태·판매 기간에 따른 조건은 서비스가 본다. */
-	@Schema(name = "SellerScheduleSaveRequest", description = "회차 추가 요청")
+	@Schema(name = "SellerScheduleSaveRequest", description = "회차 추가·수정 요청")
 	public record ScheduleSave(
 
 		@NotNull(message = "공연 일시를 입력해 주세요.")
