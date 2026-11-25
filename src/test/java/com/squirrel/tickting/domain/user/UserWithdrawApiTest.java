@@ -81,12 +81,12 @@ class UserWithdrawApiTest extends IntegrationTestSupport {
 
 	private void saveBooking(Long userId, Long scheduleId, String status, LocalDateTime expiresAt) {
 		jdbc.update("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type,
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
 			                     orderer_name, orderer_phone, orderer_email, ticket_amount, booking_fee_amount,
 			                     total_amount, cancel_policy_snapshot, expires_at, created_at, updated_at)
-			SELECT ?, ?, s.id, s.performance_id, ?, 'ONSITE', '홍길동', '01012345678', 'user@example.com',
+			SELECT ?, ?, s.id, s.performance_id, p.business_id, ?, 'ONSITE', '홍길동', '01012345678', 'user@example.com',
 			       154000, 2000, 156000, '[]'::jsonb, ?, ?, ?
-			FROM performance_schedule s WHERE s.id = ?
+			FROM performance_schedule s JOIN performance p ON p.id = s.performance_id WHERE s.id = ?
 			""", "TEST" + (++bookingNoSequence), userId, status, expiresAt, now, now, scheduleId);
 	}
 

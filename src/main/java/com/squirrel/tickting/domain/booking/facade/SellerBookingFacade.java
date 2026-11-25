@@ -15,7 +15,10 @@ import org.springframework.stereotype.Component;
  * 파사드는 보통 쓰기가 걸리는 흐름에만 두지만, 여기는 응답에 값을 붙이는 조회가 아니라 "남의 회차면 예매를 읽기 전에 404"라는
  * 다른 도메인의 확인이 먼저 필요하다. 서비스끼리 부르지 않으려고 읽기 전용이어도 파사드에 둔다.
  * 읽기만 해서 락·트랜잭션 묶음이 없고, 각 서비스의 읽기 전용 트랜잭션이 따로 돈다.
+ *
+ * @deprecated 역할별 예매 조회를 BookingQueryService 로 모았다. 새 코드는 BookingScope.OfBusiness 로 부른다. 이미 쓰는 곳이 있어서 지우지 않고 남겨 둔다.
  */
+@Deprecated(since = "2026-11-25")
 @Component
 @RequiredArgsConstructor
 public class SellerBookingFacade {

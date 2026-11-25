@@ -73,6 +73,75 @@ public class SellerBookingResponse {
 		}
 	}
 
+	/**
+	 * 판매자의 사업체 전체 예매 목록 항목이자 예매 상세. 여러 공연이 섞여서 회차별 항목(Item)에 공연·회차를 더했다.
+	 * 회차별 목록과 같이 수수료 없는 표값만 담고, 처음 결제 총액·환불액·주문자 이메일은 담지 않는다.
+	 */
+	@Builder
+	@Schema(name = "SellerBookingSummary", description = "판매자 예매 목록 항목·상세")
+	public record Summary(
+		@Schema(description = "예매 번호 (내부)")
+		Long bookingId,
+		@Schema(description = "예매 번호 (예매자에게 보이는 번호). 현장 확인에 쓴다", example = "20261125KCZB03R")
+		String bookingNo,
+		@Schema(description = "예매 상태", example = "PAID")
+		BookingStatus status,
+		@Schema(description = "공연 번호")
+		Long performanceId,
+		@Schema(description = "공연 제목", example = "가상 콘서트")
+		String performanceTitle,
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "회차 일시. 연기되면 바뀐 일시")
+		LocalDateTime scheduleStartAt,
+		@Schema(description = "주문자 이름. 대표·담당자 모두 그대로 준다")
+		String ordererName,
+		@Schema(description = "주문자 전화번호. 대표·담당자 모두 그대로 준다")
+		String ordererPhone,
+		@Schema(description = "수령 방법", example = "ONSITE")
+		ReceiveMethod receiveType,
+		@Schema(description = "배송 정보. 배송(DELIVERY) 예매만 있고 현장 수령은 null")
+		Delivery delivery,
+		@Schema(description = "남은 표. 등급·가격별, 가격 높은 순")
+		List<Ticket> tickets,
+		@Schema(description = "취소한 표. 등급·가격별, 가격 높은 순. 처음 표값이며 취소 수수료·환불과 무관")
+		List<Ticket> canceledTickets,
+		@Schema(description = "남은 표 장수")
+		int seatCount,
+		@Schema(description = "취소한 표 장수")
+		int canceledSeatCount,
+		@Schema(description = "남은 표값 합계 (수수료 없음)")
+		int ticketAmount,
+		@Schema(description = "예매 일시")
+		LocalDateTime createdAt
+	) {
+
+		/** 공연·회차·좌석은 예매의 읽기 전용 연관(batch fetch)에서 꺼내므로 트랜잭션 안에서 만든다. */
+		public static Summary from(Booking booking) {
+			List<Ticket> remaining = Ticket.group(booking.getBookingSeats(), true);
+			List<Ticket> canceled = Ticket.group(booking.getBookingSeats(), false);
+			return Summary.builder()
+				.bookingId(booking.getId())
+				.bookingNo(booking.getBookingNo())
+				.status(booking.getStatus())
+				.performanceId(booking.getPerformanceId())
+				.performanceTitle(booking.getPerformance().getTitle())
+				.scheduleId(booking.getScheduleId())
+				.scheduleStartAt(booking.getSchedule().getStartAt())
+				.ordererName(booking.getOrdererName())
+				.ordererPhone(booking.getOrdererPhone())
+				.receiveType(booking.getReceiveType())
+				.delivery(booking.getReceiveType() == ReceiveMethod.DELIVERY ? Delivery.from(booking) : null)
+				.tickets(remaining)
+				.canceledTickets(canceled)
+				.seatCount(remaining.stream().mapToInt(Ticket::count).sum())
+				.canceledSeatCount(canceled.stream().mapToInt(Ticket::count).sum())
+				.ticketAmount(remaining.stream().mapToInt(Ticket::amount).sum())
+				.createdAt(booking.getCreatedAt())
+				.build();
+		}
+	}
+
 	@Schema(name = "SellerBookingDelivery", description = "배송 정보")
 	public record Delivery(
 		String recipientName,

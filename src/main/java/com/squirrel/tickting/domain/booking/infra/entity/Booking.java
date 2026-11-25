@@ -66,6 +66,13 @@ public class Booking extends BaseTimeEntity {
 	private Long performanceId;
 
 	/**
+	 * 사업체 번호 (seller_business). 판매자의 사업체 전체 예매 목록을 공연 조인 없이 읽으려고 예매 때 공연에서 복사해 둔다.
+	 * 공연의 사업체는 바뀌지 않아서 원본과 어긋나지 않는다. (idx_booking_business_created)
+	 */
+	@Column(name = "business_id", nullable = false)
+	private Long businessId;
+
+	/**
 	 * 읽기 전용 연관. 응답을 만들 때 예매에서 바로 공연·회차·좌석·결제를 꺼내 쓰려는 것이다. (DB 에 FK 제약은 없다)
 	 * 저장하거나 바꿀 때는 위의 번호(scheduleId, performanceId)를 쓰고, 이 필드들은 INSERT·UPDATE 에 들어가지 않는다.
 	 * 지연 로딩이라 트랜잭션 안에서만 꺼낼 수 있고, 목록은 default_batch_fetch_size 로 묶어서 읽어서 예매마다 쿼리가 나가지 않는다.

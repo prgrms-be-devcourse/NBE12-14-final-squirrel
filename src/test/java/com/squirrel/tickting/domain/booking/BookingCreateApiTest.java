@@ -76,6 +76,8 @@ class BookingCreateApiTest extends BookingTestSupport {
 		assertThat(booking.get("user_id")).isEqualTo(user.id());
 		assertThat(booking.get("schedule_id")).isEqualTo(show.scheduleId());
 		assertThat(booking.get("performance_id")).isEqualTo(show.performanceId());
+		assertThat(booking.get("business_id")).isEqualTo(jdbc.queryForObject(
+			"SELECT business_id FROM performance WHERE id = ?", Long.class, show.performanceId()));
 		assertThat(booking.get("status")).isEqualTo("PENDING");
 		assertThat(booking.get("receive_type")).isEqualTo("ONSITE");
 		assertThat(booking.get("orderer_name")).isEqualTo("홍길동");

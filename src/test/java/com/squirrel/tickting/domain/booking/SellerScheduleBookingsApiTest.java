@@ -73,13 +73,14 @@ class SellerScheduleBookingsApiTest extends IntegrationTestSupport {
 		Long performanceId = jdbc.queryForObject("SELECT performance_id FROM performance_schedule WHERE id = ?",
 			Long.class, scheduleId);
 		return jdbc.queryForObject("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type, orderer_name,
-			                     orderer_phone, orderer_email, recipient_name, recipient_phone, recipient_address,
-			                     ticket_amount, booking_fee_amount, total_amount, cancel_policy_snapshot, expires_at,
-			                     created_at, updated_at)
-			VALUES (?, 1, ?, ?, ?, ?, '홍길동', '010-1234-5678', 'hong@example.com', ?, ?, ?, 0, 0, 0, '[]'::jsonb, ?, ?, ?)
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
+			                     orderer_name, orderer_phone, orderer_email, recipient_name, recipient_phone,
+			                     recipient_address, ticket_amount, booking_fee_amount, total_amount,
+			                     cancel_policy_snapshot, expires_at, created_at, updated_at)
+			VALUES (?, 1, ?, ?, COALESCE((SELECT business_id FROM performance WHERE id = ?), 0), ?, ?, '홍길동',
+			        '010-1234-5678', 'hong@example.com', ?, ?, ?, 0, 0, 0, '[]'::jsonb, ?, ?, ?)
 			RETURNING id
-			""", Long.class, no, scheduleId, performanceId, status, receiveType,
+			""", Long.class, no, scheduleId, performanceId, performanceId, status, receiveType,
 			delivery ? "김받는" : null, delivery ? "010-9999-0000" : null, delivery ? "서울 가상구 1" : null,
 			Timestamp.valueOf(BASE), Timestamp.valueOf(BASE.plusMinutes(minutes)), Timestamp.valueOf(BASE));
 	}

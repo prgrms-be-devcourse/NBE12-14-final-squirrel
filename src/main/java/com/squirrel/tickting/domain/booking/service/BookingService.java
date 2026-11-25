@@ -219,6 +219,7 @@ public class BookingService {
 			.userId(command.userId())
 			.scheduleId(command.scheduleId())
 			.performanceId(command.performanceId())
+			.businessId(command.businessId())
 			.status(BookingStatus.PENDING)
 			.receiveType(command.receiveMethod())
 			.ordererName(command.ordererName())

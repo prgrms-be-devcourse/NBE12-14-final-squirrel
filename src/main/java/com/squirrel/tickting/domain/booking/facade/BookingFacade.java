@@ -110,6 +110,7 @@ public class BookingFacade {
 			userId,
 			scheduleId,
 			performance.getId(),
+			performance.getBusinessId(),
 			defaultReceiveMethod(performance.getReceiveType()),
 			user.getName(),
 			user.getPhone(),

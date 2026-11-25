@@ -15,7 +15,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 판매자 화면의 예매 조회(SLR-18). 예매 도메인을 예매 생성·취소(C)와 판매자 조회(A)가 함께 쓰므로,
  * 같은 파일을 동시에 고치지 않게 역할 이름을 붙여 나눈다. 회차가 내 것인지는 호출하는 파사드가 먼저 확인한다.
+ *
+ * @deprecated 역할별 예매 조회를 BookingQueryService 로 모았다. 새 코드는 BookingScope.OfBusiness 로 부른다. 이미 쓰는 곳이 있어서 지우지 않고 남겨 둔다.
  */
+@Deprecated(since = "2026-11-25")
 @Service
 @RequiredArgsConstructor
 public class SellerBookingService {
