@@ -24,19 +24,13 @@ pnpm dev
 | `SPRING_API_URL` | 필수 | BFF가 호출할 Spring 주소. 로컬은 `http://localhost:8080`, 운영은 `https://api.noresell.store` |
 | `NEXT_PUBLIC_TOSS_CLIENT_KEY` | 운영 필수 | 토스 결제위젯 **클라이언트** 키(`test_gck_…`/`live_gck_…`). 시크릿 키는 서버(Spring)만 갖고 여기에 넣지 않습니다 |
 | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | 운영 필수 | reCAPTCHA v3 **사이트** 키. 구글 콘솔의 허용 도메인에 배포 도메인(`noresell.store`)을 넣어야 합니다 |
-| `MOCK_FALLBACK` | 선택 | `true`/`false`. 서버에 닿지 않을 때 목 응답으로 대신할지. 정하지 않으면 개발(`pnpm dev`)에서만 켜집니다 |
 
 `NEXT_PUBLIC_` 값은 브라우저 번들에 들어갑니다. 비밀 값을 이 이름으로 만들지 마세요.
 
-## 목(mock) 응답
+## 서버가 꺼져 있을 때
 
-서버에 아직 없는 API나 서버가 꺼져 있을 때 개발이 막히지 않게, BFF가 같은 경로의 목 응답으로 대신합니다. (`src/server/mock/`)
-응답에는 `x-mock` 헤더가 붙고 화면 위에 안내가 뜹니다.
-
-- **운영에서는 꺼집니다.** 켜 두면 서버가 잠깐 안 닿을 때 가짜 공연·예매가 보이고 아무나 목으로 로그인할 수 있습니다.
-- 운영에서 서버에 없는 API(회차 추가·수정, 판매 좌석 생성, 회차·공연 취소, 관리자 공연장 생성·환불)는 오류로 보입니다. 서버에 구현되면 동작합니다.
-- 목의 이메일 인증번호는 항상 `123456`입니다.
-- `src/server/mock/concert-arena-44.json`은 `doc/venue-seed-concert-arena-44.json`의 복사본입니다. 시드가 바뀌면 같이 고칩니다.
+BFF는 가짜 응답으로 대신하지 않습니다. Spring에 닿지 않으면 502(`COMMON502`)를 그대로 돌려주고, 서버에 아직 없는 API는 서버의 "없는 경로" 오류가 그대로 보입니다.
+로컬에서 화면을 보려면 Spring을 먼저 띄웁니다. (`doc/local-multi-server.md`)
 
 ## Vercel 배포
 
@@ -52,7 +46,7 @@ pnpm dev
    npx vercel link
    ```
    `link`가 묻는 대로 새 프로젝트를 만듭니다. 이때 **Root Directory는 비워 둡니다.** (Actions가 `client/` 폴더를 프로젝트 루트로 올립니다) 끝나면 `client/.vercel/project.json`이 생기는데, git에는 올라가지 않습니다.
-2. **환경 변수**를 Vercel 프로젝트(Settings → Environment Variables, Production)에 넣습니다. 위 표의 `SPRING_API_URL`, `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`입니다. `MOCK_FALLBACK`은 넣지 않습니다. 이 값은 배포할 때 `vercel pull`이 받아 가고, `NEXT_PUBLIC_` 값은 빌드에 들어갑니다.
+2. **환경 변수**를 Vercel 프로젝트(Settings → Environment Variables, Production)에 넣습니다. 위 표의 `SPRING_API_URL`, `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`입니다. 이 값은 배포할 때 `vercel pull`이 받아 가고, `NEXT_PUBLIC_` 값은 빌드에 들어갑니다.
 3. **GitHub 저장소 Secrets**(Settings → Secrets and variables → Actions)에 세 개를 넣습니다.
    - `VERCEL_TOKEN`: Vercel 계정 설정(Settings → Tokens)에서 만든 토큰
    - `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`: 1번이 만든 `client/.vercel/project.json`의 `orgId`, `projectId`

@@ -4,7 +4,7 @@ import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, apiWithMeta, useApi } from "@/lib/api";
+import { ApiError, api, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
 import { useBookingWindow } from "@/lib/popup";
 import { getVenueLayout } from "@/lib/venue-layouts";
@@ -44,9 +44,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
   const { inPopup, prefix, toLogin } = useBookingWindow();
 
   const performance = useApi<PerformanceDetail>(`/api/v1/performances/${id}`);
-  // 구역·좌석 API 가 아직 Spring 에 없을 때 목 응답이 공연 등급을 쓰도록 공연 번호를 함께 보낸다
-  const hint = { "x-performance-id": id };
-  const zones = useApi<ZoneSummary>(`/api/v1/schedules/${scheduleId}/zones`, undefined, hint);
+  const zones = useApi<ZoneSummary>(`/api/v1/schedules/${scheduleId}/zones`);
 
   // 도면이 있는 공연장은 구역 지도(묶음 단위 좌석 화면)로, 없으면 층별 구역 격자로 그린다.
   const layout = getVenueLayout(zones.data?.layoutKey);
@@ -56,8 +54,6 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
   const activeZoneId = zoneId ?? zones.data?.zones.find((z) => z.price !== null)?.zoneId ?? null;
   const seats = useApi<ZoneSeats>(
     activeZoneId === null || layout ? null : `/api/v1/schedules/${scheduleId}/zones/${activeZoneId}/seats`,
-    undefined,
-    hint,
   );
 
   // 입장 시간이 지났거나 밀려나면 구역·좌석 조회가 QUEUE000 으로 막힌다. 다시 입장시킨다.
@@ -105,10 +101,9 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
     setSubmitting(true);
     setMessage(null);
     try {
-      const { data: booking, mock } = await apiWithMeta<BookingCreated>(`/api/v1/schedules/${scheduleId}/bookings`, {
+      const booking = await api<BookingCreated>(`/api/v1/schedules/${scheduleId}/bookings`, {
         method: "POST",
         body: { seatIds: picked.map((s) => s.seatId) },
-        headers: hint,
       });
       // 결제 화면이 같은 정보를 바로 쓰도록 둔다. (예매 상세 API 가 없어도 결제까지 가야 한다)
       saveBooking({
@@ -117,7 +112,6 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
         scheduleId: Number(scheduleId),
         performanceTitle: p?.title ?? "",
         scheduleStartAt: schedule?.startAt ?? "",
-        mock,
       });
       router.push(`${prefix}/bookings/${booking.bookingId}/pay`);
     } catch (error) {
