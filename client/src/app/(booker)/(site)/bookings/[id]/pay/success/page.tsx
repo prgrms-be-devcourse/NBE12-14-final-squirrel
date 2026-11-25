@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { clearBooking } from "@/lib/booking-cache";
-import { notifyPaid, useBookingWindow } from "@/lib/popup";
 import { dateTimeText, won } from "@/lib/format";
 import type { PaymentConfirmed } from "@/lib/types";
 import { Loading } from "@/components/ui";
@@ -17,7 +16,7 @@ const NO_RETRY_CODES = new Set(["PAYMENT006", "PAYMENT003"]);
 
 export default function PaySuccessPage() {
   const { id } = useParams<{ id: string }>();
-  const { inPopup, prefix, goTo, close, toLogin } = useBookingWindow();
+  const router = useRouter();
   const params = useSearchParams();
   const [failure, setFailure] = useState<Failure | null>(null);
   const [done, setDone] = useState<PaymentConfirmed | null>(null);
@@ -41,13 +40,11 @@ export default function PaySuccessPage() {
       .then((confirmed) => {
         // 결제가 끝났으니 결제 화면에 쓰던 예매 정보는 지운다. 예매 상세 API 가 없어도 이 화면이 결과를 보여 준다.
         clearBooking(id);
-        // 예매 창이면 본 창에 알려서 내 예매로 옮기게 한다.
-        notifyPaid(confirmed.bookingId);
         setDone(confirmed);
       })
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) {
-          toLogin();
+          router.push("/login");
           return;
         }
         setFailure(
@@ -56,9 +53,7 @@ export default function PaySuccessPage() {
             : { code: "CLIENT", message: "결제를 확인하지 못했습니다" },
         );
       });
-    // toLogin 은 창 상태가 바뀔 때만 달라진다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, invalid, paymentKey, orderId, amount]);
+  }, [id, invalid, paymentKey, orderId, amount, router]);
 
   const shown = failure ?? (invalid ? { code: "CLIENT", message: "결제 정보가 올바르지 않습니다" } : null);
 
@@ -77,18 +72,12 @@ export default function PaySuccessPage() {
           <dd>{dateTimeText(done.approvedAt)}</dd>
         </dl>
         <div className="flex justify-center gap-2">
-          {inPopup ? (
-            <button type="button" className="btn" onClick={close}>
-              창 닫기
-            </button>
-          ) : (
-            <Link href="/" className="btn">
-              홈으로
-            </Link>
-          )}
-          <button type="button" className="btn btn-primary" onClick={() => goTo("/bookings")}>
+          <Link href="/" className="btn">
+            홈으로
+          </Link>
+          <Link href="/bookings" className="btn btn-primary">
             내 예매 보기
-          </button>
+          </Link>
         </div>
       </div>
     );
@@ -98,7 +87,7 @@ export default function PaySuccessPage() {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
         <Loading />
-        <p className="mt-2 text-sm text-secondary">결제를 확인하고 있습니다. 창을 닫지 마세요</p>
+        <p className="mt-2 text-sm text-secondary">결제를 확인하고 있습니다. 화면을 닫지 마세요</p>
       </div>
     );
   }
@@ -110,11 +99,11 @@ export default function PaySuccessPage() {
         {shown.message}
       </p>
       <div className="flex justify-center gap-2">
-        <button type="button" className="btn" onClick={() => goTo("/bookings")}>
+        <Link href="/bookings" className="btn">
           내 예매 보기
-        </button>
+        </Link>
         {!NO_RETRY_CODES.has(shown.code) && (
-          <Link href={`${prefix}/bookings/${id}/pay`} className="btn btn-primary">
+          <Link href={`/bookings/${id}/pay`} className="btn btn-primary">
             다시 결제하기
           </Link>
         )}

@@ -4,7 +4,7 @@ import { Search, Ticket, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { api, useMockSeen } from "@/lib/api";
+import { api } from "@/lib/api";
 import { clearAccount, useAccount } from "@/lib/auth";
 import { GENRE_LABEL } from "@/lib/format";
 import type { Genre } from "@/lib/types";
@@ -13,7 +13,6 @@ const TAB_GENRES: Genre[] = ["CONCERT", "MUSICAL", "PLAY", "CLASSIC"];
 
 export function Header() {
   const account = useAccount();
-  const mockSeen = useMockSeen();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -53,11 +52,6 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-background/95 backdrop-blur">
-      {mockSeen && (
-        <div className="bg-foreground px-4 py-2 text-center text-xs text-white">
-          일부 화면은 목 데이터로 동작 중입니다 (Spring 에 없거나 연결되지 않은 API)
-        </div>
-      )}
       <div className="mx-auto flex h-20 max-w-6xl items-center gap-4 px-4 sm:gap-8 sm:px-6">
         <Link href="/" className="text-2xl leading-none font-semibold">
           tick<span className="text-accent">ting</span>

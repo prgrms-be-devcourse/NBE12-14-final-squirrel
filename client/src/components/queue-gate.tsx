@@ -2,10 +2,10 @@
 
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { CAPTCHA_HEADER, getCaptchaToken } from "@/lib/captcha";
-import { useBookingWindow } from "@/lib/popup";
 import type { QueueStatus } from "@/lib/types";
 import { Loading } from "@/components/ui";
 
@@ -30,7 +30,8 @@ export function QueueGate({
   // 입장한 뒤 그릴 화면. 입장이 풀렸을 때(만료 등) 다시 입장시키는 함수를 받는다.
   children: (reenter: () => void) => React.ReactNode;
 }) {
-  const { inPopup, close, goTo, toLogin } = useBookingWindow();
+  const router = useRouter();
+  const toLogin = () => router.push("/login");
   const [phase, setPhase] = useState<Phase>({ kind: "entering" });
   // 입장을 다시 시도하려고 효과를 다시 돌린다.
   const [attempt, setAttempt] = useState(0);
@@ -117,7 +118,7 @@ export function QueueGate({
         void api(path, { method: "DELETE" }).catch(() => {});
       }
     };
-    // toLogin 은 창 상태가 바뀔 때만 달라진다.
+    // toLogin 은 router 만 쓰므로 다시 만들어져도 입장을 다시 시작하지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, attempt]);
 
@@ -131,22 +132,20 @@ export function QueueGate({
 
   return (
     <div className="mx-auto max-w-md py-12">
-      {!inPopup && (
-        <Link
-          href={backHref}
-          className="mb-6 inline-flex items-center gap-2 text-sm text-secondary transition-colors duration-150 hover:text-foreground"
-        >
-          <ArrowLeft size={16} strokeWidth={1.5} />
-          공연으로 돌아가기
-        </Link>
-      )}
+      <Link
+        href={backHref}
+        className="mb-6 inline-flex items-center gap-2 text-sm text-secondary transition-colors duration-150 hover:text-foreground"
+      >
+        <ArrowLeft size={16} strokeWidth={1.5} />
+        공연으로 돌아가기
+      </Link>
       {phase.kind === "waiting" ? (
         <div className="card space-y-4 p-8 text-center">
           <h1 className="text-xl font-semibold">대기 중입니다</h1>
           <p className="text-5xl font-semibold tabular-nums">{phase.position.toLocaleString("ko-KR")}번째</p>
           <p className="text-sm text-secondary">전체 대기 {phase.waitingCount.toLocaleString("ko-KR")}명</p>
-          <p className="text-xs text-muted">이 창을 닫거나 벗어나면 순번이 사라집니다. 자리가 나면 자동으로 이동합니다</p>
-          <button type="button" className="btn" onClick={() => (inPopup ? close() : goTo(backHref))}>
+          <p className="text-xs text-muted">이 화면을 벗어나면 순번이 사라집니다. 자리가 나면 자동으로 이동합니다</p>
+          <button type="button" className="btn" onClick={() => router.push(backHref)}>
             나가기
           </button>
         </div>

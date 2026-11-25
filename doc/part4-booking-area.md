@@ -227,6 +227,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |  | 실패 사유 | `fail_reason` | String | NULL |  |
 |  | 요청 일시 | `requested_at` | LocalDateTime | NOT NULL |  |
 |  | 완료 일시 | `completed_at` | LocalDateTime | NULL |  |
+|  | 마지막 시도 일시 | `last_attempted_at` | LocalDateTime | NOT NULL | 마지막으로 토스에 보낸 시각. 재시도 스케줄러가 이 시각 기준으로 5분이 지난 환불만 다시 보냄 |
 
 **Q. 환불 금액은 어떻게 계산하나요?**
 
@@ -246,14 +247,14 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 **Q. 환불이 실패하면요?**
 
 - 예매 취소는 그대로 끝나고(좌석 취소는 이미 커밋됨) `refund.status`=`FAILED`와 실패 사유(`fail_reason`)를 남깁니다. 사용자에게는 200과 함께 환불 상태 `FAILED`를 알려 줍니다. (API 명세 BKG-06)
-- 자동으로 **3회까지 재시도**(`retry_count`)합니다. (재시도 스케줄러는 아직 없음)
+- 자동으로 **3회까지 재시도**(`retry_count`)합니다. 재시도 스케줄러가 1분마다 마지막 시도 후 5분이 지난 환불을 같은 멱등키로 다시 보냅니다. (5부 5-2 ③)
 - 그래도 실패하면 관리자 화면에서 수동으로 다시 처리합니다. (5부)
 
 **Q. `idempotency_key`와 `PROCESSING`은 왜 있나요?**
 
 토스에 환불을 요청했는데 응답이 오기 전에 서버가 죽거나 시간 초과가 나면, 우리는 **환불이 됐는지 모릅니다.** 그냥 다시 요청하면 **이중 환불**이 될 수 있습니다.
 
-- 환불 행을 만들 때 UUID를 `idempotency_key`로 정해 두고, 토스에 요청할 때 항상 **같은 키**를 헤더로 보냅니다. 같은 키로 다시 요청해도 토스가 중복 처리하지 않습니다. (토스 연동 때 공식 문서로 확인합니다.)
+- 환불 행을 만들 때 UUID를 `idempotency_key`로 정해 두고, 토스에 요청할 때 항상 **같은 키**를 헤더로 보냅니다. 같은 키로 다시 요청해도 토스가 중복 처리하지 않습니다. 단 토스 멱등키는 **처음 요청한 날부터 15일만** 유효합니다(토스 공식 문서, 2026-11-25 확인). 그래서 15일이 지난 환불은 관리자 재처리(ADM-06)를 막습니다.
 - 요청을 보내기 직전에 상태를 `PROCESSING`으로 바꿉니다. 서버가 죽은 뒤 `PROCESSING`인 채 오래 남은 건은 스케줄러가 토스에 조회해서 `DONE`이나 `FAILED`로 확정합니다. (5부)
 
 ---

@@ -8,6 +8,8 @@ import type { Point, ZoneShape } from "@/lib/venue-layouts/types";
 export type PlacedSeat = { seat: Seat; x: number; y: number };
 export type RowLabel = { label: string; x: number; y: number; anchor: "start" | "middle" | "end" };
 
+export type Rect = { x: number; y: number; w: number; h: number };
+
 export type ZoneSeatLayout = {
   seats: PlacedSeat[];
   rowLabels: RowLabel[];
@@ -15,10 +17,16 @@ export type ZoneSeatLayout = {
   // 구역 이름표를 놓을 자리
   titleX: number;
   titleY: number;
+  // 좌석 뒤에 까는 바탕. 열마다 실제 좌석이 있는 칸까지만 덮고, 이름표·열 번호 자리를 포함한다.
+  // 구역 모양(점 몇 개로 근사한 값)과 좌석 배치가 어긋나도 바탕이 좌석을 따라가게 하려는 것이다.
+  backdrop: Rect[];
 };
 
 const TITLE_HEIGHT = 15;
 const MARGIN = 3;
+// 바탕이 좌석 바깥으로 나오는 여유(좌석 간격 대비)와 구역 이름표 띠의 높이
+const BACKDROP_PAD = 0.4;
+const TITLE_BAND = 14;
 
 export function boundsOf(points: Point[]) {
   const xs = points.map((p) => p[0]);
@@ -32,7 +40,14 @@ export function boundsOf(points: Point[]) {
 
 export function layoutZoneSeats(shape: ZoneShape, seats: Seat[], venueCenterX: number): ZoneSeatLayout {
   const { x0, y0, x1, width, height } = boundsOf(shape.points);
-  const result: ZoneSeatLayout = { seats: [], rowLabels: [], pitch: 0, titleX: x0 + width / 2, titleY: y0 + 9 };
+  const result: ZoneSeatLayout = {
+    seats: [],
+    rowLabels: [],
+    pitch: 0,
+    titleX: x0 + width / 2,
+    titleY: y0 + 9,
+    backdrop: [],
+  };
   if (seats.length === 0) return result;
 
   // 열 순서: 각 열의 가장 앞 sortOrder 로 정한다.
@@ -80,12 +95,62 @@ export function layoutZoneSeats(shape: ZoneShape, seats: Seat[], venueCenterX: n
     result.seats.push({ seat, x, y });
   }
 
+  const firstInRow = new Map<number, number>();
+  const lastInRow = new Map<number, number>();
+  for (const { position, row } of positioned) {
+    firstInRow.set(row, Math.min(firstInRow.get(row) ?? Infinity, position));
+    lastInRow.set(row, Math.max(lastInRow.get(row) ?? 0, position));
+  }
+
+  // 가로 열의 번호는 열이 반듯하게 맞는 쪽에 둔다. 왼쪽 끝이 들쭉날쭉하면(왼쪽이 비는 구역) 오른쪽에 둬서
+  // 번호가 좌석 바로 옆에 붙게 한다.
+  let raggedLeft = 0;
+  let raggedRight = 0;
+  const minFirst = Math.min(...firstInRow.values());
+  for (const [row, last] of lastInRow) {
+    raggedLeft += (firstInRow.get(row) ?? 1) - minFirst;
+    raggedRight += maxPosition - last;
+  }
+  const labelsRight = !vertical && raggedLeft > raggedRight;
+  const gx1 = gx0 + gridWidth;
+
   rowNames.forEach((label, row) => {
+    const y = gy0 + row * pitch + pitch / 2 + pitch * 0.25;
     result.rowLabels.push(
       vertical
         ? { label, x: columnX(row), y: y0 + TITLE_HEIGHT - 1.5, anchor: "middle" }
-        : { label, x: gx0 - 1.5, y: gy0 + row * pitch + pitch / 2 + pitch * 0.25, anchor: "end" },
+        : labelsRight
+          ? { label, x: gx1 + 1.5, y, anchor: "start" }
+          : { label, x: gx0 - 1.5, y, anchor: "end" },
     );
   });
+
+  // 열마다 실제 좌석이 있는 칸까지만 덮는다. 번호가 있는 쪽 끝은 번호 자리까지, 반대쪽은 가장 먼 좌석까지다.
+  // 그래서 짧은 열은 바탕도 짧아지고 구역의 모양이 좌석 배치 그대로 나온다.
+  const bands: Rect[] = [];
+  for (const [row, last] of lastInRow) {
+    if (vertical) {
+      const top = Math.min(y0 + TITLE_HEIGHT - 1.5 - pitch, gy0);
+      bands.push({ x: columnX(row) - pitch / 2, y: top, w: pitch, h: gy0 + last * pitch - top });
+      continue;
+    }
+    const label = pitch * 1.6;
+    const y = gy0 + row * pitch;
+    if (labelsRight) {
+      const start = gx0 + ((firstInRow.get(row) ?? 1) - 1) * pitch;
+      bands.push({ x: start, y, w: gx1 + label - start, h: pitch });
+    } else {
+      bands.push({ x: gx0 - label, y, w: label + last * pitch, h: pitch });
+    }
+  }
+  const minX = Math.min(...bands.map((b) => b.x));
+  const maxX = Math.max(...bands.map((b) => b.x + b.w));
+  const minY = Math.min(...bands.map((b) => b.y));
+  bands.push({ x: minX, y: minY - TITLE_BAND, w: maxX - minX, h: TITLE_BAND });
+  result.titleX = (minX + maxX) / 2;
+  result.titleY = minY - TITLE_BAND + 10.5;
+
+  const pad = pitch * BACKDROP_PAD;
+  result.backdrop = bands.map((b) => ({ x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad }));
   return result;
 }

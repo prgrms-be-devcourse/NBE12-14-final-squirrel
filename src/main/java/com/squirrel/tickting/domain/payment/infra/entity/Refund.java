@@ -1,12 +1,15 @@
 package com.squirrel.tickting.domain.payment.infra.entity;
 
+import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.payment.type.RefundReasonType;
 import com.squirrel.tickting.domain.payment.type.RefundStatus;
 import jakarta.persistence.Column;
+import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -46,6 +49,12 @@ public class Refund {
 	@Column(name = "booking_id", nullable = false)
 	private Long bookingId;
 
+	/** 관리자 환불 목록에 예매번호를 붙이려고 읽기만 하는 연관. 저장은 bookingId 로 한다. */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "booking_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private Booking booking;
+
 	/** 이번 환불로 돌려주는 금액 */
 	@Column(nullable = false)
 	private Integer amount;
@@ -78,6 +87,10 @@ public class Refund {
 
 	@Column
 	private LocalDateTime completedAt;
+
+	/** 마지막으로 토스에 보낸(보내려 한) 시각. 재시도 스케줄러가 이 시각부터 일정 시간이 지난 환불만 다시 보낸다. */
+	@Column(nullable = false)
+	private LocalDateTime lastAttemptedAt;
 
 	/** 토스가 환불을 마쳤을 때. */
 	public void complete(LocalDateTime now) {

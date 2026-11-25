@@ -102,9 +102,9 @@
 | SLR-09 | 등급 추가 | POST `/api/v1/seller/performances/{performanceId}/grades` | 구현됨 |
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 구현됨 |
 | SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 구현됨 |
-| SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 미구현 |
+| SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 구현됨 |
 | SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 미구현 |
-| SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 미구현 |
+| SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 구현됨 |
 | SLR-15 | 회차 취소 | POST `/api/v1/seller/schedules/{scheduleId}/cancel` | 미구현 |
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 구현됨 |
@@ -117,8 +117,8 @@
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
-| ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 미구현 |
-| ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 미구현 |
+| ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 구현됨 |
+| ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 구현됨 |
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
@@ -1444,7 +1444,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 
 - 좌석 취소는 끝나고 **200**으로 답하며 `refund.status`가 `FAILED`입니다. 실패 사유는 `refund.fail_reason`에 남습니다.
 - 이유: 좌석 취소를 먼저 커밋하고 토스를 부르기 때문에, 실패로 답하면 실제로는 취소된 예매를 사용자가 다시 취소하려다 "이미 취소된 좌석"(`BOOKING010`)을 보게 됩니다.
-- 실패한 환불은 같은 멱등키로 다시 요청하면 이중 환불 없이 마무리됩니다. 재시도 스케줄러와 관리자 재처리는 아직 없습니다. (4부 4-5, 5부)
+- 실패한 환불은 같은 멱등키로 다시 요청하면 이중 환불 없이 마무리됩니다. 재시도 스케줄러가 마지막 시도 후 5분이 지난 실패 환불을 3회까지 다시 보냅니다. 관리자 재처리는 아직 없습니다. (4부 4-5, 5부)
 - 결과 기록까지 실패하면 `PROCESSING`으로 답하고, 환불은 요청 중으로 남습니다.
 
 **처리 순서**
@@ -1619,7 +1619,7 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 
 **같은 공연장의 회차 시간 겹침**
 
-공연장을 바꿀 때(새 공연장 기준)와 러닝타임을 **늘릴 때**(지금 공연장 기준) 이 공연의 취소되지 않은 모든 회차를 검사합니다. 러닝타임을 줄일 때는 겹침이 생기지 않아 검사하지 않습니다. 회차가 차지하는 시간은 `start_at` ~ `start_at + 러닝타임 + 1시간`(1시간은 임시)이고 끝나는 시각과 다음 시작이 같으면 겹치지 않습니다. 다른 공연의 회차는 작성 중이어도 세고, 취소된 회차·취소된 공연의 회차·새 일정이 정해지지 않은 연기 회차는 세지 않습니다. 겹치는 **이 공연의 회차** 일시가 메시지에 나옵니다. (다른 공연의 회차 일시는 다른 판매자의 정보라 알려 주지 않습니다)
+공연장을 바꿀 때(새 공연장 기준)와 러닝타임을 **늘릴 때**(지금 공연장 기준) 이 공연의 취소되지 않은 모든 회차를 검사합니다. 러닝타임을 줄일 때는 겹침이 생기지 않아 검사하지 않습니다. 회차가 차지하는 시간은 `start_at` ~ `start_at + 러닝타임 + 1시간`(1시간은 임시)이고 끝나는 시각과 다음 시작이 같으면 겹치지 않습니다. 다른 공연의 회차는 작성 중이어도 세고, 취소된 회차·취소된 공연의 회차·새 일정이 정해지지 않은 연기 회차는 세지 않습니다. 겹치는 **이 공연의 회차** 일시가 메시지에 나옵니다. (다른 공연의 회차 일시는 다른 판매자의 정보라 알려 주지 않습니다) 회차 추가(SLR-12)는 이와 달리 겹친 회차가 내 사업체 것이면 다른 공연이어도 공연명과 일시를 알려 줍니다.
 
 **검사 순서** (에러는 한 번에 하나씩, 먼저 걸린 것이 나옵니다)
 
@@ -2027,7 +2027,9 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 | 409 | `PERFORMANCE301` | 판매 좌석 생성 후라 수정 불가(`locked`) |
 | 409 | `COMMON004` | 판매 좌석 생성과 겹쳐 1초 안에 처리하지 못함 |
 
-### SLR-12 회차 추가 — `POST /api/v1/seller/performances/{performanceId}/schedules`
+### SLR-12 회차 추가 — `POST /api/v1/seller/performances/{performanceId}/schedules` (구현됨)
+
+공연에 회차를 하나 추가합니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 사업체 번호는 토큰에서 꺼내고, 다른 사업체의 공연은 상태와 상관없이 없는 공연과 같은 404 `PERFORMANCE000`입니다. 회차 개수 제한은 없습니다.
 
 **요청**
 
@@ -2052,9 +2054,46 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-판매 오픈 24시간 안이면 좌석이 즉시 생성됩니다.
+**시각 조건**
 
-**에러**(코드 미정): 409 같은 공연장의 다른 회차와 시간 겹침 · 409 취소된 공연
+| 조건 | 작성 중(`DRAFT`) | 공개(`PUBLISHED`) |
+|---|---|---|
+| `startAt`은 지금보다 늦어야 함 | 적용 | 적용 |
+| 판매 오픈이 설정되어 있으면 오픈보다 늦어야 함(같으면 거절) | 적용 | 적용 |
+| 지금부터 3시간(임시)보다 뒤여야 함. 더 이른 회차가 있으면 그 공연을 공개할 수 없음 | 적용 | - |
+| 취소되지 않은 회차가 모두 시작했으면 거절 | - | 적용 |
+| 판매가 끝났으면(`saleCloseAt <= 지금`) 거절 | - | 적용 |
+
+판매 종료가 마지막 회차 시작보다 늦은지(`PERFORMANCE408`)는 보지 않습니다. 공개와 공연 수정에서 확인합니다.
+
+**같은 공연장의 시간 겹침**: 회차가 차지하는 시간은 `startAt` ~ `startAt + 러닝타임 + 1시간`(임시)이고 끝나는 시각과 다음 시작이 같으면 겹치지 않습니다. 같은 공연의 회차와 다른 공연(작성 중 포함)의 회차를 모두 보며, 취소된 회차·취소된 공연의 회차·새 일정이 정해지지 않은 연기 회차는 세지 않습니다. 겹친 회차가 **내 사업체** 것이면 메시지에 공연명·일시·사용 종료 시각을 넣고(끝나는 날이 다르면 날짜까지), 다른 판매자의 회차는 알려 주지 않습니다.
+
+```
+같은 공연장의 다른 회차와 시간이 겹칩니다: 가상 콘서트 2026-12-20 18:00 (21:30까지 사용)
+```
+
+**판매 좌석 즉시 생성**: 공개 공연이고 판매 오픈 24시간(임시) 전부터는 회차를 추가하면서 판매 좌석을 바로 만듭니다(판매 좌석 생성 SLR-14와 같은 방식). 이때 `seatsGeneratedAt`에 시각이 들어오고, 만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없습니다. 좌석을 만들 수 없으면 **회차도 추가되지 않습니다.** 작성 중 공연은 판매 오픈과 상관없이 만들지 않습니다.
+
+에러는 한 번에 하나씩, 아래 순서로 먼저 걸린 것이 나옵니다.
+
+| 순서 | 조건 | 코드 |
+|---|---|---|
+| 1 | `startAt`이 없거나 지금 이전·같음 | 400 `COMMON000` |
+| 2 | 없는 공연이거나 다른 사업체의 공연 | 404 `PERFORMANCE000` |
+| 3 | 락을 1초 안에 잡지 못함 | 409 `COMMON004`(잠시 후 다시 시도) |
+| 4 | 취소된 공연 | 409 `PERFORMANCE002` |
+| 5 | 사용이 중지된 공연장 | 400 `VENUE001` |
+| 6 | 판매 오픈보다 늦지 않음 | 400 `PERFORMANCE407` |
+| 7 | (작성 중) 3시간 이내 | 400 `PERFORMANCE009` |
+| 8 | (공개) 회차가 모두 시작함 | 409 `PERFORMANCE010` |
+| 9 | (공개) 판매가 끝남 | 400 `PERFORMANCE405` |
+| 10 | (즉시 생성) 설정하지 않은(`UNSET`) 구역이 있음. 메시지에 구역 이름이 나옴 | 400 `PERFORMANCE403` |
+| 11 | (즉시 생성) 판매할(`ASSIGNED`) 구역이 없음 | 400 `PERFORMANCE404` |
+| 12 | 같은 공연장의 다른 회차와 시간 겹침 | 409 `PERFORMANCE007` |
+| 13 | (즉시 생성) 복사할 공연장 좌석이 없음(깨진 데이터) | 409 `PERFORMANCE503` |
+
+- 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 공개(SLR-04)·공연 수정(SLR-03)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과 겹치면 하나씩 처리됩니다.
+- 감사 로그는 아직 남기지 않습니다. 판매자 API의 감사 로그는 기능 구현 뒤에 한 번에 넣습니다.
 
 ### SLR-13 회차 수정 — `PUT /api/v1/seller/schedules/{scheduleId}`
 
@@ -2081,9 +2120,32 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **에러**(코드 미정): 409 예매가 생긴 회차(연기로 처리) · 409 시간 겹침
 
-### SLR-14 판매 좌석 생성 — `POST /api/v1/seller/schedules/{scheduleId}/seats/generate`
+### SLR-14 판매 좌석 생성 — `POST /api/v1/seller/schedules/{scheduleId}/seats/generate` (구현됨)
 
-Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 생성 전에 `UNSET` 구역이 없는지 확인합니다. `ASSIGNED` 구역은 `AVAILABLE`, `INTENTIONALLY_UNSOLD` 구역은 `BLOCKED`로 생성합니다.
+Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개). `ASSIGNED` 구역은 `AVAILABLE`(등급·가격 복사), `INTENTIONALLY_UNSOLD` 구역은 `BLOCKED`(등급·가격 없음)로 생성하고 `RESERVED`는 만들지 않습니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 사업체 번호는 토큰에서 꺼내고, 다른 사업체의 회차는 상태와 상관없이 없는 회차와 같은 404 `PERFORMANCE008`입니다.
+
+**허용 상태**: 작성 중(`DRAFT`)과 공개(`PUBLISHED`) 공연. 작성 중 공연은 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료가 모두 설정되어 있어야 합니다. 판매 중·일시 중지·연기 회차도 만들 수 있습니다.
+
+**만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없습니다.** (SLR-08 `locked`가 `true`) 판매자 버튼 외에 스케줄러(자동 생성, 공개된 공연만·판매 오픈 24시간 전부터)가 같은 생성 코드를 쓰도록 별도로 구현할 예정입니다.
+
+에러는 한 번에 하나씩, 아래 순서로 먼저 걸린 것이 나옵니다.
+
+| 순서 | 조건 | 코드 |
+|---|---|---|
+| 1 | 없는 회차이거나 다른 사업체의 회차 | 404 `PERFORMANCE008` |
+| 2 | 취소된 공연 | 409 `PERFORMANCE002` |
+| 3 | 취소된 회차 | 409 `PERFORMANCE501` |
+| 4 | 이미 판매 좌석이 생성된 회차 | 409 `PERFORMANCE500` |
+| 5 | 이미 시작한 회차(시작 시각이 지금 이전이거나 같음) | 400 `PERFORMANCE502` |
+| 6 | (작성 중 공연) 판매 정보가 비어 있음 | 400 `PERFORMANCE401` |
+| 7 | 설정하지 않은(`UNSET`) 구역이 있음. 메시지에 구역 이름이 나옴 | 400 `PERFORMANCE403` |
+| 8 | 판매할(`ASSIGNED`) 구역이 하나도 없음 | 400 `PERFORMANCE404` |
+| 9 | 판매 구역은 있는데 복사할 공연장 좌석이 하나도 없음(깨진 데이터). 롤백되어 생성 시각도 비어 있음 | 409 `PERFORMANCE503` |
+| - | 락을 1초 안에 잡지 못함 | 409 `COMMON004`(잠시 후 다시 시도) |
+
+- 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 등급·구역 수정(SLR-10·11), 공개(SLR-04), 공연 수정과 겹치면 하나씩 처리됩니다. 생성이 먼저 끝나면 수정은 `locked` 409(`PERFORMANCE301`)로 거절되고, 수정이 먼저면 좌석이 수정된 값을 복사합니다.
+- 락이 듣지 않아도(Redis 장애·락 만료) 상태 조건부 UPDATE(`seats_generated_at IS NULL`일 때만 채움)와 UNIQUE `(schedule_id, venue_seat_id)`가 한 회차가 두 번 만들어지는 것을 막아 409 `PERFORMANCE500`입니다.
+- 문제 구역은 에러 응답의 `data`가 아니라 **메시지**에 나옵니다.
 
 **응답 200**
 
@@ -2101,8 +2163,6 @@ Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 생성
   }
 }
 ```
-
-**에러**(코드 미정): 409 이미 생성됨 · 400 판매 필드 미설정 · 400 `UNSET` 구역 있음
 
 ### SLR-15 회차 취소 — `POST /api/v1/seller/schedules/{scheduleId}/cancel`
 
@@ -2631,9 +2691,14 @@ Body 없음. 처리 관리자·시각을 기록하고 감사 로그를 남깁니
 
 **에러**(코드 미정): 400 구조 오류(`from > to`, 중복 등) · 409 같은 이름의 공연장
 
-### ADM-05 환불 실패 목록 — `GET /api/v1/admin/refunds`
+### ADM-05 환불 실패 목록 — `GET /api/v1/admin/refunds` (관리자, 구현됨)
 
-Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 이상만), `page`, `size`
+Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 이상만), `page`, `size`(기본·최대 20)
+
+- 아무 값도 주지 않으면 **자동 재시도를 다 쓰고도 실패한 환불**, 즉 사람이 처리해야 하는 것만 나옵니다. 스케줄러가 아직 다시 보내는 중인 건(1~2회)은 `exhaustedOnly=false`일 때만 보입니다.
+- 기준 횟수(3회)는 재시도 스케줄러 설정(`app.payment.refund-retry.max-count`)을 그대로 씁니다. 설정을 바꾸면 목록 기준도 함께 바뀝니다.
+- **오래 기다린 요청부터**(`requestedAt` 오름차순) 나옵니다. 정렬은 고정이고 `sort`는 무시합니다.
+- `lastAttemptedAt`은 마지막으로 토스에 보낸 시각입니다. 토스 장애 시간과 맞춰 볼 때 씁니다.
 
 **응답 200**
 
@@ -2655,7 +2720,8 @@ Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 
         "status": "FAILED",
         "retryCount": 3,
         "failReason": "PG 응답 시간 초과",
-        "requestedAt": "2026-12-01T10:00:00"
+        "requestedAt": "2026-12-01T10:00:00",
+        "lastAttemptedAt": "2026-12-01T10:15:00"
       }
     ],
     "page": 0,
@@ -2668,9 +2734,17 @@ Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 
 
 `reasonType`: `USER_CANCEL` / `PERFORMANCE_CANCEL` / `POSTPONE_CANCEL` / `SYSTEM` / `ADMIN`
 
-### ADM-06 환불 수동 재처리 — `POST /api/v1/admin/refunds/{refundId}/retry`
+**에러**: 400 `COMMON000` 모르는 `status` 값 · 401 `AUTH200` · 403 `AUTH100` 관리자가 아님
+
+### ADM-06 환불 수동 재처리 — `POST /api/v1/admin/refunds/{refundId}/retry` (관리자, 구현됨)
 
 Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지), 감사 로그.
+
+- **실패(`FAILED`)한 환불만** 다시 보냅니다. 자동 재시도가 남은(3회 미만) 환불도 바로 보낼 수 있고, 스케줄러와 겹치면 한쪽만 보내고 나머지는 409 `PAYMENT009`입니다.
+- 보낼 때마다 `retryCount`가 1 늘어납니다.
+- **토스가 또 실패해도 200**이고 `status`가 `FAILED`, `failReason`에 토스의 사유가 담깁니다. 환불은 실패 목록(ADM-05)에 그대로 남습니다.
+- **처음 요청한 지 15일이 지난 환불은 409 `PAYMENT010`**입니다. 토스 멱등키는 처음 요청한 날부터 15일만 유효해서, 그 뒤에는 같은 키도 새 환불로 처리될 수 있습니다(이중 환불 위험). 이런 환불은 토스에서 실제 환불 여부를 확인하고 토스 쪽에서 처리합니다.
+- 감사 로그: `target_type=REFUND`, `action=RETRY`, 전후 값은 `status`·`retryCount`·`failReason`입니다.
 
 **응답 200**
 
@@ -2689,7 +2763,9 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 }
 ```
 
-**에러**(코드 미정): 404 환불 없음 · 409 `FAILED`가 아님 · 409 처리 중(`PROCESSING`)
+**에러**: 401 `AUTH200` · 403 `AUTH100` 관리자가 아님 · 404 `PAYMENT007` 없는 환불 · 409 `PAYMENT008` 실패가 아님(완료 등) · 409 `PAYMENT009` 처리 중(스케줄러나 다른 요청이 보내는 중) · 409 `PAYMENT010` 요청한 지 15일 지남
+
+판정 순서는 없음(404) → 처리 중 → 실패가 아님 → 15일 지남입니다.
 
 ---
 

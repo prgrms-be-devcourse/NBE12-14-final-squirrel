@@ -1,13 +1,21 @@
 package com.squirrel.tickting.domain.payment.service;
 
+import com.squirrel.tickting.domain.payment.facade.RefundRetryProperties;
 import com.squirrel.tickting.domain.payment.infra.entity.Payment;
 import com.squirrel.tickting.domain.payment.infra.entity.Refund;
 import com.squirrel.tickting.domain.payment.infra.repository.RefundRepository;
 import com.squirrel.tickting.domain.payment.type.RefundReasonType;
 import com.squirrel.tickting.domain.payment.type.RefundStatus;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RefundService {
 
 	private final RefundRepository refundRepository;
+	private final RefundRetryProperties retryProperties;
 
 	/**
 	 * 토스에 보낼 환불 한 건을 만든다. 처음부터 요청 중(PROCESSING)으로 만들고, 호출한 쪽이 커밋한 뒤에 토스를 부른다.
@@ -32,7 +41,59 @@ public class RefundService {
 			.idempotencyKey(UUID.randomUUID().toString())
 			.status(RefundStatus.PROCESSING)
 			.requestedAt(now)
+			.lastAttemptedAt(now)
 			.build());
+	}
+
+	/**
+	 * 관리자 환불 목록. exhaustedOnly 면 자동 재시도를 다 쓴 것만 준다. 기준 횟수는 재시도 스케줄러 설정을 그대로 읽어서,
+	 * 설정을 바꿔도 "스케줄러가 포기한 환불"과 목록이 어긋나지 않는다. 예매번호를 붙이려고 예매를 함께 읽는다.
+	 */
+	@Transactional(readOnly = true)
+	public Page<Refund> searchForAdmin(RefundStatus status, boolean exhaustedOnly, Pageable pageable) {
+		int minRetryCount = exhaustedOnly ? retryProperties.maxCount() : 0;
+		return refundRepository.searchForAdmin(status, minRetryCount, pageable);
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> findRetryDue(LocalDateTime cutoff, int maxCount, int limit) {
+		return refundRepository.findRetryDueIds(cutoff, maxCount, limit);
+	}
+
+	/**
+	 * 재시도할 환불을 요청 중으로 바꾸고 가져간다. 다른 서버가 먼저 가져갔거나 이미 끝난 환불이면 비어 있다.
+	 * 실패로 단정하지 않고 비어 있는 값으로 답하는 이유는, 여러 서버가 같은 목록을 보고 경쟁하는 것이 정상이라서다.
+	 */
+	@Transactional
+	public Optional<Refund> claimForRetry(Long refundId, LocalDateTime now, LocalDateTime cutoff, int maxCount) {
+		if (refundRepository.claimForRetry(refundId, now, cutoff, maxCount) == 0) {
+			return Optional.empty();
+		}
+		return refundRepository.findWithPaymentById(refundId);
+	}
+
+	/**
+	 * 관리자가 다시 보낼 환불을 요청 중으로 바꾸고 가져간다. 판정 순서: 없음(404) → 처리 중(409) → 실패가 아님(409) → 멱등키 기간 지남(409).
+	 * 확인한 뒤에 스케줄러가 먼저 가져가면 조건부 UPDATE 가 0행이라 처리 중(409)으로 답한다.
+	 * 멱등키 기간은 처음 요청한 시각부터 센다. 토스가 키를 처음 받은 때가 그 무렵이기 때문이다.
+	 */
+	@Transactional
+	public Refund claimForManualRetry(Long refundId, LocalDateTime now, Duration idempotencyKeyValidity) {
+		Refund refund = refundRepository.findById(refundId)
+			.orElseThrow(() -> new BusinessException(PaymentExceptionCode.REFUND_NOT_FOUND));
+		if (refund.getStatus() == RefundStatus.PROCESSING) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_IN_PROGRESS);
+		}
+		if (refund.getStatus() != RefundStatus.FAILED) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_NOT_RETRYABLE);
+		}
+		if (!now.isBefore(refund.getRequestedAt().plus(idempotencyKeyValidity))) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_IDEMPOTENCY_EXPIRED);
+		}
+		if (refundRepository.claimFailedForManualRetry(refundId, now) == 0) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_IN_PROGRESS);
+		}
+		return refundRepository.findWithPaymentById(refundId).orElseThrow();
 	}
 
 	@Transactional
