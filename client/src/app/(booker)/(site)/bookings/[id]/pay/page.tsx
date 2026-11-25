@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useRef, useState } from "react";
-import { ApiError, api, useApi, useMockSeen } from "@/lib/api";
+import { ApiError, api, useApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
 import { useBookingWindow } from "@/lib/popup";
 import { dateTimeText, gradeLabel, won } from "@/lib/format";
@@ -54,7 +54,7 @@ function fromDetail(b: BookingDetail): PayView {
   };
 }
 
-// 토스를 거치지 않는 임시 승인에서만 쓰는 가짜 결제 키다. 목 서버는 어떤 값이든 받는다.
+// 토스를 거치지 않는 임시 승인에서만 쓰는 가짜 결제 키다. 서버가 결제 구현을 mock 으로 켠 로컬에서만 받아 준다.
 const testPaymentKey = () => `test_${Date.now()}`;
 
 function isTossError(error: unknown): error is { code: string; message: string } {
@@ -115,10 +115,7 @@ export default function PayPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  // 목 데이터로 만든 예매(또는 목이 답한 조회)는 토스 승인이 의미가 없어서 결제창을 열지 않는다.
-  const mockSeen = useMockSeen();
-  const mocked = cache.booking ? cache.booking.mock : mockSeen;
-  const useToss = Boolean(TOSS_CLIENT_KEY) && !mocked;
+  const useToss = Boolean(TOSS_CLIENT_KEY);
   const payUnavailable = IS_PRODUCTION && !useToss;
   const widgetsRef = useRef<TossPaymentsWidgets | null>(null);
   const [widgetState, setWidgetState] = useState<"loading" | "ready" | "error">("loading");

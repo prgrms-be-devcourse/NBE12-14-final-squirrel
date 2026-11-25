@@ -11,8 +11,6 @@ export type CachedBooking = BookingCreated & {
   scheduleId: number;
   performanceTitle: string;
   scheduleStartAt: string;
-  // 목 데이터로 만든 예매인지. 목 예매는 토스 결제창을 열지 않는다.
-  mock: boolean;
 };
 
 const key = (bookingId: number | string) => `tickting.booking.${bookingId}`;
