@@ -53,6 +53,16 @@ public class BookingService {
 	}
 
 	/**
+	 * 그 회차에 만료(EXPIRED)가 아닌 예매가 있는가. 판매자가 회차 일시를 바꿀 수 있는지 판단하는 데 쓴다.
+	 * 좌석을 돌려준 전체 취소도 세는 점이 existsOccupying 과 다르다. 취소한 예매의 내역에도 지금 일시가 보이기 때문이다.
+	 * 결제 제한 시각이 지났어도 만료 처리 전의 결제 대기 예매는 센다.
+	 */
+	@Transactional(readOnly = true)
+	public boolean existsNotExpired(Long scheduleId) {
+		return bookingRepository.existsByScheduleIdAndStatusNot(scheduleId, BookingStatus.EXPIRED);
+	}
+
+	/**
 	 * 결제할 수 있는 내 예매를 읽는다. 없거나 남의 예매면 같은 404, 결제 대기(PENDING)가 아니거나 결제 제한 시각이 지났으면 409 다.
 	 * 스케줄러가 아직 정리하지 않았더라도 시각이 지난 예매는 여기서 막는다. 호출한 쪽의 트랜잭션에 참여한다.
 	 */

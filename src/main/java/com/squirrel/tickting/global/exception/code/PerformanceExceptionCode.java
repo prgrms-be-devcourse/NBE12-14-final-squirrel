@@ -17,7 +17,7 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	/**
 	 * 취소(CANCELED)된 공연을 고치려 함. 공연 취소는 모든 회차를 취소해 locked 가 false 가 되므로 따로 막는다.
 	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다.
-	 * 회차 추가(SLR-12)와 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다
+	 * 회차 추가(SLR-12)·수정(SLR-13)과 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다
 	 */
 	PERFORMANCE_CANCELED("PERFORMANCE002", HttpStatus.CONFLICT, "취소된 공연은 수정할 수 없습니다."),
 	/**
@@ -35,9 +35,9 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 */
 	MAX_PER_PERSON_REDUCE_NOT_ALLOWED("PERFORMANCE006", HttpStatus.CONFLICT, "예매가 있는 공연은 1인 최대 매수를 줄일 수 없습니다."),
 	/**
-	 * 공연장 변경·러닝타임 늘리기·회차 추가로 같은 공연장의 다른 회차와 시간이 겹침. 회차가 차지하는 시간은 시작부터 러닝타임 + 1시간이다.
+	 * 공연장 변경·러닝타임 늘리기·회차 추가와 수정으로 같은 공연장의 다른 회차와 시간이 겹침. 회차가 차지하는 시간은 시작부터 러닝타임 + 1시간이다.
 	 * 다른 판매자의 회차는 정보를 알려 주지 않는다. 공연 수정(SLR-03)은 겹치는 이 공연의 회차 일시를,
-	 * 회차 추가(SLR-12)는 겹치는 내 사업체 회차의 공연명·일시·사용 종료 시각을 메시지에 넣는다
+	 * 회차 추가(SLR-12)와 수정(SLR-13)은 겹치는 내 사업체 회차의 공연명·일시·사용 종료 시각을 메시지에 넣는다
 	 */
 	SCHEDULE_TIME_OVERLAP("PERFORMANCE007", HttpStatus.CONFLICT, "같은 공연장의 다른 회차와 시간이 겹칩니다."),
 	/**
@@ -47,7 +47,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SELLER_SCHEDULE_NOT_FOUND("PERFORMANCE008", HttpStatus.NOT_FOUND, "존재하지 않는 회차입니다."),
 	/**
 	 * 작성 중(DRAFT) 공연에 지금부터 3시간 이내(정확히 3시간 뒤 포함)에 시작하는 회차를 추가하려 함.
-	 * 공개는 판매 오픈까지 3시간보다 더 남아야 하고 회차는 오픈보다 늦어야 해서, 이런 회차가 있으면 그 공연을 공개할 수 없다
+	 * 공개는 판매 오픈까지 3시간보다 더 남아야 하고 회차는 오픈보다 늦어야 해서, 이런 회차가 있으면 그 공연을 공개할 수 없다.
+	 * 작성 중 공연의 회차 일시를 그렇게 바꾸려 할 때(SLR-13)도 쓴다
 	 */
 	DRAFT_SCHEDULE_TOO_SOON("PERFORMANCE009", HttpStatus.BAD_REQUEST, "작성 중인 공연에는 지금부터 3시간 뒤의 회차부터 추가할 수 있습니다."),
 	/**
@@ -55,6 +56,13 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 그대로 이어지고 판매 기간도 늘릴 수 없어서, 새 공연을 등록하게 한다
 	 */
 	ALL_SCHEDULES_STARTED("PERFORMANCE010", HttpStatus.CONFLICT, "회차가 모두 시작된 공연에는 회차를 추가할 수 없습니다. 새 공연을 등록해 주세요."),
+	/**
+	 * 만료(EXPIRED)가 아닌 예매가 있는 회차의 일시를 바꾸려 함. 전체 취소도 막는다. 예매자의 내역에는 지금 일시가 보이고
+	 * 바꾸기 전 일시가 남지 않기 때문이다
+	 */
+	SCHEDULE_HAS_BOOKING("PERFORMANCE011", HttpStatus.CONFLICT, "결제 대기 중이거나 결제된 적 있는(취소 포함) 예매가 있어 일시를 바꿀 수 없습니다."),
+	/** 연기(POSTPONED)된 회차의 일시를 바꾸려 함. 새 일정은 연기 이력·상태와 함께 바뀌어야 해서 연기 기능이 맡는다 */
+	SCHEDULE_POSTPONED("PERFORMANCE012", HttpStatus.CONFLICT, "연기된 회차는 일시를 바꿀 수 없습니다."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */
@@ -143,10 +151,13 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SALE_OPEN_TOO_SOON("PERFORMANCE406", HttpStatus.BAD_REQUEST, "판매 오픈 3시간 전까지만 공개할 수 있습니다."),
 	/**
 	 * 판매 오픈보다 먼저(같은 시각 포함) 시작하는 회차가 있음. 그 회차는 한 장도 팔 수 없고 보통 날짜 입력 실수다. 회차 일시는 메시지로 알려 준다.
-	 * 회차 추가(SLR-12)는 판매 오픈이 설정되어 있으면 작성 중 공연에서도 막고, 메시지에 판매 오픈 일시를 넣는다
+	 * 회차 추가(SLR-12)와 수정(SLR-13)은 판매 오픈이 설정되어 있으면 작성 중 공연에서도 막고, 메시지에 판매 오픈 일시를 넣는다
 	 */
 	SCHEDULE_BEFORE_SALE_OPEN("PERFORMANCE407", HttpStatus.BAD_REQUEST, "판매 오픈보다 먼저 시작하는 회차가 있습니다."),
-	/** 판매 종료가 마지막 회차 시작보다 늦음. 기능상 문제는 없지만 예매자 공연 상세에 공연이 끝난 뒤까지 판매 기간으로 보인다 */
+	/**
+	 * 판매 종료가 마지막 회차 시작보다 늦음. 기능상 문제는 없지만 예매자 공연 상세에 공연이 끝난 뒤까지 판매 기간으로 보인다.
+	 * 공개된 공연의 회차 일시를 앞당겨 이렇게 될 때(SLR-13)도 막고, 메시지에 판매 종료를 앞당길 기준 일시를 넣는다
+	 */
 	SALE_CLOSE_AFTER_LAST_SCHEDULE("PERFORMANCE408", HttpStatus.BAD_REQUEST, "판매 종료 일시는 마지막 회차 시작보다 늦을 수 없습니다."),
 
 	// 판매 좌석 생성은 500번대를 쓴다.
@@ -157,7 +168,10 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SEATS_ALREADY_GENERATED("PERFORMANCE500", HttpStatus.CONFLICT, "이미 판매 좌석이 생성된 회차입니다."),
 	/** 취소된 회차에서 판매 좌석을 만들려 함. 팔 수 없는 좌석만 쌓이고 가격이 잠긴다. 회차 수정·취소(SLR-13·15)도 취소된 회차를 막을 때 쓸 수 있다 */
 	SCHEDULE_CANCELED("PERFORMANCE501", HttpStatus.CONFLICT, "취소된 회차는 판매 좌석을 만들 수 없습니다."),
-	/** 이미 시작한(시작 시각이 지금 이전이거나 같은) 회차에서 판매 좌석을 만들려 함. 팔 수 없는 좌석만 쌓이고 가격이 잠긴다 */
+	/**
+	 * 이미 시작한(시작 시각이 지금 이전이거나 같은) 회차에서 판매 좌석을 만들려 함. 팔 수 없는 좌석만 쌓이고 가격이 잠긴다.
+	 * 시작한 회차의 일시를 바꾸려 할 때(SLR-13)도 메시지를 바꿔 쓴다. 지난 공연이 다시 팔리면 안 된다
+	 */
 	SCHEDULE_ALREADY_STARTED("PERFORMANCE502", HttpStatus.BAD_REQUEST, "이미 시작한 회차는 판매 좌석을 만들 수 없습니다."),
 	/**
 	 * 복사할 공연장 좌석이 하나도 없어 좌석이 0행으로 만들어짐. 판매 구역이 있는데 그 구역에 공연장 좌석이 없는 깨진 데이터라

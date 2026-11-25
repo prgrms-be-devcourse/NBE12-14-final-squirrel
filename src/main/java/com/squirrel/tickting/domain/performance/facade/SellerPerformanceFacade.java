@@ -5,6 +5,7 @@ import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
+import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.domain.performance.service.GradeService;
 import com.squirrel.tickting.domain.performance.service.PerformanceLockNames;
@@ -23,7 +24,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 판매자의 공연 등록·수정. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매 서비스를 엮고,
+ * 판매자의 공연 등록·수정과 회차 수정. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매 서비스를 엮고,
  * 쓰기는 TransactionTemplate 으로 한 트랜잭션에 묶는다. (조회는 공연의 읽기 전용 연관으로 서비스가 직접 응답을 만든다)
  */
 @Component
@@ -121,5 +122,42 @@ public class SellerPerformanceFacade {
 			scheduleSeatService.deleteAllOfPerformance(performanceId, now);
 		}
 		return performance;
+	}
+
+	/**
+	 * 회차의 공연 일시를 바꾼다. 예매 확인이 예매 도메인이라 파사드가 맡는다.
+	 * 락은 공연 단위(performance:{번호})라 같은 공연의 회차 추가·공연 수정·공개·판매 좌석 생성과 겹치지 않는다.
+	 * 좌석 점유는 이 락을 잡지 않아, 예매를 확인한 직후 저장하기 전에 들어온 점유는 막지 못한다. (알고 감수, doc/seller-progress.md TODO)
+	 * 검사 순서: 회차 조회 404(락 밖) → 락 → 재조회 → 공연·회차 상태 → 같은 일시 → 새 일시 → (공개) 예매 → 판매 종료 → 겹침.
+	 * 앞에서 막히면 뒤의 쿼리는 나가지 않는다. 처리량은 추정이고 측정하지 않았다.
+	 */
+	public SellerPerformanceResponse.ScheduleUpdated updateSchedule(Long businessId, Long scheduleId,
+		SellerPerformanceRequest.ScheduleSave request) {
+		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
+		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
+
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(
+				status -> updateScheduleInTransaction(businessId, scheduleId, request.startAt())));
+	}
+
+	/** 락을 기다리는 사이 상태가 바뀌었을 수 있어 회차를 다시 읽는다. */
+	private SellerPerformanceResponse.ScheduleUpdated updateScheduleInTransaction(Long businessId, Long scheduleId,
+		LocalDateTime startAt) {
+		// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
+		LocalDateTime now = LocalDateTime.now();
+		PerformanceSchedule schedule = sellerPerformanceService.getMySchedule(businessId, scheduleId);
+		sellerPerformanceService.validateReschedulable(schedule, now);
+		// 값이 바뀌지 않으면 예매가 있어도 막을 것이 없다.
+		if (schedule.getStartAt().equals(startAt)) {
+			return sellerPerformanceService.unchangedScheduleResponse(schedule);
+		}
+		Performance performance = schedule.getPerformance();
+		sellerPerformanceService.validateRescheduleStartAt(performance, startAt, now);
+		// 작성 중 공연은 예매가 있을 수 없어 묻지 않는다.
+		if (performance.getStatus() == PerformanceStatus.PUBLISHED && bookingService.existsNotExpired(scheduleId)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_HAS_BOOKING);
+		}
+		return sellerPerformanceService.reschedule(businessId, schedule, startAt, now);
 	}
 }

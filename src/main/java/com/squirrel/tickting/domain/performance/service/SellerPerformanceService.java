@@ -53,7 +53,7 @@ public class SellerPerformanceService {
 	 * 판매 오픈까지 이만큼 남아야 공개할 수 있다. (임시)
 	 * 판매 좌석은 오픈 24시간 전부터 스케줄러가 1시간마다 만든다. 공개 뒤 오픈 전에 스케줄러가 최소 두 번 돌아
 	 * 첫 생성이 실패해도 다시 만들 수 있게 한 값이다. 스케줄러 주기가 바뀌면 이 값도 다시 정한다.
-	 * 작성 중 공연에 추가하는 회차도 이보다 뒤여야 한다. 더 이른 회차가 있으면 공개 조건을 채울 수 없다.
+	 * 작성 중 공연에 추가하거나 일시를 바꾸는 회차도 이보다 뒤여야 한다. 더 이른 회차가 있으면 공개 조건을 채울 수 없다.
 	 */
 	private static final Duration PUBLISH_LEAD_TIME = Duration.ofHours(3);
 	/**
@@ -73,6 +73,9 @@ public class SellerPerformanceService {
 		PerformanceExceptionCode.SEATS_ALREADY_GENERATED, PerformanceExceptionCode.PERFORMANCE_CANCELED,
 		PerformanceExceptionCode.SCHEDULE_CANCELED, PerformanceExceptionCode.SCHEDULE_ALREADY_STARTED,
 		CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+	/** 일시를 바꿀 수 있는 회차 상태. 취소·연기 회차는 막는다. */
+	private static final Set<ScheduleStatus> RESCHEDULABLE_STATUSES = EnumSet.of(ScheduleStatus.ON_SALE,
+		ScheduleStatus.PAUSED);
 	private static final DateTimeFormatter SCHEDULE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 	private static final DateTimeFormatter TIME_ONLY_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -235,7 +238,7 @@ public class SellerPerformanceService {
 		if (performance.getVenue().getStatus() != VenueStatus.ACTIVE) {
 			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE);
 		}
-		validateNewStartAt(performance, startAt, now);
+		validateNewStartAt(performance, startAt, now, PerformanceExceptionCode.DRAFT_SCHEDULE_TOO_SOON.getMessage());
 		if (published) {
 			validateStillOnSale(performance, now);
 		}
@@ -247,7 +250,7 @@ public class SellerPerformanceService {
 				"판매 좌석을 바로 만들어야 해서 회차를 추가할 수 없습니다. 설정하지 않은 구역이 있습니다",
 				"판매 좌석을 바로 만들어야 해서 회차를 추가할 수 없습니다. 판매할 구역이 하나 이상 있어야 합니다.");
 		}
-		validateNewScheduleNoOverlap(businessId, performance, startAt);
+		validateNewScheduleNoOverlap(businessId, performance, startAt, null);
 
 		PerformanceSchedule schedule = performanceScheduleRepository.save(PerformanceSchedule.builder()
 			.performance(performance)
@@ -262,16 +265,18 @@ public class SellerPerformanceService {
 
 	/**
 	 * 판매 오픈보다 늦게 시작해야 하고(오픈이 비어 있으면 보지 않는다), 작성 중 공연은 공개 준비 시간보다 뒤여야 한다.
-	 * 판매 종료가 마지막 회차보다 늦은지는 보지 않는다. 회차를 하나씩 넣는 중에는 첫 회차부터 걸리고, 공개·공연 수정이 확인한다.
+	 * 회차 추가와 수정이 함께 쓰고, 공개 준비 시간에 걸린 메시지는 판매자가 하려던 일에 맞춰 호출한 쪽이 정한다.
+	 * 판매 종료가 마지막 회차보다 늦은지는 보지 않는다. 회차를 하나씩 넣는 중에는 첫 회차부터 걸려서, 추가에서는 공개·공연 수정이 확인한다.
 	 */
-	private void validateNewStartAt(Performance performance, LocalDateTime startAt, LocalDateTime now) {
+	private void validateNewStartAt(Performance performance, LocalDateTime startAt, LocalDateTime now,
+		String tooSoonMessage) {
 		LocalDateTime saleOpenAt = performance.getSaleOpenAt();
 		if (saleOpenAt != null && !startAt.isAfter(saleOpenAt)) {
 			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_BEFORE_SALE_OPEN,
 				"회차는 판매 오픈 일시(" + SCHEDULE_TIME_FORMAT.format(saleOpenAt) + ")보다 늦게 시작해야 합니다.");
 		}
 		if (performance.getStatus() == PerformanceStatus.DRAFT && !startAt.isAfter(now.plus(PUBLISH_LEAD_TIME))) {
-			throw new BusinessException(PerformanceExceptionCode.DRAFT_SCHEDULE_TOO_SOON);
+			throw new BusinessException(PerformanceExceptionCode.DRAFT_SCHEDULE_TOO_SOON, tooSoonMessage);
 		}
 	}
 
@@ -292,13 +297,15 @@ public class SellerPerformanceService {
 	}
 
 	/**
-	 * 새 회차가 같은 공연장의 다른 회차와 겹치지 않는지 본다. 내 사업체 회차와 겹치면 입력 실수를 바로 고칠 수 있게
+	 * 새 회차나 일시를 바꾸는 회차가 같은 공연장의 다른 회차와 겹치지 않는지 본다. 내 사업체 회차와 겹치면 입력 실수를 바로 고칠 수 있게
 	 * 공연명·일시·사용 종료 시각을 알려 주고, 다른 판매자의 회차는 미발표 일정일 수 있어 알려 주지 않는다.
+	 * excludedScheduleId 는 일시를 바꾸는 회차 자신이고, 새 회차면 null 이다.
 	 */
-	private void validateNewScheduleNoOverlap(Long businessId, Performance performance, LocalDateTime startAt) {
+	private void validateNewScheduleNoOverlap(Long businessId, Performance performance, LocalDateTime startAt,
+		Long excludedScheduleId) {
 		List<PerformanceScheduleRepository.OverlappingSchedule> overlapped = performanceScheduleRepository
 			.findOverlappingSchedules(performance.getVenueId(), startAt, performance.getRunningTime(),
-				(int) SCHEDULE_BUFFER.toMinutes());
+				(int) SCHEDULE_BUFFER.toMinutes(), excludedScheduleId);
 		if (overlapped.isEmpty()) {
 			return;
 		}
@@ -321,14 +328,101 @@ public class SellerPerformanceService {
 	}
 
 	/**
+	 * 내 사업체의 회차를 공연과 함께 읽는다. 남의 회차는 없는 회차와 같은 404 다. 호출한 쪽의 트랜잭션에 참여하고,
+	 * 락 밖에서 부르면 공연 번호만 믿는다.
+	 */
+	@Transactional(readOnly = true)
+	public PerformanceSchedule getMySchedule(Long businessId, Long scheduleId) {
+		return performanceScheduleRepository.findWithPerformanceById(scheduleId)
+			.filter(found -> found.getPerformance().getBusinessId().equals(businessId))
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND));
+	}
+
+	/**
+	 * 일시를 바꿀 수 있는 회차인가. 순서: 취소된 공연 → 취소 회차 → 연기 회차 → 이미 시작함. 모두 이미 읽은 값으로 판단한다.
+	 * 시작한 회차를 뒤로 옮기면 지난 공연이 다시 팔리고, 끝난 공연의 회차 추가 거절을 피해 갈 수 있어 막는다.
+	 */
+	public void validateReschedulable(PerformanceSchedule schedule, LocalDateTime now) {
+		if (schedule.getPerformance().getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED);
+		}
+		if (schedule.getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_CANCELED, "취소된 회차는 일시를 바꿀 수 없습니다.");
+		}
+		if (schedule.getStatus() == ScheduleStatus.POSTPONED) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_POSTPONED);
+		}
+		if (!schedule.getStartAt().isAfter(now)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_ALREADY_STARTED, "이미 시작한 회차는 일시를 바꿀 수 없습니다.");
+		}
+	}
+
+	/** 바꿀 일시가 회차 추가와 같은 조건을 지키는가. 지난 시각은 요청 DTO 가 막는다. */
+	public void validateRescheduleStartAt(Performance performance, LocalDateTime startAt, LocalDateTime now) {
+		validateNewStartAt(performance, startAt, now, "작성 중인 공연의 회차는 지금부터 3시간 뒤의 일시로만 바꿀 수 있습니다.");
+	}
+
+	/**
+	 * 회차의 공연 일시를 바꾼다. 상태·판매 좌석은 그대로다. 회차 상태, 새 일시, 예매는 호출한 쪽이 락 안에서 먼저 확인한다.
+	 * 검사 순서: (공개) 판매 종료 → 같은 공연장 겹침 → 조건부 UPDATE. 이 공연의 회차 목록이 겹침 조회보다 읽을 것이 적을 것이라는
+	 * 추정이고 측정하지 않았다. 0행이면 락이 듣지 않아 그 사이 바뀐 것이라, 다시 요청하면 정확한 에러가 나오게 COMMON004 로 답한다.
+	 */
+	@Transactional
+	public SellerPerformanceResponse.ScheduleUpdated reschedule(Long businessId, PerformanceSchedule schedule,
+		LocalDateTime startAt, LocalDateTime now) {
+		Performance performance = schedule.getPerformance();
+		if (performance.getStatus() == PerformanceStatus.PUBLISHED) {
+			validateSaleCloseWithin(performance, schedule.getId(), startAt);
+		}
+		validateNewScheduleNoOverlap(businessId, performance, startAt, schedule.getId());
+
+		if (performanceScheduleRepository.updateStartAt(schedule.getId(), startAt, RESCHEDULABLE_STATUSES, now) == 0) {
+			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+		}
+		// 일괄 UPDATE 는 엔티티에 반영되지 않아 저장한 값으로 응답한다.
+		return scheduleUpdatedResponse(schedule.getId(), startAt, now);
+	}
+
+	/** 바꾼 것이 없을 때의 응답. 저장하지 않았으므로 수정 일시는 이전 값이다. */
+	public SellerPerformanceResponse.ScheduleUpdated unchangedScheduleResponse(PerformanceSchedule schedule) {
+		return scheduleUpdatedResponse(schedule.getId(), schedule.getStartAt(), schedule.getUpdatedAt());
+	}
+
+	private SellerPerformanceResponse.ScheduleUpdated scheduleUpdatedResponse(Long scheduleId, LocalDateTime startAt,
+		LocalDateTime updatedAt) {
+		return SellerPerformanceResponse.ScheduleUpdated.builder()
+			.scheduleId(scheduleId)
+			.startAt(startAt)
+			.updatedAt(updatedAt)
+			.build();
+	}
+
+	/**
+	 * 회차를 옮긴 뒤에도 판매 종료가 마지막 회차 시작보다 늦지 않은가. 옮기는 회차는 새 일시로 보고 취소 회차는 빼고 본다.
+	 * 어긋난 채 저장하면 이후의 공연 수정이 제목만 고쳐도 막혀서 여기서 거절한다.
+	 * 다른 회차가 판매 오픈보다 늦은지는 보지 않는다. 이번에 바꾸는 값과 상관없는 회차 때문에 막히지 않게 하려는 것이다.
+	 */
+	private void validateSaleCloseWithin(Performance performance, Long movedScheduleId, LocalDateTime newStartAt) {
+		LocalDateTime lastStartAt = performanceScheduleRepository
+			.findByPerformanceIdAndStatusNotOrderByStartAt(performance.getId(), ScheduleStatus.CANCELED)
+			.stream()
+			.filter(other -> !other.getId().equals(movedScheduleId))
+			.map(PerformanceSchedule::getStartAt)
+			.reduce(newStartAt, (last, startAt) -> startAt.isAfter(last) ? startAt : last);
+		if (performance.getSaleCloseAt().isAfter(lastStartAt)) {
+			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSE_AFTER_LAST_SCHEDULE,
+				PerformanceExceptionCode.SALE_CLOSE_AFTER_LAST_SCHEDULE.getMessage() + " 판매 종료 일시를 "
+					+ SCHEDULE_TIME_FORMAT.format(lastStartAt) + " 이전으로 먼저 앞당겨 주세요.");
+		}
+	}
+
+	/**
 	 * 판매자가 "좌석 지금 생성"을 눌러 한 회차의 판매 좌석을 만든다. 만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없다.
 	 * 남의 회차는 락을 잡기 전에 404 로 끝내서 남의 회차 상태를 드러내지 않는다.
 	 * 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
 	 */
 	public SellerPerformanceResponse.SeatsGenerated generateSeats(Long businessId, Long scheduleId) {
-		PerformanceSchedule schedule = performanceScheduleRepository.findWithPerformanceById(scheduleId)
-			.filter(found -> found.getPerformance().getBusinessId().equals(businessId))
-			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND));
+		PerformanceSchedule schedule = getMySchedule(businessId, scheduleId);
 		return inPerformanceLock(schedule.getPerformance().getId(), () -> {
 			// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
 			LocalDateTime now = LocalDateTime.now();
