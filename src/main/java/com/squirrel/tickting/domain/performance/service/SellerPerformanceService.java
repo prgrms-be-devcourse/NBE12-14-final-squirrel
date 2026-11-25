@@ -20,6 +20,7 @@ import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import com.squirrel.tickting.domain.venue.type.VenueStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.ExceptionCode;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.exception.code.VenueExceptionCode;
@@ -32,13 +33,18 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SellerPerformanceService {
@@ -56,10 +62,17 @@ public class SellerPerformanceService {
 	 */
 	private static final Duration SCHEDULE_BUFFER = Duration.ofHours(1);
 	/**
-	 * 판매 오픈까지 남은 시간이 이 이하인 공개 공연에 회차를 추가하면 판매 좌석을 바로 만든다. (임시)
-	 * 자동 생성(스케줄러)이 만들기 시작하는 시점과 같아야 해서, 스케줄러도 같은 값을 써야 한다.
+	 * 판매 오픈까지 남은 시간이 이 이하인 공개 공연은 판매 좌석을 만들 때가 된 것이다. (임시)
+	 * 자동 생성(스케줄러)과 회차를 추가할 때의 즉시 생성이 같이 쓴다.
 	 */
 	private static final Duration SEAT_GENERATION_LEAD_TIME = Duration.ofHours(24);
+	/**
+	 * 자동 생성에서 실패로 보지 않는 코드. 그 사이 만들어졌거나 대상에서 빠졌거나, 다른 작업이 락을 쥐고 있어 다음 실행에서 다시 만든다.
+	 */
+	private static final Set<ExceptionCode> SKIPPED_SEAT_GENERATION_CODES = Set.of(
+		PerformanceExceptionCode.SEATS_ALREADY_GENERATED, PerformanceExceptionCode.PERFORMANCE_CANCELED,
+		PerformanceExceptionCode.SCHEDULE_CANCELED, PerformanceExceptionCode.SCHEDULE_ALREADY_STARTED,
+		CommonExceptionCode.LOCK_ACQUISITION_FAILED);
 	private static final DateTimeFormatter SCHEDULE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 	private static final DateTimeFormatter TIME_ONLY_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -227,8 +240,7 @@ public class SellerPerformanceService {
 			validateStillOnSale(performance, now);
 		}
 		// 작성 중 공연은 좌석을 만들면 공개 전에 등급·가격·구역이 잠기므로 만들지 않는다.
-		boolean generatesSeats = published
-			&& !now.isBefore(performance.getSaleOpenAt().minus(SEAT_GENERATION_LEAD_TIME));
+		boolean generatesSeats = isSeatGenerationDue(performance, now);
 		if (generatesSeats) {
 			validateZonesForSeats(zoneGradeRepository.findAllWithGradeByPerformanceId(performanceId),
 				performance.getVenue().getZones(),
@@ -317,29 +329,90 @@ public class SellerPerformanceService {
 		PerformanceSchedule schedule = performanceScheduleRepository.findWithPerformanceById(scheduleId)
 			.filter(found -> found.getPerformance().getBusinessId().equals(businessId))
 			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND));
-		return generateSeatsBySystem(schedule.getPerformance().getId(), scheduleId);
+		return inPerformanceLock(schedule.getPerformance().getId(), () -> {
+			// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
+			LocalDateTime now = LocalDateTime.now();
+			return generateSeatsInTransaction(getScheduleWithPerformance(scheduleId), now);
+		});
 	}
 
 	/**
-	 * 소유 확인 없이 한 회차의 판매 좌석을 만든다. 시스템이 부르는 길(스케줄러)이 쓴다.
-	 * 공연 락 performance:{공연 번호} 는 등급·구역 수정(SLR-10·11)·공개(SLR-04)와 같은 이름이라, 가격·구역을 복사하는 것과
-	 * 그 값을 고치는 것이 서로 막는다. 락을 못 잡으면 COMMON004 다.
+	 * 판매 좌석을 만들 때가 된 회차를 모두 만든다. (스케줄러가 부른다) 회차 하나가 락 하나·트랜잭션 하나라,
+	 * 한 회차가 실패해도 만든 것은 남고 나머지를 계속 만든다. 실패한 회차는 대상에 남아 다음 실행에서 다시 시도한다.
+	 * 락 실행기가 트랜잭션 안을 거부해서 @Transactional 을 붙이지 않는다. 대상 조회가 실패하면 예외를 그대로 던진다.
 	 */
-	public SellerPerformanceResponse.SeatsGenerated generateSeatsBySystem(Long performanceId, Long scheduleId) {
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
-			() -> transactionTemplate.execute(status -> generateSeatsInTransaction(scheduleId)));
+	public void generateDueSeats() {
+		LocalDateTime now = LocalDateTime.now();
+		performanceScheduleRepository.findSeatGenerationTargets(PerformanceStatus.PUBLISHED, ScheduleStatus.CANCELED,
+				now, now.plus(SEAT_GENERATION_LEAD_TIME))
+			.forEach(target -> generateDueSeatsOf(target.getPerformanceId(), target.getScheduleId()));
+	}
+
+	/** 한 회차를 자동으로 만들고 결과를 로그로 남긴다. 다음 회차를 계속 만들 수 있게 예외를 밖으로 던지지 않는다. */
+	private void generateDueSeatsOf(Long performanceId, Long scheduleId) {
+		try {
+			generateSeatsBySystem(performanceId, scheduleId).ifPresentOrElse(
+				generated -> log.info("판매 좌석을 자동으로 만들었다. 공연 {}, 회차 {}, 좌석 {}개", performanceId, scheduleId,
+					generated.totalSeats()),
+				() -> log.debug("자동 생성 대상에서 빠져 건너뛴다. 공연 {}, 회차 {}", performanceId, scheduleId));
+		} catch (BusinessException e) {
+			if (SKIPPED_SEAT_GENERATION_CODES.contains(e.getExceptionCode())) {
+				log.debug("판매 좌석 자동 생성을 건너뛴다. 공연 {}, 회차 {}, 코드 {}", performanceId, scheduleId,
+					e.getExceptionCode().getCode());
+			} else {
+				log.warn("판매 좌석을 자동으로 만들지 못했다. 공연 {}, 회차 {}, 코드 {}: {}", performanceId, scheduleId,
+					e.getExceptionCode().getCode(), e.getMessage());
+			}
+		} catch (RuntimeException e) {
+			log.error("판매 좌석 자동 생성 중 오류가 났다. 공연 {}, 회차 {}", performanceId, scheduleId, e);
+		}
 	}
 
 	/**
-	 * 락과 트랜잭션이 이미 열려 있다고 가정하고 검사·복사한다. 락을 기다리는 사이 상태가 바뀌었을 수 있어 락 밖의 판단은 믿지 않고 다시 읽는다.
+	 * 자동 생성 전용으로, 소유 확인 없이 한 회차의 판매 좌석을 만든다. 만들 때가 된 회차가 아니면 만들지 않고 빈 값을 돌려준다.
+	 * 대상을 읽은 뒤 락을 잡기 전에 판매 오픈이 뒤로 바뀔 수 있고, 좌석을 일찍 만들면 등급·가격·구역이 되돌릴 수 없이 잠기므로
+	 * 락 안에서 읽은 값으로 다시 확인한다. 취소·생성됨·시작함은 버튼과 같은 검사가 막는다. 락을 못 잡으면 COMMON004 다.
+	 */
+	public Optional<SellerPerformanceResponse.SeatsGenerated> generateSeatsBySystem(Long performanceId,
+		Long scheduleId) {
+		return inPerformanceLock(performanceId, () -> {
+			LocalDateTime now = LocalDateTime.now();
+			PerformanceSchedule schedule = getScheduleWithPerformance(scheduleId);
+			if (!isSeatGenerationDue(schedule.getPerformance(), now)) {
+				return Optional.empty();
+			}
+			return Optional.of(generateSeatsInTransaction(schedule, now));
+		});
+	}
+
+	/**
+	 * 공연 락을 잡고 그 안에서 트랜잭션을 연다. 락 performance:{공연 번호} 는 등급·구역 수정(SLR-10·11)·공개(SLR-04)와 같은 이름이라,
+	 * 가격·구역을 복사하는 것과 그 값을 고치는 것이 서로 막는다.
+	 */
+	private <T> T inPerformanceLock(Long performanceId, Supplier<T> action) {
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> action.get()));
+	}
+
+	private PerformanceSchedule getScheduleWithPerformance(Long scheduleId) {
+		return performanceScheduleRepository.findWithPerformanceById(scheduleId)
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND));
+	}
+
+	/** 상태를 먼저 본다. 작성 중 공연은 판매 오픈이 비어 있을 수 있다. */
+	private boolean isSeatGenerationDue(Performance performance, LocalDateTime now) {
+		return performance.getStatus() == PerformanceStatus.PUBLISHED
+			&& !now.isBefore(performance.getSaleOpenAt().minus(SEAT_GENERATION_LEAD_TIME));
+	}
+
+	/**
+	 * 락과 트랜잭션이 이미 열려 있고 회차를 락 안에서 읽었다고 가정하고 검사·복사한다. 락을 기다리는 사이 상태가 바뀌었을 수 있어
+	 * 락 밖에서 읽은 값은 쓰지 않는다.
 	 * 검사 순서: 공연 상태 → 회차 상태 → 이미 생성됨 → 시작 시각 → 판매 정보 → 구역 설정 → (조건부 UPDATE, 복사).
 	 * 앞의 것일수록 이미 읽은 행 하나로 판단하고, 구역 설정(작은 목록)을 거쳐 수천 행을 만드는 복사가 맨 끝이다. 처리량은 추정이고 측정하지 않았다.
 	 */
-	private SellerPerformanceResponse.SeatsGenerated generateSeatsInTransaction(Long scheduleId) {
-		// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
-		LocalDateTime now = LocalDateTime.now();
-		PerformanceSchedule schedule = performanceScheduleRepository.findWithPerformanceById(scheduleId)
-			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND));
+	private SellerPerformanceResponse.SeatsGenerated generateSeatsInTransaction(PerformanceSchedule schedule,
+		LocalDateTime now) {
 		Performance performance = schedule.getPerformance();
 
 		if (performance.getStatus() == PerformanceStatus.CANCELED) {
@@ -364,8 +437,8 @@ public class SellerPerformanceService {
 		validateZonesForSeats(zoneGrades, performance.getVenue().getZones(),
 			PerformanceExceptionCode.ZONE_UNSET_REMAINS.getMessage(), "판매할 구역이 하나 이상 있어야 판매 좌석을 만들 수 있습니다.");
 
-		createSeats(scheduleId, performance, now);
-		return seatsGeneratedResponse(scheduleId, now);
+		createSeats(schedule.getId(), performance, now);
+		return seatsGeneratedResponse(schedule.getId(), now);
 	}
 
 	/** 생성 시각을 채우고 공연장 좌석을 복사한다. 락과 트랜잭션이 열려 있고 구역 조건을 확인한 뒤에 부른다. */

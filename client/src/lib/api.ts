@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { clearAccount } from "@/lib/auth";
 import type { ApiEnvelope } from "@/lib/types";
 
@@ -23,27 +23,6 @@ type Options = {
   headers?: Record<string, string>;
 };
 
-// BFF 가 목 데이터로 답했는지. 화면 위쪽에 안내를 띄우는 데 쓴다.
-let mockSeen = false;
-const mockListeners = new Set<() => void>();
-
-function markMock() {
-  if (mockSeen) return;
-  mockSeen = true;
-  mockListeners.forEach((listener) => listener());
-}
-
-export function useMockSeen(): boolean {
-  return useSyncExternalStore(
-    (listener) => {
-      mockListeners.add(listener);
-      return () => mockListeners.delete(listener);
-    },
-    () => mockSeen,
-    () => false,
-  );
-}
-
 function toQueryString(query?: Query): string {
   if (!query) return "";
   const params = new URLSearchParams();
@@ -55,11 +34,6 @@ function toQueryString(query?: Query): string {
 }
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
-  return (await apiWithMeta<T>(path, options)).data;
-}
-
-// 응답이 목 데이터인지 함께 돌려준다. 결제처럼 "진짜 서버가 답했는가"가 중요한 곳에서 쓴다.
-export async function apiWithMeta<T>(path: string, options: Options = {}): Promise<{ data: T; mock: boolean }> {
   const { method = "GET", body, query, headers } = options;
   const response = await fetch(`${path}${toQueryString(query)}`, {
     method,
@@ -70,9 +44,6 @@ export async function apiWithMeta<T>(path: string, options: Options = {}): Promi
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
-
-  const mock = Boolean(response.headers.get("x-mock"));
-  if (mock) markMock();
 
   let envelope: ApiEnvelope<T> | null = null;
   try {
@@ -89,22 +60,21 @@ export async function apiWithMeta<T>(path: string, options: Options = {}): Promi
       envelope?.message || "요청을 처리하지 못했습니다.",
     );
   }
-  return { data: envelope.data, mock };
+  return envelope.data;
 }
 
 type Loaded<T> = { key: string; data?: T; error?: ApiError };
 
 // 조회용 훅. 경로나 쿼리가 바뀌면 다시 읽고, path 가 null 이면 읽지 않는다.
-export function useApi<T>(path: string | null, query?: Query, headers?: Record<string, string>) {
+export function useApi<T>(path: string | null, query?: Query) {
   const key = path === null ? "" : `${path}${toQueryString(query)}`;
   const [state, setState] = useState<Loaded<T>>({ key: "" });
   const [version, setVersion] = useState(0);
-  const headerKey = headers ? JSON.stringify(headers) : "";
 
   useEffect(() => {
     if (path === null) return;
     let ignore = false;
-    api<T>(path, { query, headers: headerKey ? JSON.parse(headerKey) : undefined })
+    api<T>(path, { query })
       .then((data) => {
         if (!ignore) setState({ key, data });
       })
@@ -121,7 +91,7 @@ export function useApi<T>(path: string | null, query?: Query, headers?: Record<s
     };
     // query 는 key 에 이미 반영돼 있다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, headerKey, version]);
+  }, [key, version]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   const loading = path !== null && (state.key !== key || (state.data === undefined && !state.error));
@@ -161,7 +131,6 @@ export async function uploadImage(file: File, purpose: ImagePurpose): Promise<st
   } catch {
     throw new ApiError(0, "CLIENT", "사진을 올리지 못했습니다. 잠시 뒤 다시 시도해 주세요");
   }
-  if (response.headers.get("x-mock")) markMock();
 
   let envelope: ApiEnvelope<{ imageUrl: string }> | null = null;
   try {
