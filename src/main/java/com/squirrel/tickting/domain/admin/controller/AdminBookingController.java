@@ -1,7 +1,7 @@
 package com.squirrel.tickting.domain.admin.controller;
 
 import com.squirrel.tickting.domain.admin.dto.AdminBookingResponse;
-import com.squirrel.tickting.domain.booking.dto.BookingSearchRequest;
+import com.squirrel.tickting.domain.booking.dto.BookingRequest;
 import com.squirrel.tickting.domain.booking.service.BookingQueryService;
 import com.squirrel.tickting.domain.booking.service.BookingScope;
 import com.squirrel.tickting.global.response.ApiResponse;
@@ -38,7 +38,7 @@ public class AdminBookingController {
 			+ "예매한 날짜로 거를 수 있다. 상태를 비우면 만료를 포함한 모든 상태다. 시작 날짜가 끝 날짜보다 늦으면 400 이다.")
 	@GetMapping
 	public ResponseEntity<ApiResponse<PageResponse<AdminBookingResponse.Summary>>> list(
-		@ParameterObject @Valid @ModelAttribute BookingSearchRequest request,
+		@ParameterObject @Valid @ModelAttribute BookingRequest.Search request,
 		@ParameterObject @PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
 	) {
 		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(),

@@ -1,6 +1,6 @@
 package com.squirrel.tickting.domain.booking.controller;
 
-import com.squirrel.tickting.domain.booking.dto.BookingSearchRequest;
+import com.squirrel.tickting.domain.booking.dto.BookingRequest;
 import com.squirrel.tickting.domain.booking.dto.SellerBookingResponse;
 import com.squirrel.tickting.domain.booking.facade.SellerBookingFacade;
 import com.squirrel.tickting.domain.booking.service.BookingQueryService;
@@ -51,7 +51,7 @@ public class SellerBookingController {
 	@GetMapping("/bookings")
 	public ResponseEntity<ApiResponse<PageResponse<SellerBookingResponse.Summary>>> search(
 		@AuthenticationPrincipal CustomUserDetails account,
-		@ParameterObject @Valid @ModelAttribute BookingSearchRequest request,
+		@ParameterObject @Valid @ModelAttribute BookingRequest.Search request,
 		@ParameterObject @PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
 	) {
 		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(),

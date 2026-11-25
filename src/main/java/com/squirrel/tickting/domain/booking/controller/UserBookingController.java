@@ -1,6 +1,6 @@
 package com.squirrel.tickting.domain.booking.controller;
 
-import com.squirrel.tickting.domain.booking.dto.BookingSearchRequest;
+import com.squirrel.tickting.domain.booking.dto.BookingRequest;
 import com.squirrel.tickting.domain.booking.dto.UserBookingResponse;
 import com.squirrel.tickting.domain.booking.service.BookingQueryService;
 import com.squirrel.tickting.domain.booking.service.BookingScope;
@@ -47,7 +47,7 @@ public class UserBookingController {
 	@GetMapping
 	public ResponseEntity<ApiResponse<PageResponse<UserBookingResponse.Summary>>> list(
 		@AuthenticationPrincipal CustomUserDetails account,
-		@ParameterObject @Valid @ModelAttribute BookingSearchRequest request,
+		@ParameterObject @Valid @ModelAttribute BookingRequest.Search request,
 		@ParameterObject @PageableDefault(size = DEFAULT_PAGE_SIZE) Pageable pageable
 	) {
 		// 정렬은 서비스가 최신 예매순으로 고정한다. 번호와 크기만 넘긴다.

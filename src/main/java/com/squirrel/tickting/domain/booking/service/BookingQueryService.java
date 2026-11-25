@@ -1,6 +1,6 @@
 package com.squirrel.tickting.domain.booking.service;
 
-import com.squirrel.tickting.domain.booking.dto.BookingSearchRequest;
+import com.squirrel.tickting.domain.booking.dto.BookingRequest;
 import com.squirrel.tickting.domain.booking.dto.UserBookingResponse;
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingQueryRepository;
@@ -57,7 +57,7 @@ public class BookingQueryService {
 	 * 시작 날짜가 끝 날짜보다 늦거나 예매자가 볼 수 없는 상태를 고르면 400 이다.
 	 */
 	@Transactional(readOnly = true)
-	public <T> Page<T> search(BookingScope scope, BookingSearchRequest request, Pageable pageable,
+	public <T> Page<T> search(BookingScope scope, BookingRequest.Search request, Pageable pageable,
 		Function<Booking, T> toItem) {
 		Collection<BookingStatus> statuses = statuses(scope, request.status());
 		LocalDate fromDate = request.from() == null ? MIN_DATE : request.from();
