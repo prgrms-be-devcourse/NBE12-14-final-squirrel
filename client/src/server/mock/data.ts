@@ -238,7 +238,8 @@ function buildDetail(seed: MockSeed): PerformanceDetail {
     venue: seed.venue,
     sale: {
       saleOpenAt: at(seed.saleOpenDay, 20),
-      saleCloseAt: at(seed.firstDay + seed.scheduleCount - 1, 18),
+      // 서버는 예매 마감이 마지막 회차 시작보다 늦는 것을 막는다. (api-spec SLR-04 408) 회차가 15시·19시라서 그보다 이르게 둔다.
+      saleCloseAt: at(seed.firstDay + seed.scheduleCount - 1, 14),
       maxPerPerson: seed.maxPerPerson,
       receiveType: seed.receiveType,
       bookingFee: seed.bookingFee,
