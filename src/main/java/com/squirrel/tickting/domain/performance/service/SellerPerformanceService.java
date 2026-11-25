@@ -18,9 +18,11 @@ import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
+import com.squirrel.tickting.domain.venue.type.VenueStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
+import com.squirrel.tickting.global.exception.code.VenueExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -45,6 +47,7 @@ public class SellerPerformanceService {
 	 * 판매 오픈까지 이만큼 남아야 공개할 수 있다. (임시)
 	 * 판매 좌석은 오픈 24시간 전부터 스케줄러가 1시간마다 만든다. 공개 뒤 오픈 전에 스케줄러가 최소 두 번 돌아
 	 * 첫 생성이 실패해도 다시 만들 수 있게 한 값이다. 스케줄러 주기가 바뀌면 이 값도 다시 정한다.
+	 * 작성 중 공연에 추가하는 회차도 이보다 뒤여야 한다. 더 이른 회차가 있으면 공개 조건을 채울 수 없다.
 	 */
 	private static final Duration PUBLISH_LEAD_TIME = Duration.ofHours(3);
 	/**
@@ -52,7 +55,13 @@ public class SellerPerformanceService {
 	 * 하루 두 번 하는 공연이 막히지 않게 2시간 대신 1시간으로 했다. 실제 공연장의 기준은 확인하지 않았다.
 	 */
 	private static final Duration SCHEDULE_BUFFER = Duration.ofHours(1);
+	/**
+	 * 판매 오픈까지 남은 시간이 이 이하인 공개 공연에 회차를 추가하면 판매 좌석을 바로 만든다. (임시)
+	 * 자동 생성(스케줄러)이 만들기 시작하는 시점과 같아야 해서, 스케줄러도 같은 값을 써야 한다.
+	 */
+	private static final Duration SEAT_GENERATION_LEAD_TIME = Duration.ofHours(24);
 	private static final DateTimeFormatter SCHEDULE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+	private static final DateTimeFormatter TIME_ONLY_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
 	private final PerformanceRepository performanceRepository;
 	private final PerformanceImageRepository performanceImageRepository;
@@ -180,6 +189,126 @@ public class SellerPerformanceService {
 	}
 
 	/**
+	 * 내 공연에 회차를 하나 추가한다. 공개 공연이고 판매 오픈이 가까우면 같은 트랜잭션에서 판매 좌석까지 만들고,
+	 * 좌석을 만들 수 없으면 회차도 남기지 않는다. (회차만 남으면 판매자는 성공으로 알고 예매자에게는 매진으로 보인다)
+	 * 공연 락은 공개·공연 수정·등급과 구역 수정·좌석 생성과 같은 이름이라, 확인한 공연 값이 저장 전에 바뀌지 않는다.
+	 * 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡는 것은 공연 락으로 막지 못한다. (드물다고 보고 감수, DB 제약은 TODO)
+	 * 남의 공연은 락을 잡기 전에 404 로 끝내고, 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
+	 */
+	public SellerPerformanceResponse.ScheduleCreated addSchedule(Long businessId, Long performanceId,
+		SellerPerformanceRequest.ScheduleSave request) {
+		getMineEntity(businessId, performanceId);
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(
+				status -> addScheduleInTransaction(businessId, performanceId, request.startAt())));
+	}
+
+	/**
+	 * 검사 순서: 공연 한 행(취소) → 공연장 → 새 회차의 시각 → (공개) 기존 회차 → 판매 종료 → (즉시 생성) 구역 설정 → 같은 공연장 겹침.
+	 * 앞에서 막히면 뒤의 쿼리는 나가지 않는다. 처리량은 추정이고 측정하지 않았다.
+	 * 지난 시각은 요청 DTO 가 막으므로 여기서 다시 보지 않는다.
+	 */
+	private SellerPerformanceResponse.ScheduleCreated addScheduleInTransaction(Long businessId, Long performanceId,
+		LocalDateTime startAt) {
+		// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
+		LocalDateTime now = LocalDateTime.now();
+		Performance performance = getMineEntity(businessId, performanceId);
+		boolean published = performance.getStatus() == PerformanceStatus.PUBLISHED;
+
+		if (performance.getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED, "취소된 공연에는 회차를 추가할 수 없습니다.");
+		}
+		// 사용 중지된 공연장에 회차를 더 팔면 환불해야 할 수 있다. 등록·공연장 변경과 같은 기준이다.
+		if (performance.getVenue().getStatus() != VenueStatus.ACTIVE) {
+			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE);
+		}
+		validateNewStartAt(performance, startAt, now);
+		if (published) {
+			validateStillOnSale(performance, now);
+		}
+		// 작성 중 공연은 좌석을 만들면 공개 전에 등급·가격·구역이 잠기므로 만들지 않는다.
+		boolean generatesSeats = published
+			&& !now.isBefore(performance.getSaleOpenAt().minus(SEAT_GENERATION_LEAD_TIME));
+		if (generatesSeats) {
+			validateZonesForSeats(zoneGradeRepository.findAllWithGradeByPerformanceId(performanceId),
+				performance.getVenue().getZones(),
+				"판매 좌석을 바로 만들어야 해서 회차를 추가할 수 없습니다. 설정하지 않은 구역이 있습니다",
+				"판매 좌석을 바로 만들어야 해서 회차를 추가할 수 없습니다. 판매할 구역이 하나 이상 있어야 합니다.");
+		}
+		validateNewScheduleNoOverlap(businessId, performance, startAt);
+
+		PerformanceSchedule schedule = performanceScheduleRepository.save(PerformanceSchedule.builder()
+			.performance(performance)
+			.startAt(startAt)
+			.status(ScheduleStatus.ON_SALE)
+			.build());
+		if (generatesSeats) {
+			createSeats(schedule.getId(), performance, now);
+		}
+		return SellerPerformanceResponse.ScheduleCreated.from(schedule, generatesSeats ? now : null);
+	}
+
+	/**
+	 * 판매 오픈보다 늦게 시작해야 하고(오픈이 비어 있으면 보지 않는다), 작성 중 공연은 공개 준비 시간보다 뒤여야 한다.
+	 * 판매 종료가 마지막 회차보다 늦은지는 보지 않는다. 회차를 하나씩 넣는 중에는 첫 회차부터 걸리고, 공개·공연 수정이 확인한다.
+	 */
+	private void validateNewStartAt(Performance performance, LocalDateTime startAt, LocalDateTime now) {
+		LocalDateTime saleOpenAt = performance.getSaleOpenAt();
+		if (saleOpenAt != null && !startAt.isAfter(saleOpenAt)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_BEFORE_SALE_OPEN,
+				"회차는 판매 오픈 일시(" + SCHEDULE_TIME_FORMAT.format(saleOpenAt) + ")보다 늦게 시작해야 합니다.");
+		}
+		if (performance.getStatus() == PerformanceStatus.DRAFT && !startAt.isAfter(now.plus(PUBLISH_LEAD_TIME))) {
+			throw new BusinessException(PerformanceExceptionCode.DRAFT_SCHEDULE_TOO_SOON);
+		}
+	}
+
+	/**
+	 * 공개된 공연에 회차를 더할 수 있는 상태인가. 취소되지 않은 회차가 모두 시작했으면 끝난 공연이고, 판매가 끝났으면 새 회차를 팔 수 없다.
+	 * 둘 다면 앞의 것을 알린다. 끝난 공연은 판매 종료를 늘릴 수 없어서 안내가 달라야 한다.
+	 */
+	private void validateStillOnSale(Performance performance, LocalDateTime now) {
+		List<PerformanceSchedule> schedules = performanceScheduleRepository
+			.findByPerformanceIdAndStatusNotOrderByStartAt(performance.getId(), ScheduleStatus.CANCELED);
+		if (!schedules.isEmpty() && !schedules.getLast().getStartAt().isAfter(now)) {
+			throw new BusinessException(PerformanceExceptionCode.ALL_SCHEDULES_STARTED);
+		}
+		if (!performance.getSaleCloseAt().isAfter(now)) {
+			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSED,
+				"판매가 끝난 공연에는 회차를 추가할 수 없습니다. 판매 종료 일시를 먼저 늘려 주세요.");
+		}
+	}
+
+	/**
+	 * 새 회차가 같은 공연장의 다른 회차와 겹치지 않는지 본다. 내 사업체 회차와 겹치면 입력 실수를 바로 고칠 수 있게
+	 * 공연명·일시·사용 종료 시각을 알려 주고, 다른 판매자의 회차는 미발표 일정일 수 있어 알려 주지 않는다.
+	 */
+	private void validateNewScheduleNoOverlap(Long businessId, Performance performance, LocalDateTime startAt) {
+		List<PerformanceScheduleRepository.OverlappingSchedule> overlapped = performanceScheduleRepository
+			.findOverlappingSchedules(performance.getVenueId(), startAt, performance.getRunningTime(),
+				(int) SCHEDULE_BUFFER.toMinutes());
+		if (overlapped.isEmpty()) {
+			return;
+		}
+		List<String> mine = overlapped.stream()
+			.filter(schedule -> schedule.getBusinessId().equals(businessId))
+			.map(this::describeOccupation)
+			.toList();
+		String message = mine.isEmpty() ? PerformanceExceptionCode.SCHEDULE_TIME_OVERLAP.getMessage()
+			: "같은 공연장의 다른 회차와 시간이 겹칩니다: " + String.join(", ", mine);
+		throw new BusinessException(PerformanceExceptionCode.SCHEDULE_TIME_OVERLAP, message);
+	}
+
+	/** "공연명 2026-12-20 18:00 (21:30까지 사용)". 끝나는 날이 다르면 날짜까지 적는다. */
+	private String describeOccupation(PerformanceScheduleRepository.OverlappingSchedule schedule) {
+		LocalDateTime startAt = schedule.getStartAt();
+		LocalDateTime endAt = startAt.plusMinutes(schedule.getRunningTime()).plus(SCHEDULE_BUFFER);
+		DateTimeFormatter endFormat = endAt.toLocalDate().equals(startAt.toLocalDate())
+			? TIME_ONLY_FORMAT : SCHEDULE_TIME_FORMAT;
+		return schedule.getTitle() + " " + SCHEDULE_TIME_FORMAT.format(startAt) + " (" + endFormat.format(endAt) + "까지 사용)";
+	}
+
+	/**
 	 * 판매자가 "좌석 지금 생성"을 눌러 한 회차의 판매 좌석을 만든다. 만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없다.
 	 * 남의 회차는 락을 잡기 전에 404 로 끝내서 남의 회차 상태를 드러내지 않는다.
 	 * 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
@@ -232,8 +361,15 @@ public class SellerPerformanceService {
 		}
 
 		List<ZoneGrade> zoneGrades = zoneGradeRepository.findAllWithGradeByPerformanceId(performance.getId());
-		validateZonesForSeats(zoneGrades, performance.getVenue().getZones());
+		validateZonesForSeats(zoneGrades, performance.getVenue().getZones(),
+			PerformanceExceptionCode.ZONE_UNSET_REMAINS.getMessage(), "판매할 구역이 하나 이상 있어야 판매 좌석을 만들 수 있습니다.");
 
+		createSeats(scheduleId, performance, now);
+		return seatsGeneratedResponse(scheduleId, now);
+	}
+
+	/** 생성 시각을 채우고 공연장 좌석을 복사한다. 락과 트랜잭션이 열려 있고 구역 조건을 확인한 뒤에 부른다. */
+	private void createSeats(Long scheduleId, Performance performance, LocalDateTime now) {
 		// 락이 듣지 않아도 한 회차는 한 번만 만든다. 0행이면 그 사이 만들어졌거나 취소됐다.
 		if (performanceScheduleRepository.markSeatsGenerated(scheduleId, ScheduleStatus.CANCELED, now) == 0) {
 			throw new BusinessException(PerformanceExceptionCode.SEATS_ALREADY_GENERATED);
@@ -243,26 +379,25 @@ public class SellerPerformanceService {
 		if (copied == 0) {
 			throw new BusinessException(PerformanceExceptionCode.NO_VENUE_SEATS_TO_COPY);
 		}
-		return seatsGeneratedResponse(scheduleId, now);
 	}
 
 	/**
 	 * 좌석 생성 때의 구역 조건. 설정하지 않은(UNSET) 구역이 없어야 하고 판매할(ASSIGNED) 구역이 하나 이상 있어야 한다.
+	 * 버튼으로 만들 때와 회차를 추가하며 만들 때 판매자가 하려던 일이 달라서 메시지는 호출한 쪽이 정한다. (UNSET 은 뒤에 구역 이름이 붙는다)
 	 * 판매 구역이 0개면 전부 BLOCKED 인 회차가 만들어져 잠기고, 작성 중 공연은 공개 조건(ASSIGNED 1개 이상)을 영영 채우지 못한다.
 	 * 전석 섞임은 구역 설정(SLR-11)이 이미 막는다. 공개 때만 한 번 더 보는 것이라 여기서는 보지 않는다.
 	 */
-	private void validateZonesForSeats(List<ZoneGrade> zoneGrades, List<VenueZone> venueZones) {
+	private void validateZonesForSeats(List<ZoneGrade> zoneGrades, List<VenueZone> venueZones, String unsetMessage,
+		String noAssignedMessage) {
 		List<VenueZone> unsetZones = zonesOf(zoneGrades, ZoneAssignmentStatus.UNSET, venueZones);
 		if (!unsetZones.isEmpty()) {
 			throw new BusinessException(PerformanceExceptionCode.ZONE_UNSET_REMAINS,
-				PerformanceExceptionCode.ZONE_UNSET_REMAINS.getMessage() + ": "
-					+ String.join(", ", unsetZones.stream().map(VenueZone::getName).toList()));
+				unsetMessage + ": " + String.join(", ", unsetZones.stream().map(VenueZone::getName).toList()));
 		}
 		boolean hasAssigned = zoneGrades.stream()
 			.anyMatch(zoneGrade -> zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED);
 		if (!hasAssigned) {
-			throw new BusinessException(PerformanceExceptionCode.NO_ASSIGNED_ZONE,
-				"판매할 구역이 하나 이상 있어야 판매 좌석을 만들 수 있습니다.");
+			throw new BusinessException(PerformanceExceptionCode.NO_ASSIGNED_ZONE, noAssignedMessage);
 		}
 	}
 

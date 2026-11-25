@@ -16,7 +16,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SALE_PERIOD_INVALID("PERFORMANCE001", HttpStatus.BAD_REQUEST, "판매 종료 일시는 판매 오픈 일시보다 늦어야 합니다."),
 	/**
 	 * 취소(CANCELED)된 공연을 고치려 함. 공연 취소는 모든 회차를 취소해 locked 가 false 가 되므로 따로 막는다.
-	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다
+	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다.
+	 * 회차 추가(SLR-12)와 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다
 	 */
 	PERFORMANCE_CANCELED("PERFORMANCE002", HttpStatus.CONFLICT, "취소된 공연은 수정할 수 없습니다."),
 	/**
@@ -34,8 +35,9 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 */
 	MAX_PER_PERSON_REDUCE_NOT_ALLOWED("PERFORMANCE006", HttpStatus.CONFLICT, "예매가 있는 공연은 1인 최대 매수를 줄일 수 없습니다."),
 	/**
-	 * 공연장 변경이나 러닝타임 늘리기로 같은 공연장의 다른 회차와 시간이 겹침. 회차가 차지하는 시간은 시작부터 러닝타임 + 1시간이다.
-	 * 겹치는 이 공연의 회차 일시는 메시지로 알려 준다. 다른 공연의 회차 일시는 다른 판매자의 정보라 알려 주지 않는다
+	 * 공연장 변경·러닝타임 늘리기·회차 추가로 같은 공연장의 다른 회차와 시간이 겹침. 회차가 차지하는 시간은 시작부터 러닝타임 + 1시간이다.
+	 * 다른 판매자의 회차는 정보를 알려 주지 않는다. 공연 수정(SLR-03)은 겹치는 이 공연의 회차 일시를,
+	 * 회차 추가(SLR-12)는 겹치는 내 사업체 회차의 공연명·일시·사용 종료 시각을 메시지에 넣는다
 	 */
 	SCHEDULE_TIME_OVERLAP("PERFORMANCE007", HttpStatus.CONFLICT, "같은 공연장의 다른 회차와 시간이 겹칩니다."),
 	/**
@@ -43,6 +45,16 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 예매자용 PERFORMANCE200 과 섞이지 않게 따로 두었고, 판매자 회차 API(회차 추가·수정 등)도 쓸 수 있다
 	 */
 	SELLER_SCHEDULE_NOT_FOUND("PERFORMANCE008", HttpStatus.NOT_FOUND, "존재하지 않는 회차입니다."),
+	/**
+	 * 작성 중(DRAFT) 공연에 지금부터 3시간 이내(정확히 3시간 뒤 포함)에 시작하는 회차를 추가하려 함.
+	 * 공개는 판매 오픈까지 3시간보다 더 남아야 하고 회차는 오픈보다 늦어야 해서, 이런 회차가 있으면 그 공연을 공개할 수 없다
+	 */
+	DRAFT_SCHEDULE_TOO_SOON("PERFORMANCE009", HttpStatus.BAD_REQUEST, "작성 중인 공연에는 지금부터 3시간 뒤의 회차부터 추가할 수 있습니다."),
+	/**
+	 * 공개된 공연의 취소되지 않은 회차가 모두 시작한 뒤 회차를 추가하려 함. 끝난 공연에 회차를 덧붙이면 1인 최대 매수와 잠긴 가격이
+	 * 그대로 이어지고 판매 기간도 늘릴 수 없어서, 새 공연을 등록하게 한다
+	 */
+	ALL_SCHEDULES_STARTED("PERFORMANCE010", HttpStatus.CONFLICT, "회차가 모두 시작된 공연에는 회차를 추가할 수 없습니다. 새 공연을 등록해 주세요."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */
@@ -109,18 +121,30 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SALE_FIELDS_MISSING("PERFORMANCE401", HttpStatus.BAD_REQUEST, "판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료를 모두 설정해야 공개할 수 있습니다."),
 	/** 취소되지 않은 회차가 하나도 없음. 회차가 없으면 예매자가 고를 수 있는 것이 없다 */
 	NO_ACTIVE_SCHEDULE("PERFORMANCE402", HttpStatus.BAD_REQUEST, "취소되지 않은 회차가 하나 이상 있어야 공개할 수 있습니다."),
-	/** 아직 설정하지 않은(UNSET) 구역이 남음. 구역 이름은 메시지로 알려 준다. 공개 후에는 고칠 수 없어서 판매 여부를 모두 정하게 한다 */
+	/**
+	 * 아직 설정하지 않은(UNSET) 구역이 남음. 구역 이름은 메시지로 알려 준다. 공개 후에는 고칠 수 없어서 판매 여부를 모두 정하게 한다.
+	 * 판매 좌석을 만들 때(SLR-14, 회차 추가의 즉시 생성)도 같은 조건이다
+	 */
 	ZONE_UNSET_REMAINS("PERFORMANCE403", HttpStatus.BAD_REQUEST, "설정하지 않은 구역이 있습니다."),
-	/** 판매할(ASSIGNED) 구역이 하나도 없음. 모든 구역이 의도적 미판매면 살 수 있는 좌석이 0개인 공연이 공개된다 */
+	/**
+	 * 판매할(ASSIGNED) 구역이 하나도 없음. 모든 구역이 의도적 미판매면 살 수 있는 좌석이 0개인 공연이 공개된다.
+	 * 판매 좌석을 만들 때(SLR-14, 회차 추가의 즉시 생성)도 같은 조건이다
+	 */
 	NO_ASSIGNED_ZONE("PERFORMANCE404", HttpStatus.BAD_REQUEST, "판매할 구역이 하나 이상 있어야 공개할 수 있습니다."),
-	/** 판매 종료 일시가 지났거나 지금과 같음. 팔 수 없는 공연이 공개되면 되돌릴 API가 없고 판매자가 원인을 모른다 */
+	/**
+	 * 판매 종료 일시가 지났거나 지금과 같음. 팔 수 없는 공연이 공개되면 되돌릴 API가 없고 판매자가 원인을 모른다.
+	 * 공개된 공연에 회차를 추가할 때(SLR-12)도 판매가 끝났으면 막는다. 그 회차는 예매할 수 없다
+	 */
 	SALE_CLOSED("PERFORMANCE405", HttpStatus.BAD_REQUEST, "판매 종료 일시가 지나 공개할 수 없습니다."),
 	/**
 	 * 판매 오픈까지 3시간이 남지 않음(이미 지난 경우 포함). 판매 좌석은 오픈 24시간 전부터 스케줄러가 주기적으로 만들어서,
 	 * 오픈 직전에 공개하면 판매가 열렸는데 좌석이 없는 틈이 생긴다. 3시간은 임시값이고 스케줄러 주기가 바뀌면 다시 정한다
 	 */
 	SALE_OPEN_TOO_SOON("PERFORMANCE406", HttpStatus.BAD_REQUEST, "판매 오픈 3시간 전까지만 공개할 수 있습니다."),
-	/** 판매 오픈보다 먼저(같은 시각 포함) 시작하는 회차가 있음. 그 회차는 한 장도 팔 수 없고 보통 날짜 입력 실수다. 회차 일시는 메시지로 알려 준다 */
+	/**
+	 * 판매 오픈보다 먼저(같은 시각 포함) 시작하는 회차가 있음. 그 회차는 한 장도 팔 수 없고 보통 날짜 입력 실수다. 회차 일시는 메시지로 알려 준다.
+	 * 회차 추가(SLR-12)는 판매 오픈이 설정되어 있으면 작성 중 공연에서도 막고, 메시지에 판매 오픈 일시를 넣는다
+	 */
 	SCHEDULE_BEFORE_SALE_OPEN("PERFORMANCE407", HttpStatus.BAD_REQUEST, "판매 오픈보다 먼저 시작하는 회차가 있습니다."),
 	/** 판매 종료가 마지막 회차 시작보다 늦음. 기능상 문제는 없지만 예매자 공연 상세에 공연이 끝난 뒤까지 판매 기간으로 보인다 */
 	SALE_CLOSE_AFTER_LAST_SCHEDULE("PERFORMANCE408", HttpStatus.BAD_REQUEST, "판매 종료 일시는 마지막 회차 시작보다 늦을 수 없습니다."),
