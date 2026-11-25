@@ -123,6 +123,26 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 	int releaseSold(@Param("seatIds") Collection<Long> seatIds, @Param("now") LocalDateTime now);
 
 	/**
+	 * 공연장 좌석을 복사해 한 회차의 판매 좌석을 만들고 만든 행 수를 돌려준다. 한 문장으로 만들어 왕복을 한 번으로 한다.
+	 * 판매(ASSIGNED) 구역은 AVAILABLE 로 등급·가격을 복사하고, 그 밖의 구역(의도적 미판매)은 등급·가격 없이 BLOCKED 로 만든다.
+	 * 네이티브라 감사(@LastModifiedDate)가 걸리지 않아 version 은 0, updated_at 은 :now 를 직접 넣는다. (둘 다 NOT NULL)
+	 * 같은 회차를 두 번 만들면 UNIQUE (schedule_id, venue_seat_id) 가 막는다.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query(value = """
+		INSERT INTO schedule_seat (schedule_id, venue_seat_id, zone_id, grade_id, price, status, version, updated_at)
+		SELECT :scheduleId, vs.id, vs.zone_id, g.id, g.price,
+		       CASE WHEN zg.assignment_status = 'ASSIGNED' THEN 'AVAILABLE' ELSE 'BLOCKED' END,
+		       0, :now
+		  FROM venue_seat vs
+		  JOIN zone_grade zg ON zg.zone_id = vs.zone_id AND zg.performance_id = :performanceId
+		  LEFT JOIN seat_grade g ON g.id = zg.grade_id AND zg.assignment_status = 'ASSIGNED'
+		 WHERE vs.venue_id = :venueId
+		""", nativeQuery = true)
+	int copyFromVenueSeats(@Param("scheduleId") Long scheduleId, @Param("performanceId") Long performanceId,
+		@Param("venueId") Long venueId, @Param("now") LocalDateTime now);
+
+	/**
 	 * 회차별로 판매 좌석을 상태별로 센다. 판매자 판매 현황(SLR-17)이 쓴다.
 	 * 만료됐지만 아직 정리되지 않은 HELD 도 그대로 센다. 예매자도 그 좌석을 고를 수 없어서, 판매 가능 수가 예매자가 고를 수 있는 좌석과 같아진다.
 	 * 좌석이 없는 회차나 개수가 0인 상태는 행이 나오지 않는다.

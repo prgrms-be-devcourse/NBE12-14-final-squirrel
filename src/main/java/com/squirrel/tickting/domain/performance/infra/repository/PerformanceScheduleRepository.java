@@ -46,6 +46,24 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("excludedStatus") ScheduleStatus excludedStatus, @Param("now") LocalDateTime now);
 
 	/**
+	 * 판매 좌석을 아직 만들지 않은 회차만 생성 시각을 채우고 바뀐 행 수를 돌려준다. 0행이면 이미 만들어졌거나 그 사이 취소됐다.
+	 * 락이 듣지 않는 경우(Redis 장애·락 만료)에도 같은 회차의 좌석이 두 번 만들어지지 않게 하는 상태 조건부 UPDATE 다.
+	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣고, 영속성 컨텍스트는 비우지 않는다.
+	 * 이 UPDATE 뒤에 같은 엔티티를 다시 읽어 값을 기대하지 않는다. (응답의 시각은 호출한 쪽이 now 를 쓴다)
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE PerformanceSchedule s
+		   SET s.seatsGeneratedAt = :now,
+		       s.updatedAt = :now
+		 WHERE s.id = :scheduleId
+		   AND s.seatsGeneratedAt IS NULL
+		   AND s.status <> :excludedStatus
+		""")
+	int markSeatsGenerated(@Param("scheduleId") Long scheduleId,
+		@Param("excludedStatus") ScheduleStatus excludedStatus, @Param("now") LocalDateTime now);
+
+	/**
 	 * 이 공연의 회차 중, 주어진 공연장의 다른 회차와 시간이 겹치는 회차의 시작 일시. 빠른 순이다.
 	 * 회차가 차지하는 시간은 시작부터 러닝타임 + bufferMinutes 까지이고, 끝나는 시각과 다음 시작이 같으면 겹치지 않는다.
 	 * 이 공연의 회차는 새 러닝타임(runningTime)으로, 다른 공연의 회차는 그 공연의 러닝타임으로 계산한다.

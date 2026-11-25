@@ -104,7 +104,7 @@
 | SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 구현됨 |
 | SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 미구현 |
 | SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 미구현 |
-| SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 미구현 |
+| SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 구현됨 |
 | SLR-15 | 회차 취소 | POST `/api/v1/seller/schedules/{scheduleId}/cancel` | 미구현 |
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 구현됨 |
@@ -2081,9 +2081,32 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **에러**(코드 미정): 409 예매가 생긴 회차(연기로 처리) · 409 시간 겹침
 
-### SLR-14 판매 좌석 생성 — `POST /api/v1/seller/schedules/{scheduleId}/seats/generate`
+### SLR-14 판매 좌석 생성 — `POST /api/v1/seller/schedules/{scheduleId}/seats/generate` (구현됨)
 
-Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 생성 전에 `UNSET` 구역이 없는지 확인합니다. `ASSIGNED` 구역은 `AVAILABLE`, `INTENTIONALLY_UNSOLD` 구역은 `BLOCKED`로 생성합니다.
+Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개). `ASSIGNED` 구역은 `AVAILABLE`(등급·가격 복사), `INTENTIONALLY_UNSOLD` 구역은 `BLOCKED`(등급·가격 없음)로 생성하고 `RESERVED`는 만들지 않습니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 사업체 번호는 토큰에서 꺼내고, 다른 사업체의 회차는 상태와 상관없이 없는 회차와 같은 404 `PERFORMANCE008`입니다.
+
+**허용 상태**: 작성 중(`DRAFT`)과 공개(`PUBLISHED`) 공연. 작성 중 공연은 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료가 모두 설정되어 있어야 합니다. 판매 중·일시 중지·연기 회차도 만들 수 있습니다.
+
+**만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없습니다.** (SLR-08 `locked`가 `true`) 판매자 버튼 외에 스케줄러(자동 생성, 공개된 공연만·판매 오픈 24시간 전부터)가 같은 생성 코드를 쓰도록 별도로 구현할 예정입니다.
+
+에러는 한 번에 하나씩, 아래 순서로 먼저 걸린 것이 나옵니다.
+
+| 순서 | 조건 | 코드 |
+|---|---|---|
+| 1 | 없는 회차이거나 다른 사업체의 회차 | 404 `PERFORMANCE008` |
+| 2 | 취소된 공연 | 409 `PERFORMANCE002` |
+| 3 | 취소된 회차 | 409 `PERFORMANCE501` |
+| 4 | 이미 판매 좌석이 생성된 회차 | 409 `PERFORMANCE500` |
+| 5 | 이미 시작한 회차(시작 시각이 지금 이전이거나 같음) | 400 `PERFORMANCE502` |
+| 6 | (작성 중 공연) 판매 정보가 비어 있음 | 400 `PERFORMANCE401` |
+| 7 | 설정하지 않은(`UNSET`) 구역이 있음. 메시지에 구역 이름이 나옴 | 400 `PERFORMANCE403` |
+| 8 | 판매할(`ASSIGNED`) 구역이 하나도 없음 | 400 `PERFORMANCE404` |
+| 9 | 판매 구역은 있는데 복사할 공연장 좌석이 하나도 없음(깨진 데이터). 롤백되어 생성 시각도 비어 있음 | 409 `PERFORMANCE503` |
+| - | 락을 1초 안에 잡지 못함 | 409 `COMMON004`(잠시 후 다시 시도) |
+
+- 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 등급·구역 수정(SLR-10·11), 공개(SLR-04), 공연 수정과 겹치면 하나씩 처리됩니다. 생성이 먼저 끝나면 수정은 `locked` 409(`PERFORMANCE301`)로 거절되고, 수정이 먼저면 좌석이 수정된 값을 복사합니다.
+- 락이 듣지 않아도(Redis 장애·락 만료) 상태 조건부 UPDATE(`seats_generated_at IS NULL`일 때만 채움)와 UNIQUE `(schedule_id, venue_seat_id)`가 한 회차가 두 번 만들어지는 것을 막아 409 `PERFORMANCE500`입니다.
+- 문제 구역은 에러 응답의 `data`가 아니라 **메시지**에 나옵니다.
 
 **응답 200**
 
@@ -2101,8 +2124,6 @@ Body 없음. 공연장 좌석을 복사(회차 1개 = 트랜잭션 1개). 생성
   }
 }
 ```
-
-**에러**(코드 미정): 409 이미 생성됨 · 400 판매 필드 미설정 · 400 `UNSET` 구역 있음
 
 ### SLR-15 회차 취소 — `POST /api/v1/seller/schedules/{scheduleId}/cancel`
 
