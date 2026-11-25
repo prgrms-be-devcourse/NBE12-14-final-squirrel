@@ -61,6 +61,15 @@ public class RefundService {
 	}
 
 	/**
+	 * 환불을 결제와 함께 읽는다. 토스에 보내려면 결제 키가 필요한데, 트랜잭션 밖에서 결제를 지연 로딩하면 실패해서 함께 읽는다.
+	 * 방금 만든 환불을 토스에 보내기 직전에 쓴다.
+	 */
+	@Transactional(readOnly = true)
+	public Refund getWithPayment(Long refundId) {
+		return refundRepository.findWithPaymentById(refundId).orElseThrow();
+	}
+
+	/**
 	 * 재시도할 환불을 요청 중으로 바꾸고 가져간다. 다른 서버가 먼저 가져갔거나 이미 끝난 환불이면 비어 있다.
 	 * 실패로 단정하지 않고 비어 있는 값으로 답하는 이유는, 여러 서버가 같은 목록을 보고 경쟁하는 것이 정상이라서다.
 	 */

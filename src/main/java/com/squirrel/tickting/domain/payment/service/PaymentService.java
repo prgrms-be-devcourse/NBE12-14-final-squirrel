@@ -7,6 +7,7 @@ import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,9 @@ public class PaymentService {
 	private static final String ORDER_ID_PREFIX = "BK";
 	private static final List<PaymentStatus> REFUNDABLE_STATUSES =
 		List.of(PaymentStatus.DONE, PaymentStatus.PARTIAL_CANCELED);
+	/** 예매를 살리고 있을 수 있는 결제. 실패(FAILED)한 시도와 환불로 끝난 결제는 뺀다. */
+	private static final List<PaymentStatus> LIVE_STATUSES =
+		List.of(PaymentStatus.READY, PaymentStatus.PROCESSING, PaymentStatus.DONE, PaymentStatus.PARTIAL_CANCELED);
 
 	private final PaymentRepository paymentRepository;
 
@@ -63,11 +67,51 @@ public class PaymentService {
 	 * 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 불러야 같은 결제의 승인 요청이 두 번 시작되지 않는다.
 	 */
 	@Transactional
-	public void startProcessing(Payment payment) {
+	public void startProcessing(Payment payment, LocalDateTime now) {
 		if (payment.getStatus() != PaymentStatus.READY) {
 			throw new BusinessException(PaymentExceptionCode.PAYMENT_ALREADY_PROCESSED);
 		}
-		payment.startProcessing();
+		payment.startProcessing(now);
+	}
+
+	/**
+	 * 보정 작업이 다시 확인할 때가 된 결제 번호. 준비(READY)는 준비한 지 readyCutoff 이전인 것, 승인 중(PROCESSING)은
+	 * 승인을 시작한 지 processingCutoff 이전인 것이다. 오래된 것부터 limit 건까지 돌려준다. (부분 인덱스 idx_payment_reconcile)
+	 */
+	@Transactional(readOnly = true)
+	public List<Long> findReconcileDue(LocalDateTime readyCutoff, LocalDateTime processingCutoff, int limit) {
+		return paymentRepository.findReconcileDueIds(readyCutoff, processingCutoff, limit);
+	}
+
+	/** 결제를 읽는다. 호출한 쪽의 트랜잭션 밖에서 부르면 값만 읽는 용도이고, 안에서 부르면 이어서 고칠 수 있다. */
+	@Transactional(readOnly = true)
+	public Optional<Payment> find(Long paymentId) {
+		return paymentRepository.findById(paymentId);
+	}
+
+	/**
+	 * 아직 닫히지 않은(READY·PROCESSING) 결제만 돌려준다. 보정 작업이 락 안에서 상태를 다시 확인할 때 쓴다.
+	 * 토스에 조회하는 사이 다른 서버나 승인 요청이 먼저 끝냈다면 비어 있다. 호출한 쪽의 트랜잭션에 참여한다.
+	 */
+	@Transactional
+	public Optional<Payment> findUnsettled(Long paymentId) {
+		return paymentRepository.findById(paymentId)
+			.filter(payment -> payment.getStatus() == PaymentStatus.READY || payment.getStatus() == PaymentStatus.PROCESSING);
+	}
+
+	/** 토스에 조회해서 결제되지 않았다고 확인한 결제를 실패로 닫는다. */
+	@Transactional
+	public void abandon(Payment payment, String reason) {
+		payment.abandon(reason);
+	}
+
+	/**
+	 * 같은 예매에 이 결제 말고 진행 중이거나 승인된 결제가 있는가. 결제를 여러 번 시도할 수 있어서(준비는 이전 결제가 승인 중이어도 새로 만든다)
+	 * 한 결제가 "결제되지 않음"으로 확인돼도 다른 결제가 예매를 살리고 있을 수 있다. 그럴 때는 예매를 만료시키지 않는다.
+	 */
+	@Transactional(readOnly = true)
+	public boolean existsOtherLivePayment(Long bookingId, Long paymentId) {
+		return paymentRepository.existsByBookingIdAndIdNotAndStatusIn(bookingId, paymentId, LIVE_STATUSES);
 	}
 
 	/** 토스 승인 결과를 반영한다. 승인을 시작(PROCESSING)한 결제만 완료할 수 있다. */

@@ -129,6 +129,39 @@ public class BookingService {
 		return scheduleSeatIds;
 	}
 
+	/** 예매를 번호로 읽는다. 사용자와 상관없이 처리하는 작업(결제 보정)이 예매의 현재 상태를 보는 데 쓴다. 없으면 IllegalStateException 이다. */
+	@Transactional(readOnly = true)
+	public Booking getById(Long bookingId) {
+		return bookingRepository.findById(bookingId)
+			.orElseThrow(() -> new IllegalStateException("예매가 없다. 예매 번호: " + bookingId));
+	}
+
+	/**
+	 * 결제 대기 예매 하나를 제한 시각을 기다리지 않고 바로 만료(EXPIRED) 처리하고 좌석을 비활성(active=false)으로 바꾼다.
+	 * 결제가 되지 않았다고 토스에서 확인된 예매를 닫을 때 쓴다. 결제 대기가 아니면(이미 만료·결제·취소) 아무것도 하지 않는다.
+	 * 호출한 쪽의 트랜잭션에 참여하고, 좌석 도메인의 상태는 바꾸지 않고 되돌릴 판매 좌석 번호만 돌려준다.
+	 *
+	 * @return 되돌릴 판매 좌석 번호. 만료 처리하지 않았으면 빈 목록이다
+	 */
+	@Transactional
+	public List<Long> expire(Long bookingId, LocalDateTime now) {
+		if (bookingRepository.markExpired(List.of(bookingId), now) == 0) {
+			return List.of();
+		}
+		List<Long> scheduleSeatIds = bookingSeatRepository.findActiveScheduleSeatIds(List.of(bookingId));
+		bookingSeatRepository.deactivateByBookingIds(List.of(bookingId));
+		return scheduleSeatIds;
+	}
+
+	/**
+	 * 만료된 예매를 취소로 바꾼다. 만료된 뒤에 토스에서 결제된 것이 확인돼 환불할 때 쓴다. 만료(EXPIRED) 예매만 바꾸고 아니면 아무것도 하지 않는다.
+	 * 좌석은 만료될 때 이미 풀려서 여기서 다시 건드리지 않는다.
+	 */
+	@Transactional
+	public void cancelExpired(Long bookingId, LocalDateTime now) {
+		bookingRepository.markExpiredAsCanceled(bookingId, now);
+	}
+
 	/**
 	 * 예매 취소에서 취소할 좌석과 금액을 계산한다. 아무것도 바꾸지 않는다. 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 불러야
 	 * 계산한 뒤 반영하기 전에 다른 취소가 끼어들지 않는다.

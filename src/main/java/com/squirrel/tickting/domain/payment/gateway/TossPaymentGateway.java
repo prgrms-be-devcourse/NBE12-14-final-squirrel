@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.ObjectMapper;
@@ -44,6 +45,14 @@ public class TossPaymentGateway implements PaymentGateway {
 	private static final Set<String> CANCELED_STATUSES = Set.of("PARTIAL_CANCELED", "CANCELED");
 	/** 4xx 이지만 이미 승인된 결제라서 "거절"이 아니다. 실패로 기록하지 말고 승인 중으로 남겨 조회로 확정한다. */
 	private static final Set<String> ALREADY_APPROVED_CODES = Set.of("ALREADY_PROCESSED_PAYMENT");
+	private static final String LOOKUP_PATH = "/v1/payments/orders/{orderId}";
+	/** 조회한 주문이 토스에 없다. 결제창을 열기만 하고 인증하지 않은 결제 등이다. */
+	private static final String LOOKUP_NOT_FOUND_CODE = "NOT_FOUND_PAYMENT";
+	/**
+	 * 돈이 나가지 않았고 앞으로도 나가지 않는 상태. 승인 실패(ABORTED), 시간 만료(EXPIRED), 취소됨(CANCELED)이다.
+	 * 취소됨은 승인된 뒤 취소돼 돈이 이미 돌아간 경우도 있어서 우리가 환불할 것이 없다.
+	 */
+	private static final Set<String> NOT_PAID_STATUSES = Set.of("ABORTED", "EXPIRED", "CANCELED");
 
 	private final RestClient tossRestClient;
 	private final TossProperties properties;
@@ -111,6 +120,69 @@ public class TossPaymentGateway implements PaymentGateway {
 		}
 	}
 
+	/**
+	 * 주문 ID 로 결제를 조회한다. (GET /v1/payments/orders/{orderId}) 승인 요청의 응답을 받지 못한 결제의 결과를 확인하는 용도다.
+	 * 토스 문서도 "응답을 못 받았다면 결과를 추측하지 말고 결제 조회로 status 를 먼저 확인하라"고 안내한다.
+	 *
+	 * 결과를 나누는 기준은 돈이 나갔는지다. 모르면 모른다고 답해서 호출한 쪽이 결제를 그대로 두게 한다.
+	 *   - DONE: 돈이 나갔다.
+	 *   - 조회되는 결제가 없음(404 NOT_FOUND_PAYMENT), ABORTED·EXPIRED·CANCELED: 나가지 않았고 앞으로도 나가지 않는다.
+	 *   - 그 밖의 상태(READY, IN_PROGRESS, WAITING_FOR_DEPOSIT, PARTIAL_CANCELED 등)와 읽을 수 없는 응답: 아직 모른다.
+	 *   - 통신 오류·시간 초과·5xx, 404 가 아닌 4xx(키 설정 문제 등): 모른다 → GatewayUnavailableException
+	 * 주문서형·결제창형 연동 키(test_gsk_, live_gsk_)로는 이 API 를 부를 수 없다고 토스가 안내한다. 그런 키면 4xx 로 거절돼
+	 * 계속 "모른다"가 되고 로그에 남으므로, 보정이 되지 않는 것을 발견할 수 있다.
+	 */
+	@Override
+	public GatewayLookup lookup(String orderId) {
+		TossPayment payment;
+		try {
+			payment = tossRestClient.get()
+				.uri(LOOKUP_PATH, orderId)
+				.header(HttpHeaders.AUTHORIZATION, authorization())
+				.retrieve()
+				.body(TossPayment.class);
+		} catch (HttpClientErrorException e) {
+			String code = readErrorCode(e.getResponseBodyAsByteArray(), orderId);
+			if (e.getStatusCode().value() == 404 && LOOKUP_NOT_FOUND_CODE.equals(code)) {
+				return GatewayLookup.notPaid();
+			}
+			log.warn("토스 결제 조회가 거절됐다. 주문 ID: {}, 상태 코드: {}, 에러 코드: {}", orderId, e.getStatusCode().value(), code);
+			throw new GatewayUnavailableException("토스 결제 조회가 거절됐다: " + code, e);
+		} catch (RestClientException e) {
+			log.warn("토스 결제 조회의 결과를 알 수 없다. 주문 ID: {}", orderId, e);
+			throw new GatewayUnavailableException("토스 결제 조회 실패", e);
+		}
+
+		if (payment == null || payment.status() == null) {
+			throw new GatewayUnavailableException("토스 결제 조회 응답을 읽을 수 없다");
+		}
+		if (STATUS_DONE.equals(payment.status())) {
+			if (payment.paymentKey() == null || payment.totalAmount() == null) {
+				throw new GatewayUnavailableException("토스 결제 조회 응답에 결제 키나 금액이 없다");
+			}
+			return GatewayLookup.paid(
+				new GatewayPayment(payment.paymentKey(), payment.method(), toLocalDateTime(payment.approvedAt())),
+				payment.totalAmount());
+		}
+		if (NOT_PAID_STATUSES.contains(payment.status())) {
+			return GatewayLookup.notPaid();
+		}
+		if ("PARTIAL_CANCELED".equals(payment.status())) {
+			log.error("승인 중으로 남은 결제가 토스에서 부분 취소 상태다. 사람이 확인해야 한다. 주문 ID: {}", orderId);
+		}
+		return GatewayLookup.undecided();
+	}
+
+	private String readErrorCode(byte[] body, String orderId) {
+		try {
+			TossError error = objectMapper.readValue(body, TossError.class);
+			return error.code() != null ? error.code() : "UNKNOWN";
+		} catch (RuntimeException e) {
+			log.warn("토스 에러 응답을 읽지 못했다. 주문 ID: {}", orderId);
+			return "UNKNOWN";
+		}
+	}
+
 	/** 환불 거절은 승인 거절과 달리 "이미 처리됨" 같은 예외 코드가 없다. 같은 멱등키의 재요청은 토스가 처음 결과를 돌려준다. */
 	private RuntimeException toCancelException(byte[] body, String idempotencyKey) {
 		String code = "UNKNOWN";
@@ -160,7 +232,8 @@ public class TossPaymentGateway implements PaymentGateway {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	record TossPayment(String paymentKey, String orderId, String status, String method, OffsetDateTime approvedAt) {
+	record TossPayment(String paymentKey, String orderId, String status, String method, OffsetDateTime approvedAt,
+					   Integer totalAmount) {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)

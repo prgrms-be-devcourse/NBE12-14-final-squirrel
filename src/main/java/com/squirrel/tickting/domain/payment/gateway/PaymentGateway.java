@@ -23,4 +23,14 @@ public interface PaymentGateway {
 	 * @throws GatewayUnavailableException 환불됐는지 알 수 없다. 통신 오류, 시간 초과, 서버 오류 등
 	 */
 	void cancel(String paymentKey, int amount, String reason, String idempotencyKey);
+
+	/**
+	 * 주문 ID 로 결제가 됐는지 조회한다. 승인 요청의 응답을 받지 못해 승인 중(PROCESSING)으로 남은 결제를 확정하는 보정 작업이 쓴다.
+	 * 결제 키는 승인 응답으로만 알 수 있어서 응답을 못 받은 결제에는 없다. 그래서 주문 ID 로 조회한다.
+	 * 읽기만 하므로 몇 번을 불러도 결제나 돈이 바뀌지 않는다.
+	 *
+	 * @throws GatewayUnavailableException 결과를 알 수 없다. 통신 오류, 시간 초과, 서버 오류, 키 설정 문제 등.
+	 *                                     결제 여부를 추측하지 말고 결제를 그대로 둔 채 다음 주기에 다시 조회한다
+	 */
+	GatewayLookup lookup(String orderId);
 }
