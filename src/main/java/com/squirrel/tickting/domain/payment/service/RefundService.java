@@ -6,6 +6,9 @@ import com.squirrel.tickting.domain.payment.infra.entity.Refund;
 import com.squirrel.tickting.domain.payment.infra.repository.RefundRepository;
 import com.squirrel.tickting.domain.payment.type.RefundReasonType;
 import com.squirrel.tickting.domain.payment.type.RefundStatus;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -67,6 +70,30 @@ public class RefundService {
 			return Optional.empty();
 		}
 		return refundRepository.findWithPaymentById(refundId);
+	}
+
+	/**
+	 * 관리자가 다시 보낼 환불을 요청 중으로 바꾸고 가져간다. 판정 순서: 없음(404) → 처리 중(409) → 실패가 아님(409) → 멱등키 기간 지남(409).
+	 * 확인한 뒤에 스케줄러가 먼저 가져가면 조건부 UPDATE 가 0행이라 처리 중(409)으로 답한다.
+	 * 멱등키 기간은 처음 요청한 시각부터 센다. 토스가 키를 처음 받은 때가 그 무렵이기 때문이다.
+	 */
+	@Transactional
+	public Refund claimForManualRetry(Long refundId, LocalDateTime now, Duration idempotencyKeyValidity) {
+		Refund refund = refundRepository.findById(refundId)
+			.orElseThrow(() -> new BusinessException(PaymentExceptionCode.REFUND_NOT_FOUND));
+		if (refund.getStatus() == RefundStatus.PROCESSING) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_IN_PROGRESS);
+		}
+		if (refund.getStatus() != RefundStatus.FAILED) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_NOT_RETRYABLE);
+		}
+		if (!now.isBefore(refund.getRequestedAt().plus(idempotencyKeyValidity))) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_IDEMPOTENCY_EXPIRED);
+		}
+		if (refundRepository.claimFailedForManualRetry(refundId, now) == 0) {
+			throw new BusinessException(PaymentExceptionCode.REFUND_IN_PROGRESS);
+		}
+		return refundRepository.findWithPaymentById(refundId).orElseThrow();
 	}
 
 	@Transactional

@@ -1,8 +1,5 @@
 package com.squirrel.tickting.domain.payment.facade;
 
-import com.squirrel.tickting.domain.payment.gateway.GatewayRejectedException;
-import com.squirrel.tickting.domain.payment.gateway.GatewayUnavailableException;
-import com.squirrel.tickting.domain.payment.gateway.PaymentGateway;
 import com.squirrel.tickting.domain.payment.infra.entity.Refund;
 import com.squirrel.tickting.domain.payment.service.RefundService;
 import java.time.LocalDateTime;
@@ -37,7 +34,7 @@ public class RefundRetryFacade {
 
 	private final TransactionTemplate transactionTemplate;
 	private final RefundService refundService;
-	private final PaymentGateway paymentGateway;
+	private final RefundSender refundSender;
 	private final RefundRetryProperties properties;
 
 	/**
@@ -69,7 +66,7 @@ public class RefundRetryFacade {
 			return false;
 		}
 		Refund refund = claimed.get();
-		String failReason = send(refund);
+		String failReason = refundSender.send(refund);
 		transactionTemplate.executeWithoutResult(status -> {
 			if (failReason == null) {
 				refundService.complete(refundId, LocalDateTime.now());
@@ -81,25 +78,5 @@ public class RefundRetryFacade {
 			log.warn("환불 재시도가 실패했다. 환불 번호: {}, 시도 횟수: {}", refundId, refund.getRetryCount());
 		}
 		return true;
-	}
-
-	/**
-	 * 0원 환불(수수료 100% 규정)은 토스가 받지 않아서 보내지 않고 완료로 본다. 처음 취소 때 결과를 기록하지 못해 요청 중으로 남은 경우다.
-	 *
-	 * @return 실패 사유. 성공이면 null
-	 */
-	private String send(Refund refund) {
-		if (refund.getAmount() == 0) {
-			return null;
-		}
-		try {
-			paymentGateway.cancel(refund.getPayment().getPaymentKey(), refund.getAmount(),
-				refund.getReasonType().getGatewayReason(), refund.getIdempotencyKey());
-			return null;
-		} catch (GatewayRejectedException e) {
-			return e.getCode() + ": " + e.getMessage();
-		} catch (GatewayUnavailableException e) {
-			return "환불 결과를 알 수 없음: " + e.getMessage();
-		}
 	}
 }
