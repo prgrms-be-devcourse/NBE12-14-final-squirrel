@@ -837,6 +837,8 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 
 Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, `keyword`, `page`, `size`
 
+- **응답은 몇 초 전 값일 수 있습니다.** Redis에 잠깐(지금 5초, 임시) 저장해 두고 같은 조건의 요청에 돌려줍니다. 판매자가 공연을 고치거나 판매 상태가 바뀌어도 그 시간이 지나야 반영됩니다. 예매 가능 여부는 점유·결제 단계에서 다시 확인하므로 낡은 화면이 잘못된 예매로 이어지지 않습니다. 검색어(`keyword`)가 있는 요청은 저장하지 않습니다. (설계: `doc/part3-performance-area.md` 3-10)
+
 - 모든 조건은 함께 쓸 수 있고, 비우면 그 조건으로 거르지 않습니다.
 - `genre`를 비우면 전체 장르, 주면 그 장르만 나옵니다.
 - `region`: 공연장 지역과 **정확히 같은** 공연만 (`서울`, `경기` …). 앞뒤 공백은 지웁니다. 사용 중지된 공연장의 공연도 나옵니다.
@@ -893,6 +895,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개, 구현됨)
 
+- 응답은 Redis에 잠깐(지금 5초, 임시) 저장되어 몇 초 전 값일 수 있습니다. (PFM-01과 같음) 404는 저장하지 않습니다.
 - 공개(`PUBLISHED`)된 공연만 볼 수 있습니다. 작성 중·취소된 공연은 없는 공연과 같은 404입니다.
 - `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
   - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
@@ -998,6 +1001,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### PFM-03 구역 요약 — `GET /api/v1/schedules/{scheduleId}/zones` (공개, 구현됨)
 
+- 응답은 Redis에 잠깐(지금 2초, 임시) 저장되어 `remaining`이 몇 초 전 값일 수 있습니다. 잔여 좌석을 정확히 보려면 PFM-04(저장하지 않음)를 봅니다. 점유는 이 숫자가 아니라 DB의 좌석 상태로 결정합니다.
 - 공개(`PUBLISHED`)된 공연의 **취소되지 않은 회차**만 볼 수 있습니다. 공개되지 않은 공연의 회차, 취소된 회차, 없는 회차는 모두 같은 404입니다. (공연 상세의 회차 목록과 같은 기준) 일시 중지(`PAUSED`)·연기(`POSTPONED`) 회차는 볼 수 있습니다.
 - `zones`: 공연장의 모든 구역이 화면 순서(`sort_order`, 같으면 구역 번호순)로 나옵니다.
 - `remaining`: 지금 살 수 있는(`AVAILABLE`) 좌석 수입니다. 임시 점유(`HELD`)·판매 완료(`SOLD`)·판매자 보류(`RESERVED`)·판매 제외(`BLOCKED`)는 빠집니다.
@@ -1036,6 +1040,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### PFM-04 구역 좌석 상세 — `GET /api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` (공개, 구현됨)
 
+- 좌석 상태는 **저장하지 않고 항상 DB에서 읽습니다.** (점유·판매가 바로 보여야 하므로 PFM-01~03과 달리 캐시 대상이 아닙니다)
 - 볼 수 있는 회차는 PFM-03과 같습니다. (공개 공연의 취소되지 않은 회차, 일시 중지·연기 회차 포함)
 - 구역은 **그 회차 공연장의 구역**이어야 합니다. 다른 공연장의 구역이나 없는 구역은 404입니다.
 - **판매 좌석을 아직 만들지 않은 회차**는 고를 좌석이 없어서 404입니다. (PFM-03은 같은 회차에서 잔여석 0으로 보여 줍니다)

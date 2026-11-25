@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.performance.controller;
 
+import com.squirrel.tickting.domain.performance.cache.UserPerformanceCache;
 import com.squirrel.tickting.domain.performance.dto.UserPerformanceResponse;
 import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.global.response.ApiResponse;
@@ -23,7 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class UserScheduleSeatController {
 
-	/** 구역 이름·좌석 수는 공연장 서비스에서 받아 붙여야 해서 파사드를 부른다. */
+	/** 구역 요약만 몇 초 낡아도 되어서 읽기 캐시를 거친다. 구역 좌석 상세는 좌석 상태라 항상 서비스에서 읽는다. */
+	private final UserPerformanceCache userPerformanceCache;
 	private final UserPerformanceService userPerformanceService;
 
 	@Operation(summary = "구역 요약",
@@ -34,7 +36,7 @@ public class UserScheduleSeatController {
 		@Parameter(description = "회차 번호")
 		@PathVariable Long scheduleId
 	) {
-		UserPerformanceResponse.ZoneSummary response = userPerformanceService.getZoneSummary(scheduleId);
+		UserPerformanceResponse.ZoneSummary response = userPerformanceCache.getZoneSummary(scheduleId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
