@@ -49,7 +49,9 @@ import tools.jackson.databind.ObjectMapper;
  */
 // 대기열은 기본으로 꺼 둔다. 구역·좌석 조회와 점유를 확인하는 다른 테스트가 입장 없이도 돌게 하려는 것이다.
 // 대기열 테스트는 @DynamicPropertySource 로 켠다. (그 값이 여기 값보다 우선한다)
-@SpringBootTest(properties = "app.queue.enabled=false")
+// 공연 조회 캐시도 기본으로 꺼 둔다. 테스트는 데이터를 바로 고쳐서 확인하고, Redis 에 남은 값이 다음 테스트에 섞이면 안 된다.
+// 캐시 테스트(UserPerformanceCacheApiTest)는 @TestPropertySource 로 켠다.
+@SpringBootTest(properties = {"app.queue.enabled=false", "app.performance.cache.enabled=false"})
 @AutoConfigureMockMvc
 @Import({TestcontainersConfiguration.class, EmailTestConfiguration.class})
 public abstract class IntegrationTestSupport {
