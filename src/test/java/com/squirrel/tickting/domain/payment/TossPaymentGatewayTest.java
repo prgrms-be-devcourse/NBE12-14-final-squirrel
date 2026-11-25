@@ -9,6 +9,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.squirrel.tickting.domain.payment.gateway.GatewayLookup;
 import com.squirrel.tickting.domain.payment.gateway.GatewayPayment;
 import com.squirrel.tickting.domain.payment.gateway.GatewayRejectedException;
 import com.squirrel.tickting.domain.payment.gateway.GatewayUnavailableException;
@@ -187,5 +188,93 @@ class TossPaymentGatewayTest {
 				e -> assertThat(e.getCode()).isEqualTo("NOT_CANCELABLE_AMOUNT"));
 		assertThatThrownBy(() -> gateway.cancel("pay_key_1", 140600, "고객 요청 취소", REFUND_KEY))
 			.isInstanceOf(GatewayUnavailableException.class);
+	}
+
+	// ---------------------------------------------------------------- 결제 조회 (보정 작업이 쓴다)
+
+	private static final String LOOKUP_URL = BASE_URL + "/v1/payments/orders/" + ORDER_ID;
+
+	private static String paymentBody(String status) {
+		return """
+			{"paymentKey":"pay_key_1","orderId":"%s","status":"%s","method":"카드",
+			 "approvedAt":"2026-11-25T20:05:12+09:00","totalAmount":312000,"card":{"number":"1234****"},"unknown":1}
+			""".formatted(ORDER_ID, status);
+	}
+
+	@Test
+	@DisplayName("결제 조회는 주문 ID 로 GET 하고 시크릿 키 인증을 달며, 승인 완료(DONE)면 결제됨과 결제 키·금액을 돌려준다")
+	void lookupPaid() {
+		String expectedAuth = "Basic " + Base64.getEncoder().encodeToString((secretKey + ":").getBytes(StandardCharsets.UTF_8));
+		server.expect(requestTo(LOOKUP_URL))
+			.andExpect(method(HttpMethod.GET))
+			.andExpect(header("Authorization", expectedAuth))
+			.andRespond(withSuccess(paymentBody("DONE"), MediaType.APPLICATION_JSON));
+
+		GatewayLookup result = gateway.lookup(ORDER_ID);
+
+		server.verify();
+		assertThat(result.outcome()).isEqualTo(GatewayLookup.Outcome.PAID);
+		assertThat(result.amount()).isEqualTo(312000);
+		assertThat(result.payment().paymentKey()).isEqualTo("pay_key_1");
+		assertThat(result.payment().method()).isEqualTo("카드");
+	}
+
+	@Test
+	@DisplayName("조회되는 결제가 없거나(404 NOT_FOUND_PAYMENT) 실패·만료·취소로 끝난 결제는 결제 안 됨이다")
+	void lookupNotPaid() {
+		server.expect(requestTo(LOOKUP_URL))
+			.andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
+				.body(errorBody("NOT_FOUND_PAYMENT", "존재하지 않는 결제 입니다.")));
+		for (String status : new String[] {"ABORTED", "EXPIRED", "CANCELED"}) {
+			server.expect(requestTo(LOOKUP_URL)).andRespond(withSuccess(paymentBody(status), MediaType.APPLICATION_JSON));
+		}
+
+		for (int i = 0; i < 4; i++) {
+			assertThat(gateway.lookup(ORDER_ID).outcome()).isEqualTo(GatewayLookup.Outcome.NOT_PAID);
+		}
+		server.verify();
+	}
+
+	@Test
+	@DisplayName("아직 끝나지 않았거나 해석할 수 없는 상태(READY·IN_PROGRESS·WAITING_FOR_DEPOSIT·PARTIAL_CANCELED)는 모름이다")
+	void lookupUndecided() {
+		String[] statuses = {"READY", "IN_PROGRESS", "WAITING_FOR_DEPOSIT", "PARTIAL_CANCELED", "SOMETHING_NEW"};
+		for (String status : statuses) {
+			server.expect(requestTo(LOOKUP_URL)).andRespond(withSuccess(paymentBody(status), MediaType.APPLICATION_JSON));
+		}
+
+		for (int i = 0; i < statuses.length; i++) {
+			assertThat(gateway.lookup(ORDER_ID).outcome()).isEqualTo(GatewayLookup.Outcome.UNDECIDED);
+		}
+		server.verify();
+	}
+
+	@Test
+	@DisplayName("조회가 5xx·연결 끊김·404 가 아닌 4xx(키 설정 문제 등)이면 결제 여부를 추측하지 않고 결과를 알 수 없음 예외다")
+	void lookupFailuresAreUnknown() {
+		server.expect(requestTo(LOOKUP_URL)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+		server.expect(requestTo(LOOKUP_URL)).andRespond(request -> {
+			throw new IOException("connection reset");
+		});
+		server.expect(requestTo(LOOKUP_URL))
+			.andRespond(withStatus(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON)
+				.body(errorBody("FORBIDDEN_REQUEST", "허용되지 않은 요청입니다.")));
+		// 404 여도 "결제가 없다"는 코드가 아니면 결제 안 됨으로 단정하지 않는다
+		server.expect(requestTo(LOOKUP_URL))
+			.andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.TEXT_PLAIN).body("not json"));
+
+		for (int i = 0; i < 4; i++) {
+			assertThatThrownBy(() -> gateway.lookup(ORDER_ID)).isInstanceOf(GatewayUnavailableException.class);
+		}
+	}
+
+	@Test
+	@DisplayName("승인 완료인데 결제 키나 금액이 없는 응답은 결제됨으로 믿지 않고 결과를 알 수 없음 예외다")
+	void lookupIncompleteDoneIsUnknown() {
+		server.expect(requestTo(LOOKUP_URL)).andRespond(withSuccess("""
+			{"orderId":"%s","status":"DONE","method":"카드"}
+			""".formatted(ORDER_ID), MediaType.APPLICATION_JSON));
+
+		assertThatThrownBy(() -> gateway.lookup(ORDER_ID)).isInstanceOf(GatewayUnavailableException.class);
 	}
 }

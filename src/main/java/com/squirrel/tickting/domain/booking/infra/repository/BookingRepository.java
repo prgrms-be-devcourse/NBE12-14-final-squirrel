@@ -97,6 +97,21 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		""")
 	int markExpired(@Param("ids") Collection<Long> ids, @Param("now") LocalDateTime now);
 
+	/**
+	 * 만료된 예매를 취소로 바꾼다. 만료(EXPIRED)된 예매만 바꾸고 바뀐 행 수를 돌려준다. 결제 불일치 보정이 "예매는 만료됐는데
+	 * 토스에서는 결제된" 건을 환불할 때 쓴다. 결제된 예매가 만료로 남아 있으면 사용자가 돈을 낸 기록과 어긋난다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.CANCELED,
+		       b.canceledAt = :now,
+		       b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.EXPIRED
+		""")
+	int markExpiredAsCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
+
 	/** 일부 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다. */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""

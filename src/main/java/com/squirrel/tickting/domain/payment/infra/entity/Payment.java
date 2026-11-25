@@ -63,12 +63,34 @@ public class Payment extends CreatedTimeEntity {
 	private LocalDateTime approvedAt;
 
 	/**
+	 * 토스에 승인을 요청하기 직전의 시각. 보정 작업이 "승인을 시작한 지 오래된 결제"를 고르는 데 쓴다.
+	 * 결제를 준비한 시각(createdAt)과 따로 둔 이유: 준비한 지 오래된 결제를 방금 승인 중으로 바꿨을 때 지금 응답을 기다리는 승인을 건드리지 않으려는 것이다.
+	 */
+	@Column
+	private LocalDateTime processingStartedAt;
+
+	/**
 	 * 토스에 승인을 요청하기 직전에 부른다. 이 상태가 되면 같은 결제의 다른 승인 요청은 막힌다.
 	 * 결제 준비(READY) 상태에서만 시작할 수 있다.
 	 */
-	public void startProcessing() {
+	public void startProcessing(LocalDateTime now) {
 		requireStatus(PaymentStatus.READY);
 		this.status = PaymentStatus.PROCESSING;
+		this.processingStartedAt = now;
+	}
+
+	/**
+	 * 보정 작업이 토스에 조회해서 결제되지 않았다고 확인한 결제를 실패로 닫는다. 승인을 시작하지 않은 준비(READY) 건과
+	 * 승인 중(PROCESSING)으로 남은 건 모두 닫을 수 있다. 사유는 컬럼 길이에 맞게 자른다.
+	 */
+	public void abandon(String reason) {
+		if (this.status != PaymentStatus.READY && this.status != PaymentStatus.PROCESSING) {
+			throw new IllegalStateException("준비 또는 승인 중인 결제만 닫을 수 있다. 현재: " + this.status);
+		}
+		this.status = PaymentStatus.FAILED;
+		this.failReason = reason != null && reason.length() > FAIL_REASON_MAX_LENGTH
+			? reason.substring(0, FAIL_REASON_MAX_LENGTH)
+			: reason;
 	}
 
 	/** 토스 승인에 성공했을 때. 결제 키·수단·승인 시각은 승인 뒤에만 생긴다. */

@@ -67,6 +67,7 @@ public abstract class IntegrationTestSupport {
 		// 주기 작업이 테스트가 만든 데이터를 먼저 처리하지 않게 끈다. 작업이 하는 일은 파사드를 직접 불러서 확인한다.
 		registry.add("app.booking.expiry-enabled", () -> "false");
 		registry.add("app.payment.refund-retry.enabled", () -> "false");
+		registry.add("app.payment.reconcile.enabled", () -> "false");
 		registry.add("app.performance.seat-generation.enabled", () -> "false");
 		// 토스 키 없이 결제 흐름을 확인한다. 토스를 부르는 코드는 TossPaymentGatewayTest 가 가짜 서버로 따로 확인한다.
 		registry.add("app.payment.gateway", () -> "mock");

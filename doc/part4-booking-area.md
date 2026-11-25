@@ -185,6 +185,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |  | 상태 | `status` | enum | NOT NULL | READY 준비 / PROCESSING 토스에 승인 요청 중 / DONE 승인 / FAILED 실패 / PARTIAL_CANCELED 일부 환불 / CANCELED 전액 환불 |
 |  | 실패 사유 | `fail_reason` | String | NULL |  |
 |  | 승인 일시 | `approved_at` | LocalDateTime | NULL |  |
+|  | 승인 시작 일시 | `processing_started_at` | LocalDateTime | NULL | 토스에 승인을 요청하기 직전 시각(V23). 결제 보정 작업이 "승인을 시작한 지 오래된 결제"를 고르는 데 쓴다. 준비한 시각(`created_at`)으로 재면 방금 승인을 시작한 결제를 오래된 것으로 오해한다 |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 
 **Q. 결제는 어떤 순서로 이루어지나요? (토스페이먼츠)**
