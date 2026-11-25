@@ -6,6 +6,8 @@ import com.squirrel.tickting.domain.payment.infra.repository.RefundRepository;
 import com.squirrel.tickting.domain.payment.type.RefundReasonType;
 import com.squirrel.tickting.domain.payment.type.RefundStatus;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,7 +34,25 @@ public class RefundService {
 			.idempotencyKey(UUID.randomUUID().toString())
 			.status(RefundStatus.PROCESSING)
 			.requestedAt(now)
+			.lastAttemptedAt(now)
 			.build());
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> findRetryDue(LocalDateTime cutoff, int maxCount, int limit) {
+		return refundRepository.findRetryDueIds(cutoff, maxCount, limit);
+	}
+
+	/**
+	 * 재시도할 환불을 요청 중으로 바꾸고 가져간다. 다른 서버가 먼저 가져갔거나 이미 끝난 환불이면 비어 있다.
+	 * 실패로 단정하지 않고 비어 있는 값으로 답하는 이유는, 여러 서버가 같은 목록을 보고 경쟁하는 것이 정상이라서다.
+	 */
+	@Transactional
+	public Optional<Refund> claimForRetry(Long refundId, LocalDateTime now, LocalDateTime cutoff, int maxCount) {
+		if (refundRepository.claimForRetry(refundId, now, cutoff, maxCount) == 0) {
+			return Optional.empty();
+		}
+		return refundRepository.findWithPaymentById(refundId);
 	}
 
 	@Transactional

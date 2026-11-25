@@ -79,6 +79,10 @@ public class Refund {
 	@Column
 	private LocalDateTime completedAt;
 
+	/** 마지막으로 토스에 보낸(보내려 한) 시각. 재시도 스케줄러가 이 시각부터 일정 시간이 지난 환불만 다시 보낸다. */
+	@Column(nullable = false)
+	private LocalDateTime lastAttemptedAt;
+
 	/** 토스가 환불을 마쳤을 때. */
 	public void complete(LocalDateTime now) {
 		requireStatus(RefundStatus.PROCESSING);

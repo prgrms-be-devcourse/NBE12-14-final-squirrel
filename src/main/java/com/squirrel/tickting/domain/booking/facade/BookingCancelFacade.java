@@ -44,8 +44,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class BookingCancelFacade {
 
-	private static final String USER_CANCEL_REASON = "고객 요청 취소";
-
 	private final DistributedLockExecutor lockExecutor;
 	private final TransactionTemplate transactionTemplate;
 	private final BookingProperties properties;
@@ -103,8 +101,8 @@ public class BookingCancelFacade {
 		String failReason = null;
 		if (plan.refundAmount() > 0) {
 			try {
-				paymentGateway.cancel(canceled.paymentKey(), plan.refundAmount(), USER_CANCEL_REASON,
-					canceled.idempotencyKey());
+				paymentGateway.cancel(canceled.paymentKey(), plan.refundAmount(),
+					RefundReasonType.USER_CANCEL.getGatewayReason(), canceled.idempotencyKey());
 			} catch (GatewayRejectedException e) {
 				failReason = e.getCode() + ": " + e.getMessage();
 			} catch (GatewayUnavailableException e) {
