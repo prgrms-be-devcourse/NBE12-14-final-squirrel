@@ -100,6 +100,33 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("bufferMinutes") int bufferMinutes);
 
 	/**
+	 * 아직 저장하지 않은 회차(venueId 공연장, startAt 시작, runningTime 분)와 시간이 겹치는 기존 회차. 시작 일시가 빠른 순이다.
+	 * 겹침 기준과 세지 않는 회차는 findOverlappingStartAts 와 같다. 한쪽만 바꾸면 회차 추가와 공연 수정의 판단이 어긋난다.
+	 * 내 회차인지 구분해 알려 줄 수 있게 사업체 번호·공연명·러닝타임을 함께 읽는다.
+	 */
+	@Query(value = """
+		SELECT p.business_id AS "businessId", p.title AS "title", s.start_at AS "startAt",
+		       p.running_time AS "runningTime"
+		  FROM performance_schedule s
+		  JOIN performance p ON p.id = s.performance_id
+		 WHERE p.venue_id = :venueId
+		   AND s.status <> 'CANCELED'
+		   AND p.status <> 'CANCELED'
+		   AND NOT (s.status = 'POSTPONED' AND (
+		         SELECT sp.new_start_at FROM schedule_postponement sp
+		          WHERE sp.schedule_id = s.id
+		          ORDER BY sp.created_at DESC, sp.id DESC
+		          LIMIT 1) IS NULL)
+		   AND CAST(:startAt AS timestamp) < s.start_at + make_interval(mins => p.running_time + CAST(:bufferMinutes AS integer))
+		   AND s.start_at < CAST(:startAt AS timestamp)
+		       + make_interval(mins => CAST(:runningTime AS integer) + CAST(:bufferMinutes AS integer))
+		 ORDER BY s.start_at, s.id
+		""", nativeQuery = true)
+	List<OverlappingSchedule> findOverlappingSchedules(@Param("venueId") Long venueId,
+		@Param("startAt") LocalDateTime startAt, @Param("runningTime") int runningTime,
+		@Param("bufferMinutes") int bufferMinutes);
+
+	/**
 	 * 제외한 상태가 아닌 회차 중 판매 좌석을 이미 만든 회차가 있는가. 등급·가격 수정 잠금(locked) 판단에 쓴다.
 	 * 취소 회차를 빼는 이유: 그 좌석은 더 팔리지 않고 환불은 예매 때 저장한 가격으로 해서, 세면 나머지 회차의 가격만 막힌다.
 	 */
@@ -112,4 +139,16 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		""")
 	boolean existsSeatsGenerated(@Param("performanceId") Long performanceId,
 		@Param("excludedStatus") ScheduleStatus excludedStatus);
+
+	/** findOverlappingSchedules 의 결과 한 줄. */
+	interface OverlappingSchedule {
+
+		Long getBusinessId();
+
+		String getTitle();
+
+		LocalDateTime getStartAt();
+
+		Integer getRunningTime();
+	}
 }
