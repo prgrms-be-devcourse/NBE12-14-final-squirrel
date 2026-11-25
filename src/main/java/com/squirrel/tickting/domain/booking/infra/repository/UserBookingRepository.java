@@ -20,7 +20,10 @@ public interface UserBookingRepository extends Repository<Booking, Long> {
 	/**
 	 * 한 예매자의 예매 목록. 상태를 고르지 않으면 호출하는 쪽이 모든 상태를 넘긴다. (PostgreSQL 에서 null 파라미터가 타입 오류를 내서)
 	 * 정렬은 pageable 의 Sort 로 붙인다. idx_booking_user (user_id, created_at DESC) 를 탄다.
+	 *
+	 * @deprecated 역할별 예매 조회를 BookingQueryService 로 모았다. 새 코드는 BookingQueryRepository.searchOfUser 를 쓴다. 이미 쓰는 곳이 있어서 지우지 않고 남겨 둔다.
 	 */
+	@Deprecated(since = "2026-11-25")
 	@Query(value = """
 		SELECT b
 		FROM Booking b

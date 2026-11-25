@@ -49,10 +49,10 @@ class AdminRefundListApiTest extends IntegrationTestSupport {
 	private String refund(String status, int retryCount, LocalDateTime requestedAt) {
 		String bookingNo = "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 14).toUpperCase();
 		Long bookingId = jdbc.queryForObject("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type,
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
 			                     orderer_name, orderer_phone, orderer_email, ticket_amount, booking_fee_amount,
 			                     total_amount, cancel_policy_snapshot, expires_at, created_at, updated_at)
-			VALUES (?, 1, 1, 1, 'CANCELED', 'ONSITE', '예매자', '01000000000', 'user@example.com', 154000, 2000,
+			VALUES (?, 1, 1, 1, 1, 'CANCELED', 'ONSITE', '예매자', '01000000000', 'user@example.com', 154000, 2000,
 			        156000, '[]'::jsonb, ?, ?, ?) RETURNING id
 			""", Long.class, bookingNo, requestedAt, requestedAt, requestedAt);
 		bookingIds.add(bookingId);

@@ -67,12 +67,14 @@ class UserBookingApiTest extends IntegrationTestSupport {
 	private Long saveBooking(long userId, Long performanceId, Long scheduleId, String status, int totalAmount,
 		LocalDateTime createdAt) {
 		return jdbc.queryForObject("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type,
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
 			                     orderer_name, orderer_phone, orderer_email, ticket_amount, booking_fee_amount,
 			                     total_amount, cancel_policy_snapshot, expires_at, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, 'ONSITE', '홍길동', '01012345678', 'user@example.com', ?, 0, ?, '[]'::jsonb, ?, ?, ?)
+			VALUES (?, ?, ?, ?, COALESCE((SELECT business_id FROM performance WHERE id = ?), 0), ?, 'ONSITE', '홍길동', '01012345678', 'user@example.com', ?, 0, ?,
+			        '[]'::jsonb, ?, ?, ?)
 			RETURNING id
-			""", Long.class, "TEST" + (++bookingNoSequence), userId, scheduleId, performanceId, status, totalAmount,
+			""", Long.class, "TEST" + (++bookingNoSequence), userId, scheduleId, performanceId, performanceId, status,
+			totalAmount,
 			totalAmount, createdAt.plusMinutes(7), createdAt, createdAt);
 	}
 

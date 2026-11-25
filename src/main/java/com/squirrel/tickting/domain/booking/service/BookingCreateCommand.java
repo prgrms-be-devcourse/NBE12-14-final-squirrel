@@ -17,6 +17,7 @@ public record BookingCreateCommand(
 	Long userId,
 	Long scheduleId,
 	Long performanceId,
+	Long businessId,
 	ReceiveMethod receiveMethod,
 	String ordererName,
 	String ordererPhone,

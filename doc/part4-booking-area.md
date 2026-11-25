@@ -50,6 +50,7 @@
 | FK | 예매자 | `user_id` | Long | NOT NULL | (user_member) |
 | FK | 회차 번호 | `schedule_id` | Long | NOT NULL | 어느 회차의 예매인지 (performance_schedule) |
 | FK | 공연 번호 | `performance_id` | Long | NOT NULL | 그 회차가 속한 공연 (performance). 예매 때 복사해 둠. 공연 단위 매수 검사·조회용 |
+| FK | 사업체 번호 | `business_id` | Long | NOT NULL | 그 공연의 사업체 (seller_business). 예매 때 공연에서 복사해 둠. 판매자의 사업체 전체 예매 목록을 공연 조인 없이 최신순으로 읽으려는 것. 공연의 사업체는 바뀌지 않아 어긋나지 않음 (V22) |
 |  | 상태 | `status` | enum | NOT NULL | PENDING 결제 대기 / PAID 결제 완료 / PARTIAL_CANCELED 일부 취소 / CANCELED 전체 취소 / EXPIRED 시간 초과 |
 |  | 수령 방법 | `receive_type` | enum | NOT NULL | ONSITE 현장 / DELIVERY 배송 (예매자가 선택). 좌석을 점유할 때는 기본값(공연이 BOTH면 ONSITE)을 넣고, 결제 준비 때 확정 |
 |  | 주문자 이름 | `orderer_name` | String | NOT NULL | 예매 시점 값을 복사(스냅샷) |
@@ -389,6 +390,8 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 | 용도 | 인덱스 |
 |---|---|
 | 내 예매 목록 | `booking (user_id, created_at DESC)` |
+| 판매자 사업체 전체 예매 목록 | `booking (business_id, created_at DESC, id DESC)` |
+| 관리자 전체 예매 목록 | `booking (created_at DESC, id DESC)` |
 | 공연별 1인 매수 검사 | `booking (user_id, performance_id)` |
 | 회차별 예매 조회 (판매자, 공연 취소 일괄 환불) | `booking (schedule_id, status)` |
 | 결제 대기 만료 처리 | `booking (status, expires_at)` |

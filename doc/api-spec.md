@@ -108,11 +108,13 @@
 | SLR-15 | 회차 취소 | POST `/api/v1/seller/schedules/{scheduleId}/cancel` | 미구현 |
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 구현됨 |
-| SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 구현됨 |
+| SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 구현됨 (사용 중단 예정, SLR-23 사용) |
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
+| SLR-23 | 내 사업체 예매 목록 | GET `/api/v1/seller/bookings` | 구현됨 |
+| SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -120,6 +122,8 @@
 | ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 구현됨 |
 | ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 구현됨 |
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
+| ADM-08 | 전체 예매 목록 | GET `/api/v1/admin/bookings` | 구현됨 |
+| ADM-09 | 예매 상세 | GET `/api/v1/admin/bookings/{bookingId}` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
@@ -1245,7 +1249,18 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자, 구현됨)
 
-Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
+Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), `from`, `to`, `page`, `size` — 검색 조건은 SLR-23·ADM-08과 같습니다. (아래 "예매 목록 검색 조건")
+
+**예매 목록 검색 조건 (BKG-04·SLR-23·ADM-08 공통)**
+
+| Query | 설명 |
+|---|---|
+| `title` | 공연 제목. 일부만 넣어도 찾고 대소문자는 가리지 않습니다. 넣은 `%`·`_`는 글자로 찾습니다. 100자 이하 |
+| `status` | 예매 상태. 여러 개를 고를 수 있습니다(`status=PAID&status=CANCELED`). 비우면 역할별 기본 상태(예매자: 만료 제외 전부, 판매자: `PAID`·`PARTIAL_CANCELED`, 관리자: 전부) |
+| `from`, `to` | **예매한 날짜** 구간(`2026-11-01`, 둘 다 포함). 하나만 줘도 됩니다. `from`이 `to`보다 늦으면 400 `COMMON000` |
+
+- 정렬은 최신 예매순 하나로 고정입니다. 정렬마다 인덱스가 필요해서 고르게 하지 않았습니다.
+- 누구의 예매까지 보이는지는 토큰으로만 정합니다. 요청으로 회원·사업체 번호를 받지 않습니다. 세 API는 주소와 응답 모양만 다르고 찾는 코드(`BookingQueryService`)를 함께 씁니다.
 
 - 로그인한 예매자 본인의 예매만 나옵니다. 회원 번호는 토큰에서 꺼냅니다. 판매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
 - 시간 초과(`EXPIRED`)는 나오지 않고, `status`로 보내면 400입니다. 돈이 나가지 않은 무효 예매라 내역에서 뺍니다. 화면에서 거르면 한 페이지 개수와 전체 개수가 어긋나서 서버가 조회할 때 거릅니다.
@@ -1284,7 +1299,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값 또는 `EXPIRED`
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값, `EXPIRED`, `from`이 `to`보다 늦음
 
 ### BKG-05 내 예매 상세 — `GET /api/v1/bookings/{bookingId}` (예매자, 구현됨)
 
@@ -2264,7 +2279,9 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 }
 ```
 
-### SLR-18 회차별 예매 목록 — `GET /api/v1/seller/schedules/{scheduleId}/bookings` (구현됨)
+### SLR-18 회차별 예매 목록 — `GET /api/v1/seller/schedules/{scheduleId}/bookings` (구현됨, 사용 중단 예정)
+
+> 2026-11-25 역할별 예매 조회를 한곳(`BookingQueryService`)으로 모으면서 사용 중단 예정(`@Deprecated`)으로 표시했습니다. 쓰는 화면이 있어서 동작은 그대로입니다. 새 화면은 SLR-23을 씁니다.
 
 Query: `status`, `receiveType`, `bookingNo`, `page`, `size`
 
@@ -2311,6 +2328,23 @@ Query: `status`, `receiveType`, `bookingNo`, `page`, `size`
 ```
 
 ---
+
+### SLR-23 내 사업체 예매 목록 — `GET /api/v1/seller/bookings` (구현됨)
+
+Query: `title`, `status`(여러 개), `from`, `to`, `page`, `size` — BKG-04의 "예매 목록 검색 조건"과 같습니다.
+
+- 내 사업체의 **모든 공연**에 들어온 예매를 최신 예매순으로 줍니다. 사업체 번호는 토큰에서 꺼냅니다. 대표·담당자 모두 씁니다.
+- `status`를 비우면 남은 표가 있는 예매(`PAID`, `PARTIAL_CANCELED`)만 나옵니다. (SLR-18과 같은 기준)
+- 항목은 SLR-18 항목에 공연(`performanceId`, `performanceTitle`)과 회차(`scheduleId`, `scheduleStartAt`)를 더한 모양입니다. 금액은 수수료 없는 표값입니다.
+- 예매에 복사해 둔 사업체 번호(`booking.business_id`)와 인덱스 `(business_id, created_at DESC, id DESC)`로 읽어서, 예매가 많은 판매자도 앞 페이지만 읽고 끝납니다.
+- `size` 기본 20, 최대 20.
+
+**에러**: 403 `AUTH100` 판매자가 아님 · 400 `COMMON000` 없는 `status` 값, `from`이 `to`보다 늦음
+
+### SLR-24 내 사업체 예매 상세 — `GET /api/v1/seller/bookings/{bookingId}` (구현됨)
+
+- 내 사업체 공연의 예매 하나를 상태와 상관없이 줍니다. 응답은 SLR-23 항목과 같은 모양입니다.
+- 다른 사업체 공연의 예매·없는 예매는 404 `BOOKING006`입니다. (번호가 있는지 알려주지 않으려고 같은 응답)
 
 ### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies` (구현됨)
 
@@ -2768,6 +2802,21 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 판정 순서는 없음(404) → 처리 중 → 실패가 아님 → 15일 지남입니다.
 
 ---
+
+### ADM-08 전체 예매 목록 — `GET /api/v1/admin/bookings` (관리자, 구현됨)
+
+Query: `title`, `status`(여러 개), `from`, `to`, `page`, `size` — BKG-04의 "예매 목록 검색 조건"과 같습니다.
+
+- 모든 예매를 최신 예매순으로 줍니다. `status`를 비우면 만료(`EXPIRED`)를 포함한 모든 상태입니다.
+- 항목: `bookingId`, `bookingNo`, `status`, `userId`, `ordererName`, `businessId`, `performanceId`, `performanceTitle`, `scheduleStartAt`, `seatCount`(처음 좌석 수), `totalAmount`(처음 결제 금액), `createdAt`
+- 인덱스 `(created_at DESC, id DESC)`로 읽습니다. `size` 기본 20, 최대 20.
+
+**에러**: 403 `AUTH100` 관리자가 아님 · 400 `COMMON000` 없는 `status` 값, `from`이 `to`보다 늦음
+
+### ADM-09 예매 상세 — `GET /api/v1/admin/bookings/{bookingId}` (관리자, 구현됨)
+
+- 예매 하나를 상태와 상관없이 줍니다. 응답은 `{ userId, businessId, booking }`이고 `booking`은 BKG-05 응답과 같은 모양(결제·환불·취소 규정 포함)입니다. 같은 내용을 두 벌로 만들면 한쪽만 고쳐질 수 있어서 그대로 씁니다.
+- 없는 예매는 404 `BOOKING006`입니다.
 
 ## 6. 이미지 (`/api/v1/images/**`)
 

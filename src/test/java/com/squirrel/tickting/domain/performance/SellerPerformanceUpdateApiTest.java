@@ -163,12 +163,14 @@ class SellerPerformanceUpdateApiTest extends IntegrationTestSupport {
 
 	private void insertBooking(Long performanceId, String status) {
 		jdbc.update("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type, orderer_name,
-			                     orderer_phone, orderer_email, ticket_amount, booking_fee_amount, total_amount,
-			                     cancel_policy_snapshot, expires_at, created_at, updated_at)
-			VALUES (?, 1, 1, ?, ?, 'ONSITE', '홍길동', '01012345678', 'buyer@example.com', 1000, 0, 1000,
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
+			                     orderer_name, orderer_phone, orderer_email, ticket_amount, booking_fee_amount,
+			                     total_amount, cancel_policy_snapshot, expires_at, created_at, updated_at)
+			VALUES (?, 1, 1, ?, COALESCE((SELECT business_id FROM performance WHERE id = ?), 0), ?, 'ONSITE',
+			        '홍길동', '01012345678', 'buyer@example.com', 1000, 0, 1000,
 			        '[]'::jsonb, NOW(), NOW(), NOW())
-			""", "T931-" + UUID.randomUUID().toString().substring(0, 8), performanceId, status);
+			""", "T931-" + UUID.randomUUID().toString().substring(0, 8), performanceId, performanceId,
+			status);
 	}
 
 	/** DB 에 있는 공연의 현재 값 그대로의 요청 본문. 바꿀 값만 덮어써서 쓴다. */

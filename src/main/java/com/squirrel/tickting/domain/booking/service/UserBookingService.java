@@ -50,7 +50,10 @@ public class UserBookingService {
 	/**
 	 * 한 예매자의 예매 목록. 상태를 주지 않으면(null) 내 예매에 보이는 상태가 모두 나온다.
 	 * 보이지 않는 상태(EXPIRED)를 고르면 400 이다. pageable 은 페이지 번호와 크기만 쓰고 정렬은 최신 예매순으로 고정한다.
+	 *
+	 * @deprecated 역할별 예매 조회를 BookingQueryService 로 모았다. 새 코드는 BookingQueryService.search 를 쓴다. 이미 쓰는 곳이 있어서 지우지 않고 남겨 둔다.
 	 */
+	@Deprecated(since = "2026-11-25")
 	@Transactional(readOnly = true)
 	public Page<UserBookingResponse.Summary> getMyBookings(Long userId, BookingStatus status, Pageable pageable) {
 		if (status != null && !VISIBLE_STATUSES.contains(status)) {
@@ -64,7 +67,10 @@ public class UserBookingService {
 	/**
 	 * 내 예매 하나. 목록과 달리 상태와 상관없이 찾는다. (결제 화면이 결제 대기 예매를 읽고, 7분이 지나면 만료됐다고 보여 줘야 한다)
 	 * 남의 예매도 없는 예매와 같은 404 로 답해서 번호가 있는지 알려주지 않는다.
+	 *
+	 * @deprecated 역할별 예매 조회를 BookingQueryService 로 모았다. 새 코드는 BookingQueryService.getFullDetail 을 쓴다. 이미 쓰는 곳이 있어서 지우지 않고 남겨 둔다.
 	 */
+	@Deprecated(since = "2026-11-25")
 	@Transactional(readOnly = true)
 	public UserBookingResponse.Detail getMyBooking(Long userId, Long bookingId) {
 		Booking booking = userBookingRepository.findByIdAndUserId(bookingId, userId)

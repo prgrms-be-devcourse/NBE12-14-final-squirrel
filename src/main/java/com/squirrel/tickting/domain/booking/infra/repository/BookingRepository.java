@@ -26,7 +26,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 	 * 판매자의 회차별 예매 목록. 예매 시각 최신순, 같으면 번호가 큰 순으로 고정한다(페이지를 넘겨도 순서가 바뀌지 않게).
 	 * PostgreSQL 에서 null 파라미터가 타입 오류를 내서 선택 조건은 null 대신 "전부 넘기기"로 쓴다:
 	 * 상태·수령 방법은 허용할 값 목록을 항상 받고, 예매 번호는 빈 문자열이면 거르지 않는다. 예매 번호는 정확 일치다.
+	 *
+	 * @deprecated 역할별 예매 조회를 BookingQueryService 로 모았다. 새 코드는 BookingQueryRepository.searchOfBusiness 를 쓴다. 이미 쓰는 곳이 있어서 지우지 않고 남겨 둔다.
 	 */
+	@Deprecated(since = "2026-11-25")
 	@Query(value = """
 		SELECT b
 		  FROM Booking b
