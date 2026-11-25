@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.performance.infra.repository;
 
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -139,6 +140,34 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		""")
 	boolean existsSeatsGenerated(@Param("performanceId") Long performanceId,
 		@Param("excludedStatus") ScheduleStatus excludedStatus);
+
+	/**
+	 * 판매 좌석을 자동으로 만들 회차. 공개 상태 공연의 취소되지 않고 아직 시작하지 않은 회차 중, 좌석이 없고 판매 오픈이 openUntil 이하인 것이다.
+	 * 일시 중지·연기 회차도 포함하고 판매 종료는 보지 않는다. 다시 팔기로 하면 바로 예매할 수 있게 하려는 것이다.
+	 * 판매 오픈이 빠른 순이고 같으면 회차 번호순이다. 오픈이 가까운 회차부터 만들어야 한다.
+	 */
+	@Query("""
+		SELECT s.id AS scheduleId, p.id AS performanceId
+		  FROM PerformanceSchedule s
+		  JOIN s.performance p
+		 WHERE p.status = :performanceStatus
+		   AND s.status <> :excludedStatus
+		   AND s.startAt > :now
+		   AND s.seatsGeneratedAt IS NULL
+		   AND p.saleOpenAt <= :openUntil
+		 ORDER BY p.saleOpenAt, s.id
+		""")
+	List<SeatGenerationTarget> findSeatGenerationTargets(@Param("performanceStatus") PerformanceStatus performanceStatus,
+		@Param("excludedStatus") ScheduleStatus excludedStatus, @Param("now") LocalDateTime now,
+		@Param("openUntil") LocalDateTime openUntil);
+
+	/** findSeatGenerationTargets 의 결과 한 줄. */
+	interface SeatGenerationTarget {
+
+		Long getScheduleId();
+
+		Long getPerformanceId();
+	}
 
 	/** findOverlappingSchedules 의 결과 한 줄. */
 	interface OverlappingSchedule {
