@@ -46,6 +46,21 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
 		@Param("maxCount") int maxCount);
 
 	/**
+	 * 관리자가 실패한 환불을 다시 보내려고 가져간다. 재시도 스케줄러와 같은 방식이라, 둘이 동시에 가져가려 해도 한쪽만 1행을 얻는다.
+	 * 관리자는 기다리지 않고 바로 보낼 수 있게 마지막 시도 시각과 횟수 조건은 걸지 않는다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Refund r
+		   SET r.status = com.squirrel.tickting.domain.payment.type.RefundStatus.PROCESSING,
+		       r.retryCount = r.retryCount + 1,
+		       r.lastAttemptedAt = :now
+		 WHERE r.id = :id
+		   AND r.status = com.squirrel.tickting.domain.payment.type.RefundStatus.FAILED
+		""")
+	int claimFailedForManualRetry(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/**
 	 * 관리자 환불 목록. 오래 기다린 요청부터 보여서 가장 오래 돈을 못 받은 사람부터 처리하게 한다. (인덱스 idx_refund_status)
 	 * 예매는 LEFT JOIN 으로 읽는다. INNER JOIN 이면 예매 행이 없는 깨진 환불이 목록에서 조용히 빠져 관리자가 놓치기 때문에,
 	 * 목록에는 남기고 응답을 만들 때 오류로 드러나게 한다. 트랜잭션 밖에서 응답을 만들어서 지연 로딩 대신 함께 읽는다.

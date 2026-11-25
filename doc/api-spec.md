@@ -118,7 +118,7 @@
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
 | ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 구현됨 |
-| ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 미구현 |
+| ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 구현됨 |
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
@@ -2736,9 +2736,15 @@ Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 
 
 **에러**: 400 `COMMON000` 모르는 `status` 값 · 401 `AUTH200` · 403 `AUTH100` 관리자가 아님
 
-### ADM-06 환불 수동 재처리 — `POST /api/v1/admin/refunds/{refundId}/retry`
+### ADM-06 환불 수동 재처리 — `POST /api/v1/admin/refunds/{refundId}/retry` (관리자, 구현됨)
 
 Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지), 감사 로그.
+
+- **실패(`FAILED`)한 환불만** 다시 보냅니다. 자동 재시도가 남은(3회 미만) 환불도 바로 보낼 수 있고, 스케줄러와 겹치면 한쪽만 보내고 나머지는 409 `PAYMENT009`입니다.
+- 보낼 때마다 `retryCount`가 1 늘어납니다.
+- **토스가 또 실패해도 200**이고 `status`가 `FAILED`, `failReason`에 토스의 사유가 담깁니다. 환불은 실패 목록(ADM-05)에 그대로 남습니다.
+- **처음 요청한 지 15일이 지난 환불은 409 `PAYMENT010`**입니다. 토스 멱등키는 처음 요청한 날부터 15일만 유효해서, 그 뒤에는 같은 키도 새 환불로 처리될 수 있습니다(이중 환불 위험). 이런 환불은 토스에서 실제 환불 여부를 확인하고 토스 쪽에서 처리합니다.
+- 감사 로그: `target_type=REFUND`, `action=RETRY`, 전후 값은 `status`·`retryCount`·`failReason`입니다.
 
 **응답 200**
 
@@ -2757,7 +2763,9 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 }
 ```
 
-**에러**(코드 미정): 404 환불 없음 · 409 `FAILED`가 아님 · 409 처리 중(`PROCESSING`)
+**에러**: 401 `AUTH200` · 403 `AUTH100` 관리자가 아님 · 404 `PAYMENT007` 없는 환불 · 409 `PAYMENT008` 실패가 아님(완료 등) · 409 `PAYMENT009` 처리 중(스케줄러나 다른 요청이 보내는 중) · 409 `PAYMENT010` 요청한 지 15일 지남
+
+판정 순서는 없음(404) → 처리 중 → 실패가 아님 → 15일 지남입니다.
 
 ---
 
