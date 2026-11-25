@@ -227,6 +227,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |  | 실패 사유 | `fail_reason` | String | NULL |  |
 |  | 요청 일시 | `requested_at` | LocalDateTime | NOT NULL |  |
 |  | 완료 일시 | `completed_at` | LocalDateTime | NULL |  |
+|  | 마지막 시도 일시 | `last_attempted_at` | LocalDateTime | NOT NULL | 마지막으로 토스에 보낸 시각. 재시도 스케줄러가 이 시각 기준으로 5분이 지난 환불만 다시 보냄 |
 
 **Q. 환불 금액은 어떻게 계산하나요?**
 
@@ -246,7 +247,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 **Q. 환불이 실패하면요?**
 
 - 예매 취소는 그대로 끝나고(좌석 취소는 이미 커밋됨) `refund.status`=`FAILED`와 실패 사유(`fail_reason`)를 남깁니다. 사용자에게는 200과 함께 환불 상태 `FAILED`를 알려 줍니다. (API 명세 BKG-06)
-- 자동으로 **3회까지 재시도**(`retry_count`)합니다. (재시도 스케줄러는 아직 없음)
+- 자동으로 **3회까지 재시도**(`retry_count`)합니다. 재시도 스케줄러가 1분마다 마지막 시도 후 5분이 지난 환불을 같은 멱등키로 다시 보냅니다. (5부 5-2 ③)
 - 그래도 실패하면 관리자 화면에서 수동으로 다시 처리합니다. (5부)
 
 **Q. `idempotency_key`와 `PROCESSING`은 왜 있나요?**
