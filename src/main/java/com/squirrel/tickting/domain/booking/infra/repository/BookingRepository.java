@@ -22,6 +22,9 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 	/** 그 공연에 주어진 상태의 예매가 하나라도 있는가. performance_id 는 예매 때 복사해 둔 값이라 조인 없이 본다. */
 	boolean existsByPerformanceIdAndStatusIn(Long performanceId, Collection<BookingStatus> statuses);
 
+	/** 그 회차에 주어진 상태가 아닌 예매가 하나라도 있는가. */
+	boolean existsByScheduleIdAndStatusNot(Long scheduleId, BookingStatus status);
+
 	/**
 	 * 판매자의 회차별 예매 목록. 예매 시각 최신순, 같으면 번호가 큰 순으로 고정한다(페이지를 넘겨도 순서가 바뀌지 않게).
 	 * PostgreSQL 에서 null 파라미터가 타입 오류를 내서 선택 조건은 null 대신 "전부 넘기기"로 쓴다:

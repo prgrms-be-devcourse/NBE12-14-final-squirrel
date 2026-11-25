@@ -4,6 +4,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -65,6 +66,24 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("excludedStatus") ScheduleStatus excludedStatus, @Param("now") LocalDateTime now);
 
 	/**
+	 * 바꿀 수 있는 상태이고 아직 시작하지 않은 회차만 공연 일시를 바꾸고 바뀐 행 수를 돌려준다. 0행이면 확인한 뒤에 상태나 일시가 바뀌었다.
+	 * 락이 듣지 않는 경우(Redis 장애·락 만료)에도 취소·연기되거나 시작한 회차의 일시가 바뀌지 않게 하는 상태 조건부 UPDATE 다.
+	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣고, 영속성 컨텍스트는 비우지 않는다.
+	 * 이 UPDATE 뒤에 같은 엔티티를 다시 읽어 값을 기대하지 않는다. (응답의 값은 호출한 쪽이 넘긴 값을 쓴다)
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE PerformanceSchedule s
+		   SET s.startAt = :startAt,
+		       s.updatedAt = :now
+		 WHERE s.id = :scheduleId
+		   AND s.status IN :editableStatuses
+		   AND s.startAt > :now
+		""")
+	int updateStartAt(@Param("scheduleId") Long scheduleId, @Param("startAt") LocalDateTime startAt,
+		@Param("editableStatuses") Collection<ScheduleStatus> editableStatuses, @Param("now") LocalDateTime now);
+
+	/**
 	 * 이 공연의 회차 중, 주어진 공연장의 다른 회차와 시간이 겹치는 회차의 시작 일시. 빠른 순이다.
 	 * 회차가 차지하는 시간은 시작부터 러닝타임 + bufferMinutes 까지이고, 끝나는 시각과 다음 시작이 같으면 겹치지 않는다.
 	 * 이 공연의 회차는 새 러닝타임(runningTime)으로, 다른 공연의 회차는 그 공연의 러닝타임으로 계산한다.
@@ -101,8 +120,9 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("bufferMinutes") int bufferMinutes);
 
 	/**
-	 * 아직 저장하지 않은 회차(venueId 공연장, startAt 시작, runningTime 분)와 시간이 겹치는 기존 회차. 시작 일시가 빠른 순이다.
-	 * 겹침 기준과 세지 않는 회차는 findOverlappingStartAts 와 같다. 한쪽만 바꾸면 회차 추가와 공연 수정의 판단이 어긋난다.
+	 * 저장하려는 시간(venueId 공연장, startAt 시작, runningTime 분)과 겹치는 기존 회차. 시작 일시가 빠른 순이다.
+	 * 일시를 바꾸는 회차는 자기 자신과 겹치지 않게 excludedScheduleId 로 뺀다. 새로 추가하는 회차는 null 이다.
+	 * 겹침 기준과 세지 않는 회차는 findOverlappingStartAts 와 같다. 한쪽만 바꾸면 회차 추가·수정과 공연 수정의 판단이 어긋난다.
 	 * 내 회차인지 구분해 알려 줄 수 있게 사업체 번호·공연명·러닝타임을 함께 읽는다.
 	 */
 	@Query(value = """
@@ -113,6 +133,7 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		 WHERE p.venue_id = :venueId
 		   AND s.status <> 'CANCELED'
 		   AND p.status <> 'CANCELED'
+		   AND s.id IS DISTINCT FROM CAST(:excludedScheduleId AS bigint)
 		   AND NOT (s.status = 'POSTPONED' AND (
 		         SELECT sp.new_start_at FROM schedule_postponement sp
 		          WHERE sp.schedule_id = s.id
@@ -125,7 +146,7 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		""", nativeQuery = true)
 	List<OverlappingSchedule> findOverlappingSchedules(@Param("venueId") Long venueId,
 		@Param("startAt") LocalDateTime startAt, @Param("runningTime") int runningTime,
-		@Param("bufferMinutes") int bufferMinutes);
+		@Param("bufferMinutes") int bufferMinutes, @Param("excludedScheduleId") Long excludedScheduleId);
 
 	/**
 	 * 제외한 상태가 아닌 회차 중 판매 좌석을 이미 만든 회차가 있는가. 등급·가격 수정 잠금(locked) 판단에 쓴다.

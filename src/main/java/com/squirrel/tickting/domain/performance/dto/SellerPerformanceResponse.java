@@ -250,6 +250,18 @@ public class SellerPerformanceResponse {
 		}
 	}
 
+	@Builder
+	@Schema(name = "SellerPerformanceScheduleUpdated", description = "회차 수정 결과")
+	public record ScheduleUpdated(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "공연 일시")
+		LocalDateTime startAt,
+		@Schema(description = "수정 일시. 같은 일시를 보내 바꾼 것이 없으면 이전 값이다")
+		LocalDateTime updatedAt
+	) {
+	}
+
 	/** 판매 좌석 생성(SLR-14) 결과. 개수는 만든 좌석을 DB에서 상태별로 센 값이다. */
 	@Builder
 	@Schema(name = "SellerPerformanceSeatsGenerated", description = "판매 좌석 생성 결과")
