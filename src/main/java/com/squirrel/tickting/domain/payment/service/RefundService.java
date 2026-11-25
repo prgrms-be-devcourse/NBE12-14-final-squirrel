@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.payment.service;
 
+import com.squirrel.tickting.domain.payment.facade.RefundRetryProperties;
 import com.squirrel.tickting.domain.payment.infra.entity.Payment;
 import com.squirrel.tickting.domain.payment.infra.entity.Refund;
 import com.squirrel.tickting.domain.payment.infra.repository.RefundRepository;
@@ -10,6 +11,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RefundService {
 
 	private final RefundRepository refundRepository;
+	private final RefundRetryProperties retryProperties;
 
 	/**
 	 * 토스에 보낼 환불 한 건을 만든다. 처음부터 요청 중(PROCESSING)으로 만들고, 호출한 쪽이 커밋한 뒤에 토스를 부른다.
@@ -36,6 +40,16 @@ public class RefundService {
 			.requestedAt(now)
 			.lastAttemptedAt(now)
 			.build());
+	}
+
+	/**
+	 * 관리자 환불 목록. exhaustedOnly 면 자동 재시도를 다 쓴 것만 준다. 기준 횟수는 재시도 스케줄러 설정을 그대로 읽어서,
+	 * 설정을 바꿔도 "스케줄러가 포기한 환불"과 목록이 어긋나지 않는다. 예매번호를 붙이려고 예매를 함께 읽는다.
+	 */
+	@Transactional(readOnly = true)
+	public Page<Refund> searchForAdmin(RefundStatus status, boolean exhaustedOnly, Pageable pageable) {
+		int minRetryCount = exhaustedOnly ? retryProperties.maxCount() : 0;
+		return refundRepository.searchForAdmin(status, minRetryCount, pageable);
 	}
 
 	@Transactional(readOnly = true)
