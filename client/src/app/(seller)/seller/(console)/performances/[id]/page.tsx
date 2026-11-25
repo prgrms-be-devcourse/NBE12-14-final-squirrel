@@ -13,14 +13,10 @@ import {
   SCHEDULE_LABEL,
   toServerDateTime,
 } from "@/lib/console";
-import type {
-  Grade,
-  GradesResponse,
-  SalesSchedule,
-  SellerPerformanceDetail,
-  ZoneAssignment,
-} from "@/lib/types";
+import type { Grade, GradesResponse, Page, SalesSchedule, SellerPerformanceDetail, VenueItem } from "@/lib/types";
 import { ConsoleTitle, Field, Modal, Panel } from "@/components/console";
+import { ZoneGradeMap } from "@/components/zone-grade-map";
+import { getVenueLayout } from "@/lib/venue-layouts";
 import { ErrorBox, Loading } from "@/components/ui";
 
 type ModalState =
@@ -30,16 +26,14 @@ type ModalState =
   | { kind: "cancel-schedule"; scheduleId: number }
   | null;
 
-// 구역 설정 select 의 값: "grade:20" / "UNSOLD" / "UNSET"
-const zoneValue = (z: ZoneAssignment) =>
-  z.assignmentStatus === "ASSIGNED" ? `grade:${z.gradeId}` : z.assignmentStatus === "INTENTIONALLY_UNSOLD" ? "UNSOLD" : "UNSET";
-
 export default function SellerPerformanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const base = `/api/v1/seller/performances/${id}`;
   const detail = useApi<SellerPerformanceDetail>(base);
   const grades = useApi<GradesResponse>(`${base}/grades`);
   const sales = useApi<{ schedules: SalesSchedule[] }>(`${base}/sales`);
+  // 공연 상세(SLR-06)는 공연장의 도면 이름표(layoutKey)를 주지 않아서 공연장 목록(SLR-01)에서 같은 공연장을 찾는다.
+  const venues = useApi<Page<VenueItem>>("/api/v1/seller/venues", { size: 20 });
 
   const [modal, setModal] = useState<ModalState>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -77,8 +71,8 @@ export default function SellerPerformanceDetailPage() {
   const draft = p.status === "DRAFT";
   const canceled = p.status === "CANCELED";
   const locked = grades.data?.locked ?? false;
-  const gradeById = new Map((grades.data?.grades ?? []).map((g) => [g.gradeId, g]));
   const zoneChanged = Object.keys(zoneEdits).length > 0;
+  const layout = getVenueLayout(venues.data?.content.find((v) => v.venueId === p.venue.venueId)?.layoutKey);
 
   function saveZones() {
     const assignments = Object.entries(zoneEdits).map(([zoneId, value]) => ({
@@ -264,55 +258,37 @@ export default function SellerPerformanceDetailPage() {
           </ul>
         </Panel>
 
-        <Panel
-          title="구역 설정"
-          sub="모든 구역의 등급이나 판매 제외를 정해야 공개할 수 있습니다"
-          actions={
-            zoneChanged && (
+      </div>
+
+      <Panel
+        className="mt-6"
+        title="구역 설정"
+        sub="모든 구역의 등급이나 판매 제외를 정해야 공개할 수 있습니다. 지도에서 구역을 여러 개 골라 등급을 한 번에 지정하세요"
+        actions={
+          zoneChanged && (
+            <>
+              <button type="button" className="btn" disabled={busy} onClick={() => setZoneEdits({})}>
+                되돌리기
+              </button>
               <button type="button" className="btn btn-primary" disabled={busy} onClick={saveZones}>
                 변경 저장
               </button>
-            )
-          }
-        >
-          <ul className="divide-y divide-line text-sm">
-            {grades.data?.zones.map((z) => {
-              const value = zoneEdits[z.zoneId] ?? zoneValue(z);
-              const color = value.startsWith("grade:") ? gradeColor(gradeById.get(Number(value.slice(6)))?.name) : undefined;
-              return (
-                <li key={z.zoneId} className="flex items-center justify-between gap-3 py-3">
-                  <span className="flex items-center gap-3">
-                    <span className="size-3 rounded-full bg-raised" style={color ? { backgroundColor: color } : undefined} />
-                    <span>
-                      {z.floor} {z.name}
-                      <span className="ml-2 text-xs text-muted">{z.seatCount}석</span>
-                    </span>
-                  </span>
-                  <select
-                    className="input h-10 w-40"
-                    value={value}
-                    disabled={locked || canceled}
-                    aria-label={`${z.name} 설정`}
-                    onChange={(e) => {
-                      const next = { ...zoneEdits, [z.zoneId]: e.target.value };
-                      if (e.target.value === zoneValue(z)) delete next[z.zoneId];
-                      setZoneEdits(next);
-                    }}
-                  >
-                    <option value="UNSET">미설정</option>
-                    <option value="UNSOLD">판매 제외</option>
-                    {grades.data?.grades.map((g) => (
-                      <option key={g.gradeId} value={`grade:${g.gradeId}`}>
-                        {gradeLabel(g.name)}
-                      </option>
-                    ))}
-                  </select>
-                </li>
-              );
-            })}
-          </ul>
-        </Panel>
-      </div>
+            </>
+          )
+        }
+      >
+        {grades.loading && <Loading />}
+        {grades.data && (
+          <ZoneGradeMap
+            layout={layout}
+            zones={grades.data.zones}
+            grades={grades.data.grades}
+            edits={zoneEdits}
+            onEdits={setZoneEdits}
+            disabled={locked || canceled}
+          />
+        )}
+      </Panel>
 
       <Panel className="mt-6" title="판매 현황" sub="회차별 좌석 상태">
         {sales.loading && <Loading />}

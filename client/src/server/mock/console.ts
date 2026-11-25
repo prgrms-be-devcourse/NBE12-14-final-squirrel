@@ -16,6 +16,7 @@ import type {
   ZoneAssignment,
 } from "@/lib/types";
 import { GRADE_CODES } from "@/lib/format";
+import arenaVenue from "@/server/mock/concert-arena-44.json";
 import type { Handler, MockContext } from "@/server/mock/handlers";
 import {
   DEFAULT_CANCEL_POLICY,
@@ -73,6 +74,28 @@ const ZONES: Pick<ZoneAssignment, "zoneId" | "name" | "floor" | "sortOrder" | "s
 ];
 const GRADE_INDEX_BY_ZONE = [0, 1, 1, 2, 2];
 
+// 도면이 있는 공연장(아레나)은 구역 44개를 도면 이름표와 같은 이름으로 준다. 도면 구역 이름과 맞아야 지도에 칠해진다.
+const ARENA_VENUE_ID = 1;
+const ARENA_ZONES: typeof ZONES = (arenaVenue.zones as { name: string; floor: string; rows: { from: number; to: number }[] }[]).map(
+  (zone, index) => ({
+    zoneId: index + 1,
+    name: zone.name,
+    floor: zone.floor,
+    sortOrder: index + 1,
+    seatCount: zone.rows.reduce((sum, row) => sum + row.to - row.from + 1, 0),
+  }),
+);
+const zonesOf = (venueId: number) => (venueId === ARENA_VENUE_ID ? ARENA_ZONES : ZONES);
+const unsetZones = (venueId: number): ZoneAssignment[] =>
+  zonesOf(venueId).map((z) => ({ ...z, assignmentStatus: "UNSET" as const, gradeId: null }));
+
+// 시연 공연과 같은 규칙: 플로어=VIP, 제한석 5곳=A, 300번대=S, 나머지=R
+function arenaGradeName(name: string): string {
+  if (name.startsWith("플로어")) return "VIP";
+  if (["101구역", "115구역", "201구역", "215구역", "315구역"].includes(name)) return "A";
+  return name.startsWith("3") ? "S" : "R";
+}
+
 function seedPerformances(): PerfRec[] {
   const published = MOCK_PERFORMANCES.slice(0, 4).map((p, i): PerfRec => {
     const grades = [...p.grades].sort((a, b) => b.price - a.price);
@@ -105,10 +128,13 @@ function seedPerformances(): PerfRec[] {
       updatedAt: isoLocal(new Date(Date.now() - (10 - i) * DAY)),
       grades,
       nextGradeId: p.performanceId * 10 + 9,
-      zones: ZONES.map((z, idx) => ({
+      zones: zonesOf(p.venue?.venueId ?? 1).map((z, idx) => ({
         ...z,
         assignmentStatus: "ASSIGNED" as const,
-        gradeId: grades[Math.min(GRADE_INDEX_BY_ZONE[idx], grades.length - 1)]?.gradeId ?? null,
+        gradeId:
+          (p.venue?.venueId ?? 1) === ARENA_VENUE_ID
+            ? (grades.find((g) => g.name === arenaGradeName(z.name)) ?? grades[grades.length - 1])?.gradeId ?? null
+            : grades[Math.min(GRADE_INDEX_BY_ZONE[idx], grades.length - 1)]?.gradeId ?? null,
       })),
     };
   });
@@ -137,7 +163,7 @@ function seedPerformances(): PerfRec[] {
     updatedAt: isoLocal(new Date(Date.now() - DAY)),
     grades: [],
     nextGradeId: 1071,
-    zones: ZONES.map((z) => ({ ...z, assignmentStatus: "UNSET" as const, gradeId: null })),
+    zones: unsetZones(1),
   };
   return [draft, ...published.reverse()];
 }
@@ -174,7 +200,11 @@ function state(): ConsoleState {
   if (!g.__ticktingConsole) {
     g.__ticktingConsole = {
       performances: seedPerformances(),
-      venues: MOCK_VENUES.map((v) => ({ ...v, totalSeats: 160, layoutKey: "mock-hall" })),
+      venues: MOCK_VENUES.map((v) =>
+        v.venueId === ARENA_VENUE_ID
+          ? { ...v, totalSeats: ARENA_ZONES.reduce((sum, z) => sum + z.seatCount, 0), layoutKey: "concert-arena-44" }
+          : { ...v, totalSeats: 160, layoutKey: "mock-hall" },
+      ),
       policies: [
         { cancelPolicyId: 1, name: "기본 규정", isDefault: true, rules: DEFAULT_CANCEL_POLICY },
         {
@@ -386,7 +416,7 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
         updatedAt: now,
         grades: [],
         nextGradeId: st.nextPerformanceId * 10,
-        zones: ZONES.map((z) => ({ ...z, assignmentStatus: "UNSET" as const, gradeId: null })),
+        zones: unsetZones(venue.venueId),
       };
       st.performances.push(perf);
       return ok({ performanceId: perf.performanceId, status: "DRAFT", venueId: venue.venueId, createdAt: now }, 201);
@@ -420,7 +450,7 @@ export function consoleRoutes(h: Helpers): [string, string, Handler][] {
         const venue = state().venues.find((v) => v.venueId === b.venueId);
         if (!venue) return fail(404, "VENUE000", "공연장을 찾을 수 없습니다");
         perf.venue = { venueId: venue.venueId, name: venue.name };
-        perf.zones = ZONES.map((z) => ({ ...z, assignmentStatus: "UNSET" as const, gradeId: null }));
+        perf.zones = unsetZones(venue.venueId);
       }
       Object.assign(perf, {
         title: b.title!.trim(),
