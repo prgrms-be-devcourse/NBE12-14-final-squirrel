@@ -1,12 +1,15 @@
 package com.squirrel.tickting.domain.payment.infra.entity;
 
+import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.payment.type.RefundReasonType;
 import com.squirrel.tickting.domain.payment.type.RefundStatus;
 import jakarta.persistence.Column;
+import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -45,6 +48,12 @@ public class Refund {
 	/** 예매 번호 (booking). 예매의 읽기 전용 연관(Booking.refunds)이 같은 컬럼을 써서 이름을 적어 둔다. */
 	@Column(name = "booking_id", nullable = false)
 	private Long bookingId;
+
+	/** 관리자 환불 목록에 예매번호를 붙이려고 읽기만 하는 연관. 저장은 bookingId 로 한다. */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "booking_id", insertable = false, updatable = false,
+		foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+	private Booking booking;
 
 	/** 이번 환불로 돌려주는 금액 */
 	@Column(nullable = false)

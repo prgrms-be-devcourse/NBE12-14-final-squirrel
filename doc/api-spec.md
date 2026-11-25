@@ -117,7 +117,7 @@
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
 | ADM-04 | 공연장 생성 | POST `/api/v1/admin/venues` | 미구현 |
-| ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 미구현 |
+| ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 구현됨 |
 | ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 미구현 |
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
@@ -2652,9 +2652,14 @@ Body 없음. 처리 관리자·시각을 기록하고 감사 로그를 남깁니
 
 **에러**(코드 미정): 400 구조 오류(`from > to`, 중복 등) · 409 같은 이름의 공연장
 
-### ADM-05 환불 실패 목록 — `GET /api/v1/admin/refunds`
+### ADM-05 환불 실패 목록 — `GET /api/v1/admin/refunds` (관리자, 구현됨)
 
-Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 이상만), `page`, `size`
+Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 이상만), `page`, `size`(기본·최대 20)
+
+- 아무 값도 주지 않으면 **자동 재시도를 다 쓰고도 실패한 환불**, 즉 사람이 처리해야 하는 것만 나옵니다. 스케줄러가 아직 다시 보내는 중인 건(1~2회)은 `exhaustedOnly=false`일 때만 보입니다.
+- 기준 횟수(3회)는 재시도 스케줄러 설정(`app.payment.refund-retry.max-count`)을 그대로 씁니다. 설정을 바꾸면 목록 기준도 함께 바뀝니다.
+- **오래 기다린 요청부터**(`requestedAt` 오름차순) 나옵니다. 정렬은 고정이고 `sort`는 무시합니다.
+- `lastAttemptedAt`은 마지막으로 토스에 보낸 시각입니다. 토스 장애 시간과 맞춰 볼 때 씁니다.
 
 **응답 200**
 
@@ -2676,7 +2681,8 @@ Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 
         "status": "FAILED",
         "retryCount": 3,
         "failReason": "PG 응답 시간 초과",
-        "requestedAt": "2026-12-01T10:00:00"
+        "requestedAt": "2026-12-01T10:00:00",
+        "lastAttemptedAt": "2026-12-01T10:15:00"
       }
     ],
     "page": 0,
@@ -2688,6 +2694,8 @@ Query: `status`(기본 `FAILED`), `exhaustedOnly`(기본 `true`, 재시도 3회 
 ```
 
 `reasonType`: `USER_CANCEL` / `PERFORMANCE_CANCEL` / `POSTPONE_CANCEL` / `SYSTEM` / `ADMIN`
+
+**에러**: 400 `COMMON000` 모르는 `status` 값 · 401 `AUTH200` · 403 `AUTH100` 관리자가 아님
 
 ### ADM-06 환불 수동 재처리 — `POST /api/v1/admin/refunds/{refundId}/retry`
 
