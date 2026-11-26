@@ -9,6 +9,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,11 +51,11 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 
 	// ---- 데이터 준비 ----
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(MY_ACCOUNT, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(MY_ACCOUNT, type, role, businessId));
 	}
 
-	private String staffToken() {
+	private Cookie staffToken() {
 		return token(AccountType.SELLER, "STAFF", MY_BUSINESS);
 	}
 
@@ -95,9 +96,9 @@ class SellerPerformanceCreateApiTest extends IntegrationTestSupport {
 		return body;
 	}
 
-	private ResultActions register(String token, Map<String, Object> body) throws Exception {
+	private ResultActions register(Cookie token, Map<String, Object> body) throws Exception {
 		return mockMvc.perform(post(URL)
-			.header("Authorization", token)
+			.cookie(token)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}

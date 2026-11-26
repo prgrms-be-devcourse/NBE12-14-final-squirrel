@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -36,17 +37,17 @@ class BookingScopeQueryApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM performance WHERE business_id IN (" + businesses + ")");
 	}
 
-	private String sellerToken(long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(
+	private Cookie sellerToken(long businessId) {
+		return sessionCookie(
 			new CustomUserDetails(1L, AccountType.SELLER, "OWNER", businessId));
 	}
 
-	private String adminToken() {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, AccountType.ADMIN, null, null));
+	private Cookie adminToken() {
+		return sessionCookie(new CustomUserDetails(1L, AccountType.ADMIN, null, null));
 	}
 
 	private ResultActions sellerList(String query) throws Exception {
-		return mockMvc.perform(get("/api/v1/seller/bookings" + query).header("Authorization", sellerToken(MY_BUSINESS)));
+		return mockMvc.perform(get("/api/v1/seller/bookings" + query).cookie(sellerToken(MY_BUSINESS)));
 	}
 
 	/** 공연과 회차 하나를 넣고 회차 번호를 돌려준다. */
@@ -124,18 +125,18 @@ class BookingScopeQueryApiTest extends IntegrationTestSupport {
 		Long mine = insertBooking(insertSchedule(MY_BUSINESS, "가을 콘서트"), "MY-1", "PAID", 1);
 		Long others = insertBooking(insertSchedule(OTHER_BUSINESS, "겨울 연극"), "OTHER-1", "PAID", 2);
 
-		mockMvc.perform(get("/api/v1/seller/bookings/{id}", mine).header("Authorization", sellerToken(MY_BUSINESS)))
+		mockMvc.perform(get("/api/v1/seller/bookings/{id}", mine).cookie(sellerToken(MY_BUSINESS)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.performanceTitle").value("가을 콘서트"));
-		mockMvc.perform(get("/api/v1/seller/bookings/{id}", others).header("Authorization", sellerToken(MY_BUSINESS)))
+		mockMvc.perform(get("/api/v1/seller/bookings/{id}", others).cookie(sellerToken(MY_BUSINESS)))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("BOOKING006"));
 
 		mockMvc.perform(get("/api/v1/admin/bookings?from=2030-03-02&to=2030-03-03")
-				.header("Authorization", adminToken()))
+				.cookie(adminToken()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.totalElements").value(2));
-		mockMvc.perform(get("/api/v1/admin/bookings/{id}", others).header("Authorization", adminToken()))
+		mockMvc.perform(get("/api/v1/admin/bookings/{id}", others).cookie(adminToken()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.businessId").value(OTHER_BUSINESS));
 	}

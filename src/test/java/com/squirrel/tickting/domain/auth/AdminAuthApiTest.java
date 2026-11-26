@@ -4,10 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.squirrel.tickting.global.security.AccountType;
-import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
-import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +14,7 @@ import org.springframework.test.web.servlet.MvcResult;
 /** 관리자는 가입이 없어서 테스트가 계정을 직접 넣는다. (시드 계정의 비밀번호는 테스트에 적지 않는다) */
 class AdminAuthApiTest extends IntegrationTestSupport {
 
-	private static final String LOGIN = "/api/v1/auth/admins/login";
+	private static final String LOGIN = "/api/v2/auth/admins/login";
 	private static final String EMAIL = "admin@example.com";
 
 	@Autowired
@@ -42,17 +39,11 @@ class AdminAuthApiTest extends IntegrationTestSupport {
 		MvcResult result = postJson(LOGIN, loginBody(" Admin@Example.com ", PASSWORD))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
-			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
 			.andExpect(jsonPath("$.data.accountType").value("ADMIN"))
 			.andExpect(jsonPath("$.data.role").doesNotExist())
-			.andExpect(jsonPath("$.data.expiresIn").value(900))
 			.andReturn();
 
-		assertThat(result.getResponse().getHeader("Set-Cookie")).contains("refreshToken=", "HttpOnly");
-		CustomUserDetails parsed = jwtProvider.parseAccessToken(accessToken(result));
-		assertThat(parsed.getAccountType()).isEqualTo(AccountType.ADMIN);
-		assertThat(parsed.getId()).isEqualTo(jdbc.queryForObject("SELECT id FROM admin_member", Long.class));
-		assertThat(parsed.getBusinessId()).isNull();
+		assertThat(result.getResponse().getHeader("Set-Cookie")).contains("SESSION=", "HttpOnly");
 	}
 
 	@Test
@@ -68,7 +59,7 @@ class AdminAuthApiTest extends IntegrationTestSupport {
 		assertThat(read(wrongPassword, "$.code")).isEqualTo("AUTH001");
 		assertThat(read(unknownEmail, "$.code")).isEqualTo("AUTH001");
 		assertThat(read(wrongPassword, "$.message")).isEqualTo(read(unknownEmail, "$.message"));
-		assertThat(refreshCookie(wrongPassword)).isNull();
+		assertThat(sessionCookie(wrongPassword)).isNull();
 		assertThat(wrongPassword.getResponse().getContentAsString()).doesNotContain("accessToken");
 	}
 

@@ -4,7 +4,9 @@ import com.squirrel.tickting.domain.admin.service.AdminMemberService;
 import com.squirrel.tickting.domain.auth.dto.AuthRequest;
 import com.squirrel.tickting.domain.auth.dto.AuthResponse;
 import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService;
+import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.service.SellerMemberService;
+import com.squirrel.tickting.domain.seller.service.SellerSignupCommand;
 import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.service.TermsService;
 import com.squirrel.tickting.domain.user.infra.entity.UserMember;
@@ -24,10 +26,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * v2(Redis 세션) 가입·로그인 흐름. 계정을 확인하는 부분은 v1(AuthFacade)과 같은 서비스를 쓰고,
- * 확인이 끝나면 토큰을 만드는 대신 SessionAuthenticator 로 세션을 만든다.
- *
- * v1(JWT)을 건드리지 않으려고 따로 두었다. 가입처럼 겹치는 흐름은 v1 을 없애는 날 한 곳으로 합친다.
+ * 가입·로그인처럼 여러 도메인(약관, 예매자, 판매자, 관리자)이 얽히는 흐름을 이어 주는 파사드.
+ * 계정을 확인한 뒤 SessionAuthenticator 로 Redis 세션을 만든다.
  */
 @Component
 @RequiredArgsConstructor
@@ -70,7 +70,26 @@ public class AuthSessionFacade {
 		return startSession(account, httpRequest, httpResponse);
 	}
 
-	/** 사업체가 승인된 판매자만 로그인된다. (v1 과 같은 검사) */
+	/**
+	 * 판매자 가입 신청. 로그인 이메일의 인증을 마친 뒤에만 받는다. (예매자 가입과 같은 규칙이고, 인증 상태는 판매자용이 따로 있다)
+	 * 판매자는 관리자 승인 전에는 로그인할 수 없으므로 세션을 만들지 않고 신청 결과만 돌려준다.
+	 */
+	public AuthResponse.SellerSignup sellerSignup(AuthRequest.SellerSignup request) {
+		// Redis 만 보는 검사라 DB 를 쓰는 중복 확인보다 먼저 한다
+		String email = EmailUtil.normalize(request.email());
+		emailVerificationCodeService.requireVerified(AccountType.SELLER, email);
+
+		SellerBusiness business = sellerMemberService.signup(new SellerSignupCommand(
+			request.email(), request.password(), request.passwordConfirm(), request.name(), request.phone(),
+			request.companyName(),
+			request.representativeName(), request.businessNumber(), request.contactPhone(),
+			request.contactEmail()));
+		// 가입에 성공한 인증은 다시 쓰지 못하게 지운다. 실패한 가입은 지우지 않아 인증을 다시 하지 않고 고쳐 낼 수 있다
+		emailVerificationCodeService.clearVerified(AccountType.SELLER, email);
+		return new AuthResponse.SellerSignup(business.getId(), business.getStatus().name());
+	}
+
+	/** 사업체가 승인된 판매자만 로그인된다. */
 	public AuthResponse.Session sellerLogin(AuthRequest.Login request, HttpServletRequest httpRequest,
 		HttpServletResponse httpResponse) {
 		CustomUserDetails account = loginFailureLimiter.login(AccountType.SELLER, request.email(), httpRequest.getRemoteAddr(),

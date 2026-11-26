@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.MvcResult;
  */
 class UserWithdrawApiTest extends IntegrationTestSupport {
 
-	private static final String SIGNUP = "/api/v1/auth/users/signup";
+	private static final String SIGNUP = "/api/v2/auth/users/signup";
 	private static final String LOGIN = "/api/v2/auth/users/login";
 	private static final String ME = "/api/v1/users/me";
 

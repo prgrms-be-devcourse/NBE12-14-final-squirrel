@@ -11,11 +11,11 @@ import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
 
 /**
- * v2 로그인(Redis 세션)에서 세션을 만들고 없애는 일만 한다. 계정 확인(이메일·비밀번호)은 하지 않는다.
+ * 로그인(Redis 세션)에서 세션을 만들고 없애는 일만 한다. 계정 확인(이메일·비밀번호)은 하지 않는다.
  *
  * 세션은 Spring Session 이 Redis 에 저장하고 브라우저에는 SESSION 쿠키만 내려간다.
  * 이후 요청에서는 시큐리티가 쿠키로 세션을 찾아 SecurityContext 를 복원하므로,
- * 컨트롤러에서는 JWT 때와 같이 @AuthenticationPrincipal CustomUserDetails 로 받는다.
+ * 컨트롤러에서는 @AuthenticationPrincipal CustomUserDetails 로 받는다.
  */
 @Component
 public class SessionAuthenticator {

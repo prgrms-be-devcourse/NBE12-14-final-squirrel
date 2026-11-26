@@ -9,6 +9,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -52,8 +53,8 @@ class SellerZoneGradeUpdateApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM performance WHERE business_id IN (" + MY_BUSINESS + ", " + OTHER_BUSINESS + ")");
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 내 사업체 대표 토큰으로 보내는 구역 설정 요청 */
@@ -61,9 +62,9 @@ class SellerZoneGradeUpdateApiTest extends IntegrationTestSupport {
 		return send(performanceId, body, token(AccountType.SELLER, "OWNER", MY_BUSINESS));
 	}
 
-	private ResultActions send(Long performanceId, Object body, String authorization) throws Exception {
+	private ResultActions send(Long performanceId, Object body, Cookie authorization) throws Exception {
 		return mockMvc.perform(patch(URL, performanceId)
-			.header("Authorization", authorization)
+			.cookie(authorization)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}

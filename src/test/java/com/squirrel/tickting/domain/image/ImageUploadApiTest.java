@@ -12,6 +12,7 @@ import com.squirrel.tickting.global.s3.S3Uploader;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,13 +81,13 @@ class ImageUploadApiTest extends IntegrationTestSupport {
 		fakeS3.fail = false;
 	}
 
-	private String token(AccountType type, long id) {
+	private Cookie token(AccountType type, long id) {
 		boolean seller = type == AccountType.SELLER;
-		return "Bearer " + jwtProvider.createAccessToken(
+		return sessionCookie(
 			new CustomUserDetails(id, type, seller ? "STAFF" : null, seller ? 791L : null));
 	}
 
-	private ResultActions upload(String token, String purpose, MockMultipartFile file) throws Exception {
+	private ResultActions upload(Cookie token, String purpose, MockMultipartFile file) throws Exception {
 		MockMultipartHttpServletRequestBuilder request = multipart("/api/v1/images");
 		if (file != null) {
 			request.file(file);
@@ -95,7 +96,7 @@ class ImageUploadApiTest extends IntegrationTestSupport {
 			request.param("purpose", purpose);
 		}
 		if (token != null) {
-			request.header("Authorization", token);
+			request.cookie(token);
 		}
 		return mockMvc.perform(request);
 	}
@@ -158,7 +159,7 @@ class ImageUploadApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("jpg, png, webp 가 아닌 형식이거나 형식이 없거나 빈 파일이면 400 이고 올리지 않는다")
 	void invalidFile() throws Exception {
-		String user = token(AccountType.USER, 5);
+		Cookie user = token(AccountType.USER, 5);
 		for (String type : new String[] {"image/gif", "image/svg+xml", "application/pdf", "image/JPEG", "text/html", null}) {
 			upload(user, "PROFILE", image(type, new byte[] {1}))
 				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));
@@ -171,7 +172,7 @@ class ImageUploadApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("10MB 는 올라가고 1바이트라도 넘으면 400 이다")
 	void sizeLimit() throws Exception {
-		String user = token(AccountType.USER, 5);
+		Cookie user = token(AccountType.USER, 5);
 		upload(user, "PROFILE", image("image/jpeg", new byte[(int) TEN_MB])).andExpect(status().isOk());
 		upload(user, "PROFILE", image("image/jpeg", new byte[(int) TEN_MB + 1]))
 			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON000"));

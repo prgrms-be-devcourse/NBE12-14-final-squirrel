@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -53,14 +54,14 @@ class SellerSeatGenerateApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM venue WHERE name = ?", EMPTY_VENUE);
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 생성은 대표 전용이 아니라서 담당자 토큰으로 보낸다. */
 	private ResultActions generate(Long scheduleId) throws Exception {
 		return mockMvc.perform(post(URL, scheduleId)
-			.header("Authorization", token(AccountType.SELLER, "STAFF", MY_BUSINESS)));
+			.cookie(token(AccountType.SELLER, "STAFF", MY_BUSINESS)));
 	}
 
 	private Long sampleVenueId() {
@@ -271,7 +272,7 @@ class SellerSeatGenerateApiTest extends IntegrationTestSupport {
 		assertThat(seatCount(othersSchedule)).isZero();
 
 		Long mine = readySchedule(insertReadyPerformance("PUBLISHED"));
-		mockMvc.perform(post(URL, mine).header("Authorization", token(AccountType.USER, null, null)))
+		mockMvc.perform(post(URL, mine).cookie(token(AccountType.USER, null, null)))
 			.andExpect(status().isForbidden());
 		mockMvc.perform(post(URL, mine)).andExpect(status().isUnauthorized());
 		assertThat(seatCount(mine)).isZero();
@@ -323,7 +324,7 @@ class SellerSeatGenerateApiTest extends IntegrationTestSupport {
 		List<MvcResult> results = runConcurrently(2, i -> i == 0
 			? () -> generate(scheduleId).andReturn()
 			: () -> mockMvc.perform(put("/api/v1/seller/performances/{performanceId}/grades/{gradeId}", performanceId, gradeId)
-				.header("Authorization", token(AccountType.SELLER, "STAFF", MY_BUSINESS))
+				.cookie(token(AccountType.SELLER, "STAFF", MY_BUSINESS))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"name\":\"R\",\"price\":200000}")).andReturn());
 

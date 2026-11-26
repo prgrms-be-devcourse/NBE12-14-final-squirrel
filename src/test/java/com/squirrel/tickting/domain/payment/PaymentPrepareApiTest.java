@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.domain.booking.BookingTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -39,7 +40,7 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 
 	/** show 의 fromIndex 번째 좌석부터 seatCount 개를 점유한다. 한 회차에서 여러 예매를 만들 때 좌석이 겹치지 않게 쓴다. */
 	private BookingRef createBooking(User user, Show show, int fromIndex, int seatCount) throws Exception {
-		MvcResult result = book(user.bearer(), show.scheduleId(), show.seatIds().subList(fromIndex, fromIndex + seatCount))
+		MvcResult result = book(user.session(), show.scheduleId(), show.seatIds().subList(fromIndex, fromIndex + seatCount))
 			.andExpect(status().isCreated())
 			.andReturn();
 		return new BookingRef(Long.parseLong(read(result, "$.data.bookingId")), read(result, "$.data.bookingNo"));
@@ -49,9 +50,9 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		return Map.of("receiveType", "ONSITE");
 	}
 
-	private ResultActions prepare(String bearer, Long bookingId, Object body) throws Exception {
+	private ResultActions prepare(Cookie session, Long bookingId, Object body) throws Exception {
 		return mockMvc.perform(post("/api/v1/bookings/" + bookingId + "/payments")
-			.header("Authorization", bearer)
+			.cookie(session)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}
@@ -69,7 +70,7 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		User user = signup("first");
 		BookingRef booking = createBooking(user, show, 2);
 
-		prepare(user.bearer(), booking.id(), onsite())
+		prepare(user.session(), booking.id(), onsite())
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.data.orderId").value("BK" + booking.bookingNo() + "-01"))
@@ -95,8 +96,8 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		User user = signup("first");
 		BookingRef booking = createBooking(user, show, 1);
 
-		MvcResult first = prepare(user.bearer(), booking.id(), onsite()).andExpect(status().isOk()).andReturn();
-		MvcResult second = prepare(user.bearer(), booking.id(), onsite()).andExpect(status().isOk()).andReturn();
+		MvcResult first = prepare(user.session(), booking.id(), onsite()).andExpect(status().isOk()).andReturn();
+		MvcResult second = prepare(user.session(), booking.id(), onsite()).andExpect(status().isOk()).andReturn();
 
 		assertThat(read(second, "$.data.paymentId")).isEqualTo(read(first, "$.data.paymentId"));
 		assertThat(read(second, "$.data.orderId")).isEqualTo(read(first, "$.data.orderId"));
@@ -115,10 +116,10 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		User other = signup("other");
 		BookingRef booking = createBooking(owner, show, 1);
 
-		prepare(other.bearer(), booking.id(), onsite())
+		prepare(other.session(), booking.id(), onsite())
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("BOOKING006"));
-		prepare(other.bearer(), 99_999L, onsite())
+		prepare(other.session(), 99_999L, onsite())
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("BOOKING006"));
 
@@ -138,10 +139,10 @@ class PaymentPrepareApiTest extends BookingTestSupport {
 		BookingRef booking = createBooking(user, show, 1);
 		BookingRef warmBooking = createBooking(warm, show, 1, 1);
 		// 첫 요청은 클래스 로딩 때문에 느려서 락 대기 시간(1초)을 넘기지 않도록 다른 예매로 한 번 미리 실행해 둔다
-		prepare(warm.bearer(), warmBooking.id(), onsite()).andExpect(status().isOk());
+		prepare(warm.session(), warmBooking.id(), onsite()).andExpect(status().isOk());
 
 		List<String> results = runConcurrently(10, i -> () -> {
-			MvcResult result = prepare(user.bearer(), booking.id(), onsite()).andReturn();
+			MvcResult result = prepare(user.session(), booking.id(), onsite()).andReturn();
 			return result.getResponse().getStatus() == 200 ? read(result, "$.data.orderId") : paymentCodeOf(result);
 		});
 

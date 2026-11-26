@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -23,13 +24,13 @@ class AdminSellerBusinessRejectApiTest extends IntegrationTestSupport {
 	private static final Long ADMIN_ID = 7L;
 	private static final String REASON = "사업자등록번호 확인이 필요합니다.";
 
-	private String adminToken() {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
+	private Cookie adminToken() {
+		return sessionCookie(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
 	}
 
 	private ResultActions reject(long businessId, String reason) throws Exception {
 		return mockMvc.perform(post(URL, businessId)
-			.header("Authorization", adminToken())
+			.cookie(adminToken())
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(Map.of("reason", reason))));
 	}

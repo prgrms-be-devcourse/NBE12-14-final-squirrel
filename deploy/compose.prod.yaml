@@ -7,7 +7,6 @@
 #   REDIS_PASSWORD                  Redis 비밀번호
 #   SPRING_DATASOURCE_URL           예) jdbc:postgresql://RDS엔드포인트:5432/tickting?sslmode=require
 #   SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD
-#   JWT_SECRET                      로컬과 다른 값. 32바이트 이상
 #   S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, IMAGE_BASE_URL
 #   TOSS_SECRET_KEY                 토스 시크릿 키
 #   MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM   이메일 인증 메일(SMTP). 모두 필수라 하나라도 없으면 앱이 뜨지 않는다.

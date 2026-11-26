@@ -41,13 +41,14 @@ class SessionPolicyTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("JWT 로 호출하거나 로그인 없이 호출해도 세션이 만들어지지 않고, v1 JWT 인증은 그대로 동작한다")
+	@DisplayName("로그인 쿠키로 호출해도 로그인 안 하고 호출해도 새 세션이 만들어지지 않는다")
 	void noSessionWithoutSessionLogin() throws Exception {
-		MvcResult signup = postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com"))
+		MvcResult signup = postJson("/api/v2/auth/users/signup", userSignupBody("user@example.com"))
 			.andExpect(status().isCreated())
 			.andReturn();
+		assertThat(sessionCount()).isEqualTo(1);
 
-		MvcResult withJwt = mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + accessToken(signup)))
+		MvcResult withSession = mockMvc.perform(get("/api/v1/users/me").cookie(sessionCookie(signup)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.email").value("user@example.com"))
 			.andReturn();
@@ -56,9 +57,9 @@ class SessionPolicyTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.code").value("AUTH200"))
 			.andReturn();
 
-		assertThat(hasSessionCookie(withJwt)).isFalse();
+		assertThat(hasSessionCookie(withSession)).isFalse();
 		assertThat(hasSessionCookie(noLogin)).isFalse();
-		assertThat(sessionCount()).isZero();
+		assertThat(sessionCount()).isEqualTo(1);
 	}
 
 	@Test

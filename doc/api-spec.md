@@ -24,17 +24,16 @@
 | --- | --- | --- |
 | 인증 | `/api/v1/auth/**` | 누구나 |
 | 공개 조회 | GET `/api/v1/terms`, `/api/v1/performances`, `/api/v1/performances/*`, `/api/v1/schedules/*/zones`, `/api/v1/schedules/*/zones/*/seats` | 누구나 (GET만. 같은 경로의 쓰기 요청은 로그인 필요) |
-| 예매자 | `/api/v1/users/**`, `/api/v1/bookings/**`, `/api/v1/payments/**`, `/api/v1/schedules/*/bookings` | 예매자만 (판매자·관리자 토큰은 403) |
+| 예매자 | `/api/v1/users/**`, `/api/v1/bookings/**`, `/api/v1/payments/**`, `/api/v1/schedules/*/bookings` | 예매자만 (판매자·관리자 계정은 403) |
 | 판매자 | `/api/v1/seller/**` | 판매자 (대표·STAFF). 대표만 가능한 기능은 메서드에 `@PreAuthorize("hasRole('SELLER_OWNER')")` |
 | 관리자 | `/api/v1/admin/**` | 관리자 |
 | 그 밖 | 위에 없는 경로 | 로그인 (계정 종류는 가리지 않음) |
 
-- **권한은 두 단계**입니다. ① 계정 종류·역할은 시큐리티가 토큰으로 검사하고(위 표), ② "이 데이터가 내 것인가"는 서비스가 토큰의 번호(`account.getId()`, `account.getBusinessId()`)로 조회해서 확인합니다. 남의 것은 403이 아니라 **404**로 답합니다.
-- 토큰의 역할은 발급 시점 값이라, 계정이 비활성화돼도 액세스 토큰이 만료될 때(15분)까지는 통합니다. (재발급은 DB 상태를 다시 읽습니다)
+- **권한은 두 단계**입니다. ① 계정 종류·역할은 시큐리티가 세션으로 검사하고(위 표), ② "이 데이터가 내 것인가"는 서비스가 세션의 번호(`account.getId()`, `account.getBusinessId()`)로 조회해서 확인합니다. 남의 것은 403이 아니라 **404**로 답합니다.
+- 세션의 역할은 로그인한 시점 값이라, 계정이 비활성화돼도 세션이 만료될 때(마지막 요청 후 30분)까지는 통합니다. 되돌리기 어려운 작업에서 최신 상태가 중요하면 서비스에서 DB로 한 번 더 확인합니다.
 - 새 API를 만들면 위 표의 어느 줄에 들어가는지 확인하고, 공개 조회나 예매자 전용이면 `SecurityConfig`의 `PUBLIC_READ_PATHS`, `USER_ONLY_PATHS`에 경로를 추가합니다.
 
-- 인증 헤더: `Authorization: Bearer {accessToken}`
-- 액세스 토큰 900초, 리프레시 토큰 14일(HttpOnly 쿠키 `refreshToken`, `Path=/api/v1/auth`, `SameSite=Lax`)
+- 인증: 로그인하면 `SESSION` 쿠키가 내려가고, 이후 요청은 그 쿠키만 보냅니다. (HttpOnly, SameSite=Lax, 마지막 요청 후 30분. JWT는 2026-11-26에 없앴고 `Authorization` 헤더는 쓰지 않습니다)
 - 페이징 요청: `page`(0부터), `size`. 기본 크기와 최대 크기는 API마다 정합니다. (공통 설정의 최대는 50이고, 사업체 목록은 기본 10·최대 20) 크기가 최대를 넘으면 에러가 아니라 최대로 줄어듭니다.
 - **목록 응답 구조 (확정)**: `data`에 `content`(항목 배열), `page`(현재 페이지, 0부터), `size`, `totalElements`, `totalPages`가 들어갑니다. (`PageResponse`)
 
@@ -61,22 +60,16 @@
 | ID | 이름 | 메서드 · URL | 상태 |
 | --- | --- | --- | --- |
 | AUTH-01 | 약관 조회 | GET `/api/v1/terms` | 구현됨 |
-| AUTH-02 | 예매자 가입 | POST `/api/v1/auth/users/signup` | 구현됨 |
-| AUTH-03 | 예매자 로그인 | POST `/api/v1/auth/users/login` | 구현됨 |
-| AUTH-04 | 로그아웃 | POST `/api/v1/auth/logout` | 미구현 |
-| AUTH-05 | 토큰 재발급 | POST `/api/v1/auth/refresh` | 구현됨 |
+| AUTH-02 | 예매자 가입 | POST `/api/v2/auth/users/signup` | 구현됨 |
 | AUTH-06 | 내 정보 조회 | GET `/api/v1/users/me` | 구현됨 |
 | AUTH-07 | 내 정보 수정 | PATCH `/api/v1/users/me` | 구현됨 |
 | AUTH-08 | 회원 탈퇴 | DELETE `/api/v1/users/me` | 구현됨 |
 | AUTH-09 | 판매자 가입 신청 | POST `/api/v1/auth/sellers/signup` | 구현됨 |
-| AUTH-10 | 판매자 로그인 | POST `/api/v1/auth/sellers/login` | 구현됨 |
-| AUTH-11 | 관리자 로그인 | POST `/api/v1/auth/admins/login` | 구현됨 |
-| AUTH-12 | 예매자 로그인 (v2 세션) | POST `/api/v2/auth/users/login` | 구현됨 |
-| AUTH-13 | 판매자 로그인 (v2 세션) | POST `/api/v2/auth/sellers/login` | 구현됨 |
-| AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
-| AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
+| AUTH-12 | 예매자 로그인 | POST `/api/v2/auth/users/login` | 구현됨 |
+| AUTH-13 | 판매자 로그인 | POST `/api/v2/auth/sellers/login` | 구현됨 |
+| AUTH-14 | 관리자 로그인 | POST `/api/v2/auth/admins/login` | 구현됨 |
+| AUTH-15 | 로그아웃 | POST `/api/v2/auth/logout` | 구현됨 |
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 구현됨 |
-| AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
 | AUTH-17 | 가입 전 이메일 인증번호 발송 (예매자·판매자) | POST `/api/v1/auth/users/email-verification` · `/api/v1/auth/sellers/email-verification` | 구현됨 |
 | AUTH-18 | 가입 전 이메일 인증번호 확인 (예매자·판매자) | POST `/api/v1/auth/users/email-verification/confirm` · `/api/v1/auth/sellers/email-verification/confirm` | 구현됨 |
 | AUTH-19 | 예매자 비밀번호 재설정 메일 요청 | POST `/api/v1/auth/users/password-reset/request` | 구현됨 |
@@ -172,9 +165,9 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 
 **에러**: 400 `COMMON000` 알 수 없는 `type` 값
 
-### AUTH-02 예매자 가입 — `POST /api/v1/auth/users/signup` (공개, 구현됨)
+### AUTH-02 예매자 가입 — `POST /api/v2/auth/users/signup` (공개, 구현됨)
 
-가입하면 바로 로그인됩니다. 액세스 토큰은 본문, 리프레시 토큰은 `Set-Cookie`.
+가입하면 바로 로그인됩니다. `SESSION` 쿠키가 내려가고, 받은 쿠키로 `GET /api/v1/users/me` 같은 업무 API를 바로 쓸 수 있습니다.
 
 **가입 전에 이메일 인증(AUTH-17·18)을 마친 이메일만 가입할 수 있습니다.** 인증은 20분 동안 유효하고 가입에 성공하면 소모됩니다. 가입한 회원은 인증을 마친 것이라 가입 시각이 `email_verified_at`에 들어갑니다.
 
@@ -202,7 +195,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 | `phone` | 하이픈 없는 휴대폰 번호 (`01X` + 7~8자리) |
 | `agreedTermIds` | 최신 필수 약관을 모두 포함 |
 
-**응답 201**
+**응답 201** (`Set-Cookie: SESSION=...; Path=/; HttpOnly; SameSite=Lax`)
 
 ```json
 {
@@ -210,77 +203,15 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
   "code": "0000",
   "message": "",
   "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
     "accountType": "USER",
     "role": null
   }
 }
 ```
+
+가입이 실패하면(이메일 중복 `USER000`, 필수 약관 미동의 등) 세션이 만들어지지 않고 회원도 저장되지 않습니다.
 
 **에러** (확인 순서대로): 400 `COMMON000` 형식 오류 · 400 `AUTH307` 이메일 인증을 안 했거나 20분이 지남 · 400 `TERMS000` 필수 약관 미동의 · 400 `TERMS001` 없는 약관 · 400 `TERMS002` 개정 전 약관 · 400 `AUTH005` 비밀번호 확인 불일치 · 409 `USER000` 이메일 중복
-
-### AUTH-03 예매자 로그인 — `POST /api/v1/auth/users/login` (공개, 구현됨)
-
-**요청**
-
-```json
-{ "email": "user@example.com", "password": "password1!" }
-```
-
-**응답 200** (`Set-Cookie: refreshToken=...; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=1209600`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "USER",
-    "role": null
-  }
-}
-```
-
-**에러**: 401 `AUTH001` 이메일·비밀번호 불일치 · 401 `AUTH003` 비활성 계정 · 429 `AUTH004` 같은 IP 에서 같은 이메일로 5번 틀려 5분 동안 잠김 (비밀번호가 맞아도) · 400 `COMMON000`
-
-### AUTH-04 로그아웃 — `POST /api/v1/auth/logout` (로그인, 미구현)
-
-Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프레시 토큰·쿠키를 지움.
-※ 현재 `/api/v1/auth/**`가 permitAll이라 로그아웃 경로는 `SecurityConfig` 조정이 필요합니다.
-
-**응답 200**
-
-```json
-{  "success": true,  "code": "0000",  "message": "",  "data": null}
-```
-
-### AUTH-05 토큰 재발급 — `POST /api/v1/auth/refresh` (공개, 구현됨)
-
-예매자·판매자·관리자 공통. Body 없음, 쿠키의 `refreshToken` 사용. **리프레시 토큰도 새로 발급**되어 `Set-Cookie`로 내려갑니다.
-
-**응답 200**
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.new-access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "USER",
-    "role": null
-  }
-}
-```
-
-**에러**: 401 `AUTH200` 쿠키 없음 · 401 `AUTH201` 토큰 무효 · 401 `AUTH202` 토큰 만료 (그 외 계정 상태 에러는 코드 미정)
 
 ### AUTH-06 내 정보 조회 — `GET /api/v1/users/me` (예매자, 구현됨)
 
@@ -348,7 +279,7 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
   - 기준은 회차 시작 시각(연기되면 바뀐 시각)입니다. 공연 당일은 취소 불가 구간이라 시작한 뒤에는 취소·환불로 돈이 오갈 일이 없어서, 공연 중이어도 탈퇴할 수 있습니다.
   - 만료(`EXPIRED`), 전체 취소(`CANCELED`), 제한 시각이 지난 결제 대기는 막지 않습니다.
 - 개인정보는 설계 1부 "탈퇴 시 처리" 표대로 지웁니다. (email `deleted-{id}@withdrawn.invalid`, 이름·닉네임 `탈퇴회원`, phone `-`, 사진 NULL, 비밀번호는 로그인할 수 없는 값) 같은 이메일·본인인증으로 다시 가입할 수 있습니다.
-- 탈퇴한 기기의 세션(SESSION 쿠키)은 지워져 이후 요청은 401입니다. **다른 기기의 세션과 v1 액세스 토큰은 지우지 못합니다.** (회원 번호로 세션을 찾는 설정이 없음) 남은 세션은 마지막 요청 후 30분, 액세스 토큰은 15분 뒤 사라지고, 그 사이 내 정보 조회·수정은 404 `USER002`, 재로그인·토큰 재발급은 막힙니다.
+- 탈퇴한 기기의 세션(SESSION 쿠키)은 지워져 이후 요청은 401입니다. **다른 기기의 세션은 지우지 못합니다.** (회원 번호로 세션을 찾는 설정이 없음) 남은 세션은 마지막 요청 후 30분 뒤 사라지고, 그 사이 내 정보 조회·수정은 404 `USER002`, 재로그인은 막힙니다.
 
 **응답 200**
 
@@ -408,78 +339,14 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 
 **에러**: 400 `AUTH307` 이메일 인증을 안 했거나 20분이 지남 · 400 `AUTH005` 비밀번호 확인 불일치 · 409 `SELLER000` 이메일 중복 · 409 `SELLER001` 사업자번호 중복(반려된 사업체의 번호도 포함, 재신청 불가) · 400 `COMMON000`
 
-### AUTH-10 판매자 로그인 — `POST /api/v1/auth/sellers/login` (공개, 구현됨)
+### AUTH-12~15 로그인·로그아웃 (세션, 공개, 구현됨)
 
-**요청**
-
-```json
-{ "email": "owner@company.com", "password": "password1!" }
-```
-
-**응답 200** (`Set-Cookie: refreshToken=...`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "SELLER",
-    "role": "OWNER"
-  }
-}
-```
-
-**에러**: 401 `AUTH001` 불일치 · 401 `AUTH003` 비활성 계정 · 403 `SELLER003` 승인 대기 · 403 `SELLER004` 반려 · 403 `SELLER005` 정지 · 429 `AUTH004` 같은 IP 에서 같은 이메일로 5번 틀려 5분 동안 잠김 (비밀번호가 맞아도)
-
-### AUTH-11 관리자 로그인 — `POST /api/v1/auth/admins/login` (공개, 구현됨)
-
-관리자는 가입과 비밀번호 변경이 없습니다. 로컬에서는 `db/seed/V19`의 시드 계정(`admin@tickting.local`)으로 로그인하고, **비밀번호는 저장소에 없어서 팀에서 따로 전달**합니다. 운영 관리자 계정은 배포 때 따로 만듭니다.
-
-**요청**
-
-```json
-{ "email": "admin@tickting.local", "password": "시드 계정의 비밀번호" }
-```
-
-**응답 200** (`Set-Cookie: refreshToken=...`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "ADMIN",
-    "role": null
-  }
-}
-```
-
-**에러**: 401 `AUTH001` 불일치 · 401 `AUTH003` 비활성 계정 · 429 `AUTH004` 같은 IP 에서 같은 이메일로 5번 틀려 5분 동안 잠김 (비밀번호가 맞아도)
-
-> 로그인 계정 정보 조회(`GET /api/v1/me`)는 삭제했습니다. 계정 종류·역할은 로그인·재발급 응답에 이미 들어 있고, 사업체 번호는 프론트가 액세스 토큰(JWT payload)에서 읽습니다. 권한 판단은 항상 서버가 합니다.
-
-### AUTH-12~15 세션 로그인·로그아웃 (v2, 공개, 구현됨)
-
-JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인하면 `SESSION` 쿠키가 내려가고, 그 뒤에는 **경로를 바꾸지 않은 업무 API**(`/api/v1/users/me`, `/api/v1/admin/**` 등)를 쿠키만 보내서 호출합니다. 업무 API는 JWT와 세션을 모두 인정하며, 요청에 `Authorization: Bearer` 헤더가 있으면 JWT가 먼저 적용됩니다.
-
-| 항목 | v1 (JWT) | v2 (세션) |
-| --- | --- | --- |
-| 로그인 결과 | 액세스 토큰(본문) + 리프레시 쿠키 | `SESSION` 쿠키 (토큰 없음) |
-| 이후 요청 | `Authorization: Bearer {토큰}` 헤더 | 쿠키만 보냄 (브라우저가 자동으로) |
-| 로그아웃 | 없음 (토큰이 만료될 때까지 유효) | 서버가 세션을 지워서 **바로** 끊김 |
-| 만료 | 액세스 15분, 리프레시 14일 | 마지막 요청 후 **30분** (요청이 오면 연장) |
+**Redis 세션**으로 로그인합니다. 로그인하면 `SESSION` 쿠키가 내려가고, 그 뒤에는 **경로를 바꾸지 않은 업무 API**(`/api/v1/users/me`, `/api/v1/admin/**` 등)를 쿠키만 보내서 호출합니다. 로그아웃하면 서버가 세션을 지워서 **바로** 끊기고, 세션은 마지막 요청 후 **30분**(요청이 오면 연장) 뒤 만료됩니다. (JWT는 2026-11-26에 없앴습니다)
 
 - `SESSION` 쿠키는 `HttpOnly`, `SameSite=Lax`, `Path=/`이고 운영(https)에서는 `Secure`입니다. 스크립트로 읽을 수 없습니다.
-- 요청은 v1 로그인과 같고(`{ "email", "password" }`), 에러도 같습니다. 판매자는 사업체가 승인된 뒤에만 로그인되고(`SELLER003`~`SELLER005`), 로그인할 때 이미 세션이 있으면 세션 번호를 새로 바꿉니다.
-- 판매자 가입 신청(AUTH-09)은 인증이 없어서 v1의 API를 그대로 씁니다.
+- 요청은 `{ "email", "password" }`입니다. 판매자는 사업체가 승인된 뒤에만 로그인되고(`SELLER003`~`SELLER005`), 로그인할 때 이미 세션이 있으면 세션 번호를 새로 바꿉니다.
+- 판매자 가입 신청(AUTH-09)은 로그인(세션)을 만들지 않아서 경로가 `/api/v1/auth/sellers/signup` 그대로입니다.
+- 관리자는 가입과 비밀번호 변경이 없습니다. 로컬에서는 `db/seed/V19`의 시드 계정(`admin@tickting.local`)으로 로그인하고, **비밀번호는 저장소에 없어서 팀에서 따로 전달**합니다.
 - 로그아웃(`POST /api/v2/auth/logout`)은 본문이 없고 로그인 상태가 아니어도 200입니다.
 - **CSRF 토큰은 아직 없습니다.** 지금은 `SameSite=Lax` 쿠키에만 의존합니다. 운영 전에 다시 정합니다.
 
@@ -510,26 +377,6 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 ```json
 { "success": true, "code": "0000", "message": "", "data": null }
 ```
-
-### AUTH-16 예매자 가입 (v2 세션) — `POST /api/v2/auth/users/signup` (공개, 구현됨)
-
-요청과 검증, 에러는 AUTH-02와 같습니다. 다른 점은 **응답이 토큰 대신 `SESSION` 쿠키**라는 것입니다. 가입하면 바로 로그인되어, 받은 쿠키로 `GET /api/v1/users/me` 같은 업무 API를 호출할 수 있습니다.
-
-**응답 201** (`Set-Cookie: SESSION=...; Path=/; HttpOnly; SameSite=Lax`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accountType": "USER",
-    "role": null
-  }
-}
-```
-
-가입이 실패하면(이메일 중복 `USER000`, 필수 약관 미동의 등) 세션이 만들어지지 않고 회원도 저장되지 않습니다. 약관 확인, 회원 저장, 약관 동의 기록은 한 트랜잭션이고, 세션은 그 뒤에 만듭니다.
 
 ### 가입 전 이메일 인증 (AUTH-17·18)
 

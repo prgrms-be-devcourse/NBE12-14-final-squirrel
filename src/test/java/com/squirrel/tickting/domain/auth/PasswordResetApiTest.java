@@ -34,7 +34,7 @@ class PasswordResetApiTest extends IntegrationTestSupport {
 	StringRedisTemplate redis;
 
 	private void signupUser() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody(EMAIL)).andExpect(status().isCreated());
+		postJson("/api/v2/auth/users/signup", userSignupBody(EMAIL)).andExpect(status().isCreated());
 	}
 
 	private void signupSeller() throws Exception {
@@ -66,7 +66,7 @@ class PasswordResetApiTest extends IntegrationTestSupport {
 	}
 
 	private ResultActions userLogin(String password) throws Exception {
-		return postJson("/api/v1/auth/users/login", loginBody(EMAIL, password));
+		return postJson("/api/v2/auth/users/login", loginBody(EMAIL, password));
 	}
 
 	/** 재요청 간격(60초)은 Redis 시각으로 흘러서 테스트에서 기다릴 수 없다. 간격 키를 지워 간격이 지난 것으로 만든다. */
@@ -126,8 +126,8 @@ class PasswordResetApiTest extends IntegrationTestSupport {
 		confirm(token).andExpect(status().isOk());
 
 		jdbc.update("UPDATE seller_business SET status = 'APPROVED' WHERE business_number = ?", BUSINESS_NUMBER);
-		postJson("/api/v1/auth/sellers/login", loginBody(EMAIL, NEW_PASSWORD)).andExpect(status().isOk());
-		postJson("/api/v1/auth/sellers/login", loginBody(EMAIL, PASSWORD)).andExpect(status().isUnauthorized());
+		postJson("/api/v2/auth/sellers/login", loginBody(EMAIL, NEW_PASSWORD)).andExpect(status().isOk());
+		postJson("/api/v2/auth/sellers/login", loginBody(EMAIL, PASSWORD)).andExpect(status().isUnauthorized());
 	}
 
 	// ---------------------------------------------------------------- 링크

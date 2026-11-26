@@ -71,15 +71,6 @@ public class UserMemberService {
 		return toAccount(user);
 	}
 
-	/** 토큰 재발급용. 토큰이 아니라 DB 를 기준으로 계정이 아직 쓸 수 있는 상태인지 확인한다. */
-	@Transactional(readOnly = true)
-	public CustomUserDetails getLoginAccount(Long userId) {
-		UserMember user = userMemberRepository.findByIdAndDeletedAtIsNull(userId)
-			.orElseThrow(() -> new BusinessException(AuthExceptionCode.TOKEN_INVALID));
-		requireActive(user);
-		return toAccount(user);
-	}
-
 	/**
 	 * 로그인한 예매자 본인의 정보. 탈퇴한 회원이면 USER_NOT_FOUND.
 	 * 정지(SUSPENDED)된 회원은 막지 않는다. 자기 정보를 읽기만 하는 것이라 위험하지 않고, 로그인과 토큰 재발급에서 이미 막힌다.
