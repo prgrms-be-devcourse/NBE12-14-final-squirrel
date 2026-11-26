@@ -27,6 +27,9 @@ public class BookingService {
 	/** 좌석을 차지한 예매 상태. 전체 취소(CANCELED)와 만료(EXPIRED)는 좌석을 돌려줬으므로 뺀다. */
 	private static final List<BookingStatus> OCCUPYING_STATUSES =
 		List.of(BookingStatus.PENDING, BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED);
+	/** 돈을 낸 좌석이 남아 있는 예매 상태. */
+	private static final List<BookingStatus> PAID_STATUSES =
+		List.of(BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED);
 
 	private final BookingRepository bookingRepository;
 	private final BookingSeatRepository bookingSeatRepository;
@@ -40,6 +43,18 @@ public class BookingService {
 	@Transactional(readOnly = true)
 	public long countActiveSeats(Long userId, Long performanceId) {
 		return bookingSeatRepository.countActiveByUserAndPerformance(userId, performanceId);
+	}
+
+	/**
+	 * 이 예매의 예매자가 그 공연의 1인 최대 매수를 결제한 좌석만으로 채웠는가. 결제 뒤 대기열 자리를 반납할지 정하는 데 쓴다.
+	 * 결제 대기 좌석은 세지 않는다. 만료되면 다시 살 수 있어서, 그때까지 자리를 남겨 둬야 줄을 다시 서지 않는다.
+	 */
+	@Transactional(readOnly = true)
+	public boolean hasPaidUpToLimit(Long bookingId) {
+		Booking booking = bookingRepository.findById(bookingId).orElseThrow();
+		long paid = bookingSeatRepository.countActiveByUserAndPerformanceAndStatusIn(booking.getUserId(),
+			booking.getPerformanceId(), PAID_STATUSES);
+		return paid >= booking.getPerformance().getMaxPerPerson();
 	}
 
 	/**

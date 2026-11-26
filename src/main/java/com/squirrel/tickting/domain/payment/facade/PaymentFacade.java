@@ -16,6 +16,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
 import com.squirrel.tickting.domain.performance.service.ScheduleService;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
+import com.squirrel.tickting.domain.queue.service.QueueService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
@@ -29,7 +30,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 결제 준비·승인. 예매(수령 방법·상태), 공연(허용하는 수령 방법·제목·좌석), 결제 세 도메인이 얽혀서 서비스끼리 부르지 않고 이 파사드가 엮는다.
+ * 결제 준비·승인. 예매(수령 방법·상태), 공연(허용하는 수령 방법·제목·좌석), 결제, 대기열(자리 반납) 도메인이 얽혀서
+ * 서비스끼리 부르지 않고 이 파사드가 엮는다.
  *
  * 같은 예매에 대한 결제 요청은 예매 단위 분산락(booking:{id})으로 한 번에 하나씩만 처리한다.
  * 락을 먼저 잡고 그 안에서 트랜잭션을 열어 커밋한 뒤에 푼다. (doc/part4-booking-area.md 4-7)
@@ -51,6 +53,7 @@ public class PaymentFacade {
 	private final ScheduleSeatService scheduleSeatService;
 	private final PaymentService paymentService;
 	private final PaymentGateway paymentGateway;
+	private final QueueService queueService;
 
 	/**
 	 * 결제를 준비한다. 수령 방법과 배송 정보를 예매에 확정하고 결제 준비(READY) 건을 만들어 토스 결제창에 필요한 값을 돌려준다.
@@ -98,18 +101,36 @@ public class PaymentFacade {
 
 		GatewayPayment approved = requestApproval(request, approval);
 
+		PaymentResponse.Confirmed confirmed;
 		try {
-			return transactionTemplate.execute(status -> completeApproval(approval, approved));
+			confirmed = transactionTemplate.execute(status -> completeApproval(approval, approved));
 		} catch (RuntimeException e) {
 			// 승인은 됐는데 반영에 실패했다. 트랜잭션이 되돌려져 결제는 승인 중으로 남고, 보정 작업이 이어서 확정한다.
 			log.error("토스 승인은 끝났지만 결제 반영에 실패했다. 보정 작업이 확정해야 한다. 결제 번호: {}, 주문 ID: {}",
 				approval.paymentId(), approval.orderId(), e);
 			throw new BusinessException(PaymentExceptionCode.PAYMENT_RESULT_UNKNOWN);
 		}
+		releaseQueueSlotIfLimitReached(userId, approval);
+		return confirmed;
 	}
 
 	/** 승인 시작에 쓰려고 읽은 값. 토스에 보내는 금액은 요청이 아니라 서버가 저장한 금액이다. */
-	private record Approval(Long paymentId, Long bookingId, String orderId, int amount) {
+	private record Approval(Long paymentId, Long bookingId, Long scheduleId, String orderId, int amount) {
+	}
+
+	/**
+	 * 1인 최대 매수를 결제해 더 살 수 없는 사람의 대기열 입장 자리를 바로 비워 뒷사람이 들어오게 한다.
+	 * 더 살 수 있는 사람의 자리는 남긴다. 반납하면 추가로 사려고 줄을 처음부터 다시 서야 한다. (doc/queue-design.md)
+	 * 결제는 이미 커밋됐으므로 여기서 실패해도 결제 응답은 성공이어야 한다. 반납하지 못한 자리는 유효 시간이 지나면 비워진다.
+	 */
+	private void releaseQueueSlotIfLimitReached(Long userId, Approval approval) {
+		try {
+			if (bookingService.hasPaidUpToLimit(approval.bookingId())) {
+				queueService.leave(userId, approval.scheduleId());
+			}
+		} catch (RuntimeException e) {
+			log.warn("결제 뒤 대기열 자리를 반납하지 못했다. 예매 번호: {}", approval.bookingId(), e);
+		}
 	}
 
 	/** 내 결제의 예매 번호를 찾는다. 없는 주문 ID 와 남의 결제는 같은 404 로 답해서 주문 ID 가 존재하는지 알려주지 않는다. */
@@ -140,7 +161,8 @@ public class PaymentFacade {
 		if (!attempted) {
 			extendHold(booking, now);
 		}
-		return new Approval(payment.getId(), booking.getId(), payment.getOrderId(), payment.getAmount());
+		return new Approval(payment.getId(), booking.getId(), booking.getScheduleId(), payment.getOrderId(),
+			payment.getAmount());
 	}
 
 	/**

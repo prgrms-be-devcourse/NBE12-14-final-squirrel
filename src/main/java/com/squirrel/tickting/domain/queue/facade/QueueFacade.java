@@ -36,7 +36,12 @@ public class QueueFacade {
 		return queueService.status(userId, scheduleId);
 	}
 
-	public void leave(Long userId, Long scheduleId) {
-		queueService.leave(userId, scheduleId);
+	/** delayed 면 좌석 화면을 떠난 것이라 잠시 뒤에 비우고, 아니면 스스로 나간 것이라 바로 비운다. */
+	public void leave(Long userId, Long scheduleId, boolean delayed) {
+		if (delayed) {
+			queueService.leaveSoon(userId, scheduleId);
+		} else {
+			queueService.leave(userId, scheduleId);
+		}
 	}
 }

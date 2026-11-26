@@ -3,11 +3,12 @@
 -- 시각은 서버 시계가 아니라 Redis 의 TIME 을 쓴다. 서버마다 시계가 달라도 입장 만료가 어긋나지 않게 하려는 것이다.
 --
 -- KEYS: [1] 대기 ZSET(점수=도착 순번)  [2] 입장 ZSET(점수=만료 시각 ms)  [3] 도착 순번 카운터  [4] 내 확인 표시 키
+--       [5] 좌석 화면을 떠난다고 알렸을 때 보관한 원래 만료 시각 키
 -- ARGV: [1] 내 멤버(USER:번호)  [2] 줄 서기 여부(1=들어가기, 0=상태만 보기)  [3] 정원  [4] 입장 유효 ms
 --       [5] 확인 표시 유효 ms  [6] 키 유효 ms  [7] 확인 표시 키 접두사
 -- 반환: {상태, 값1, 값2}  상태 0=없음, 1=입장(값1=만료 시각 ms), 2=대기(값1=내 순번, 값2=전체 대기 인원)
 
-local wait, active, seq, seen = KEYS[1], KEYS[2], KEYS[3], KEYS[4]
+local wait, active, seq, seen, keep = KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5]
 local member = ARGV[1]
 local join = ARGV[2] == '1'
 local max_active = tonumber(ARGV[3])
@@ -24,6 +25,15 @@ redis.call('ZREMRANGEBYSCORE', active, '-inf', now)
 -- 이미 입장해 있으면 그대로 돌려준다. (다시 줄을 서지 않는다)
 local expires = redis.call('ZSCORE', active, member)
 if expires then
+	-- 유예 안에 돌아왔으면(새로고침, 뒤로 갔다 다시 들어옴) 원래 만료 시각을 되살린다.
+	local original = redis.call('GET', keep)
+	if original then
+		if tonumber(original) > tonumber(expires) then
+			redis.call('ZADD', active, original, member)
+			expires = original
+		end
+		redis.call('DEL', keep)
+	end
 	return {1, tonumber(expires), 0}
 end
 

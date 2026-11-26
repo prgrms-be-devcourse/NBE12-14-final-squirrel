@@ -12,7 +12,7 @@ import { saveBooking } from "@/lib/booking-cache";
 import { dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { BookingCreated, PerformanceDetail, Seat, Zone, ZoneSeats, ZoneSummary } from "@/lib/types";
 import { ArenaMap } from "@/components/arena-map";
-import { QueueGate } from "@/components/queue-gate";
+import { QueueGate, useKeepQueueSlot } from "@/components/queue-gate";
 import { ErrorBox, Loading } from "@/components/ui";
 
 type Picked = {
@@ -39,6 +39,7 @@ export default function SeatSelectPage() {
 function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
   const { id, scheduleId } = useRouteParams<{ id: string; scheduleId: string }>("/performances/[id]/schedules/[scheduleId]");
   const router = useRouter();
+  const keepQueueSlot = useKeepQueueSlot();
   const account = useAccount();
   const toLogin = () => router.push("/login");
 
@@ -104,6 +105,8 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
         method: "POST",
         body: { seatIds: picked.map((s) => s.seatId) },
       });
+      // 결제 화면으로 가는 것은 이탈이 아니다. 더 잡으러 돌아올 수 있게 대기열 자리를 지킨다.
+      keepQueueSlot();
       // 결제 화면이 같은 정보를 바로 쓰도록 둔다. (예매 상세 API 가 없어도 결제까지 가야 한다)
       saveBooking({
         ...booking,

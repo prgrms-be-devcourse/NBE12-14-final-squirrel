@@ -48,6 +48,8 @@ type Options = {
   body?: unknown;
   query?: Query;
   headers?: Record<string, string>;
+  // 창이 닫히거나 새로고침되는 중에 보내는 요청에 켠다. 안 켜면 브라우저가 요청을 취소할 수 있다.
+  keepalive?: boolean;
 };
 
 function toQueryString(query?: Query): string {
@@ -61,7 +63,7 @@ function toQueryString(query?: Query): string {
 }
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
-  const { method = "GET", body, query, headers } = options;
+  const { method = "GET", body, query, headers, keepalive } = options;
   // Next 가 경로 값 자리에 채워 둔 자리표시(%%drp:id:해시%%)가 그대로 들어온 경우다. 이 주소로 보내면 연결이 끊긴다
   // (ERR_HTTP2_PROTOCOL_ERROR). 기다리지 않고 오류로 돌려서 화면이 "불러오는 중"에서 멈추지 않게 한다.
   // 경로 값은 useRouteParams 로 읽어서 진짜 값을 쓰므로 정상이라면 여기에 오지 않는다.
@@ -77,6 +79,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    keepalive,
   });
 
   let envelope: ApiEnvelope<T> | null = null;

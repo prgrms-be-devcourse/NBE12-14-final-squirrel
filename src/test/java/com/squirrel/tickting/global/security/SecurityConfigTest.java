@@ -49,7 +49,7 @@ class SecurityConfigTest {
 
 		@Bean
 		QueueProperties queueProperties() {
-			return new QueueProperties(false, 1, Duration.ofMinutes(1), Duration.ofSeconds(30));
+			return new QueueProperties(false, 1, Duration.ofMinutes(1), Duration.ofSeconds(30), Duration.ofSeconds(30));
 		}
 
 		@Bean

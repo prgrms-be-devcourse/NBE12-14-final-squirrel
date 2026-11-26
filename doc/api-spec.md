@@ -530,7 +530,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 
 - 토큰은 헤더 **`X-Captcha-Token`**으로 보냅니다. 프론트는 요청 직전에 `grecaptcha.execute(사이트 키, { action: "queue_enter" })`로 토큰을 받습니다. 토큰은 한 번만 쓸 수 있고 약 2분 뒤 만료되므로 미리 받아 두지 않습니다. 다시 줄을 설 때(`QUEUE000` 뒤 재입장 포함)마다 새로 받습니다.
 - 서버는 구글 응답의 `success`만 보지 않고 **`action`이 `queue_enter`인지, `score`가 기준(`app.captcha.min-score`, 지금 0.5 임시) 이상인지**도 봅니다.
-- 상태 확인(`GET`)과 나가기(`DELETE`)는 토큰이 필요 없습니다. 상태 확인은 2~3초마다 불리기 때문입니다.
+- 상태 확인(`GET`)과 나가기(`DELETE`)는 토큰이 필요 없습니다. 상태 확인은 2~3초마다 불리기 때문입니다. 좌석 화면을 떠날 때의 `DELETE ?delayed=true`(30초 뒤 반납)는 `doc/queue-design.md` "자리 반납"을 봅니다.
 - 확인 순서: 로그인·계정 종류(시큐리티, 401·403 `AUTH100`) → **캡챠(`CAPTCHA000`·`CAPTCHA001`)** → 회차(`BOOKING002`·`BOOKING004`). 캡챠는 대기열을 끈 상태에서도 확인합니다.
 - 구글에 물어볼 수 없으면(연결 실패, 응답 3초 초과, 5xx) 통과시키지 않고 503 `CAPTCHA001`입니다. (임시 정책. 장애 동안 매크로가 들어오는 것보다 막는 쪽을 골랐고, 팀이 다시 정함)
 - 검증 구현은 `app.captcha.verifier`로 고릅니다. `recaptcha`는 구글에 실제로 묻고, `mock`(로컬·테스트·부하 테스트)은 토큰이 있으면 통과하고 `fail`이면 실패합니다. 키는 `.env`의 `RECAPTCHA_SECRET_KEY`(서버)와 프론트의 사이트 키입니다.
@@ -1104,6 +1104,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - **금액은 요청 값을 믿지 않습니다.** 저장한 금액과 비교만 하고 토스에도 저장한 금액을 보냅니다.
 - 승인을 시작할 때(처음 시도일 때만) 남은 점유 시간이 `app.payment.confirm-extension`(2분)보다 짧으면 예매 결제 제한 시각과 좌석 점유 시각을 지금 + 2분으로 함께 늘립니다. 토스를 부르는 동안 스케줄러가 좌석을 풀지 않게 하려는 것입니다. 이미 승인을 시도한 결제가 있는 예매는 늘리지 않습니다.
 - 토스 승인 요청에는 주문 ID를 멱등키(`Idempotency-Key`)로 보냅니다.
+- 승인에 성공해 그 공연의 **1인 최대 매수를 결제로 채우면** 그 회차의 대기열 입장 자리를 반납합니다(2026-11-26). 결제 대기 좌석은 세지 않습니다. 반납에 실패해도 승인 응답은 200입니다.
 - 토스를 부르는 구간은 DB 트랜잭션과 락 밖입니다. 성공하면 결제 `DONE`, 예매 `PAID`, 좌석 `SOLD`를 한 트랜잭션으로 바꿉니다.
 - **결제 대행사 구현**은 `app.payment.gateway`로 고릅니다. `toss`(운영 기본)는 `.env`의 `TOSS_SECRET_KEY`가 필요하고, `mock`은 키 없이 흐름만 확인합니다(`prod` 프로필에서는 등록되지 않음). **로컬에서는 `.env`에 `PAYMENT_GATEWAY`를 반드시 넣어야 앱이 뜹니다.** 키 없이 돌리려면 `PAYMENT_GATEWAY=mock`, 실제 토스 테스트 결제를 쓰려면 `PAYMENT_GATEWAY=toss`와 `TOSS_SECRET_KEY`를 넣습니다. 결제창을 여는 클라이언트 키는 프론트가 읽습니다.
 - Mock 은 결제 키 접두사로 결과를 고릅니다. `reject_` 거절, `unavailable_` 결과 모름, `slow_` 느린 성공, 그 밖의 값은 성공입니다.

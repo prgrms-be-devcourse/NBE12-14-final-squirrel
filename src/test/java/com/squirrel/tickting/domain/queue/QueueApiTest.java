@@ -1,6 +1,9 @@
 package com.squirrel.tickting.domain.queue;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,17 +12,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.squirrel.tickting.domain.booking.BookingTestSupport;
 import com.squirrel.tickting.domain.captcha.interceptor.CaptchaInterceptor;
+import com.squirrel.tickting.domain.queue.service.QueueService;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -30,6 +38,9 @@ import org.springframework.test.web.servlet.ResultActions;
 class QueueApiTest extends BookingTestSupport {
 
 	private static final int MAX_ACTIVE = 2;
+	private static final long LEAVE_GRACE_MILLIS = 30_000;
+	/** 컨테이너의 Redis 시계와 테스트 PC 시계의 차이를 허용하는 폭 */
+	private static final long CLOCK_SKEW_MILLIS = 5_000;
 
 	@DynamicPropertySource
 	static void queueOn(DynamicPropertyRegistry registry) {
@@ -39,6 +50,14 @@ class QueueApiTest extends BookingTestSupport {
 
 	@Autowired
 	StringRedisTemplate redis;
+
+	@MockitoSpyBean
+	QueueService queueService;
+
+	@AfterEach
+	void cleanUpPayments() {
+		jdbc.execute("TRUNCATE TABLE payment, refund RESTART IDENTITY");
+	}
 
 	@BeforeEach
 	void clearQueueKeys() {
@@ -217,7 +236,133 @@ class QueueApiTest extends BookingTestSupport {
 		assertThat(redis.keys("tickting:queue:*")).isEmpty();
 	}
 
+	// ---------------------------------------------------------------- 좌석 화면을 떠날 때
+
+	@Test
+	@DisplayName("좌석 화면을 떠난다고 알리면 유예 시간 뒤에 비워지게 줄어들고, 그 전에 좌석을 보거나 다시 들어오면 원래 만료 시각이 되살아난다")
+	void leavingSoonIsUndoneWhenUserComesBack() throws Exception {
+		Show show = show(2);
+		User first = signup("first");
+		User second = signup("second");
+		User third = signup("third");
+		enter(first, show);
+		enter(second, show);
+		enter(third, show).andExpect(jsonPath("$.data.status").value("WAITING"));
+		double original = activeExpiry(first, show);
+
+		leaveSoon(first, show).andExpect(status().isOk());
+		double shortened = activeExpiry(first, show);
+		// 여러 번 알려 와도 원래 만료 시각을 잃지 않는다
+		leaveSoon(first, show);
+
+		assertThat(shortened).isLessThanOrEqualTo(System.currentTimeMillis() + LEAVE_GRACE_MILLIS + CLOCK_SKEW_MILLIS);
+		assertThat(activeExpiry(first, show)).isEqualTo(shortened);
+		queueStatus(third, show).andExpect(jsonPath("$.data.status").value("WAITING"));
+
+		mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + "/zones").cookie(first.session()))
+			.andExpect(status().isOk());
+		assertThat(activeExpiry(first, show)).isEqualTo(original);
+
+		leaveSoon(first, show);
+		enter(first, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
+		assertThat(activeExpiry(first, show)).isEqualTo(original);
+	}
+
+	@Test
+	@DisplayName("떠난다고 알린 뒤 돌아오지 않으면 다음 사람이 입장하고, 대기 중인 사람의 순번은 바뀌지 않는다")
+	void slotIsFreedWhenUserDoesNotComeBack() throws Exception {
+		Show show = show(2);
+		User first = signup("first");
+		User second = signup("second");
+		User third = signup("third");
+		enter(first, show);
+		enter(second, show);
+		enter(third, show);
+		leaveSoon(third, show);
+		queueStatus(third, show).andExpect(jsonPath("$.data.position").value(1));
+
+		leaveSoon(first, show);
+		// 유예 시간이 지난 상태를 만든다
+		redis.opsForZSet().add(activeKey(show), "USER:" + first.id(), System.currentTimeMillis() - 1000);
+
+		queueStatus(third, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
+		queueStatus(first, show).andExpect(jsonPath("$.data.status").value("NONE"));
+	}
+
+	// ---------------------------------------------------------------- 결제 뒤 자리 반납
+
+	@Test
+	@DisplayName("1인 최대 매수를 결제로 채우면 입장 자리를 반납하고, 결제 대기 좌석은 세지 않아 더 살 수 있으면 자리를 지킨다")
+	void releasesSlotOnlyWhenPaidSeatsReachLimit() throws Exception {
+		Show show = show(MAX_PER_PERSON * 2);
+		User full = signup("full");
+		User partial = signup("partial");
+		enter(full, show);
+		enter(partial, show);
+		// partial: 절반은 결제하고 절반은 결제 대기로 둔다. 합치면 최대 매수지만 대기 좌석은 만료되면 다시 살 수 있다
+		Long paidBooking = hold(partial, show, 0, 2);
+		hold(partial, show, 2, 2);
+		pay(partial, paidBooking, "pay_queue_partial");
+
+		queueStatus(partial, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
+
+		pay(full, hold(full, show, MAX_PER_PERSON, MAX_PER_PERSON), "pay_queue_full");
+
+		queueStatus(full, show).andExpect(jsonPath("$.data.status").value("NONE"));
+	}
+
+	@Test
+	@DisplayName("결제 뒤 대기열 자리를 반납하지 못해도 결제는 성공이다")
+	void paymentSucceedsEvenWhenSlotReleaseFails() throws Exception {
+		Show show = show(MAX_PER_PERSON);
+		User user = signup("user");
+		enter(user, show);
+		Long bookingId = hold(user, show, 0, MAX_PER_PERSON);
+		doThrow(new IllegalStateException("Redis 오류")).when(queueService).leave(any(), any());
+
+		pay(user, bookingId, "pay_queue_redis_down");
+
+		assertThat(jdbc.queryForObject("SELECT status FROM booking WHERE id = ?", String.class, bookingId))
+			.isEqualTo("PAID");
+		verify(queueService).leave(user.id(), show.scheduleId());
+	}
+
 	// ---------------------------------------------------------------- 호출 도우미
+
+	private Long hold(User user, Show show, int fromIndex, int seatCount) throws Exception {
+		MvcResult booked = book(user.session(), show.scheduleId(), show.seatIds().subList(fromIndex, fromIndex + seatCount))
+			.andExpect(status().isCreated()).andReturn();
+		return Long.parseLong(read(booked, "$.data.bookingId"));
+	}
+
+	private void pay(User user, Long bookingId, String paymentKey) throws Exception {
+		MvcResult prepared = mockMvc.perform(post("/api/v1/bookings/" + bookingId + "/payments")
+				.cookie(user.session())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("receiveType", "ONSITE"))))
+			.andExpect(status().isOk()).andReturn();
+		Integer amount = jdbc.queryForObject("SELECT total_amount FROM booking WHERE id = ?", Integer.class, bookingId);
+		mockMvc.perform(post("/api/v1/payments/confirm")
+				.cookie(user.session())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("paymentKey", paymentKey,
+					"orderId", read(prepared, "$.data.orderId"), "amount", amount))))
+			.andExpect(status().isOk());
+	}
+
+	private ResultActions leaveSoon(User user, Show show) throws Exception {
+		return mockMvc.perform(delete("/api/v1/schedules/" + show.scheduleId() + "/queue")
+			.param("delayed", "true")
+			.cookie(user.session()));
+	}
+
+	private String activeKey(Show show) {
+		return "tickting:queue:{" + show.scheduleId() + "}:active";
+	}
+
+	private double activeExpiry(User user, Show show) {
+		return redis.opsForZSet().score(activeKey(show), "USER:" + user.id());
+	}
 
 	private ResultActions enter(User user, Show show) throws Exception {
 		return mockMvc.perform(post("/api/v1/schedules/" + show.scheduleId() + "/queue")

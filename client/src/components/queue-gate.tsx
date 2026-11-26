@@ -3,7 +3,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { CAPTCHA_HEADER, getCaptchaToken } from "@/lib/captcha";
 import type { QueueStatus } from "@/lib/types";
@@ -19,6 +19,13 @@ type Phase =
   | { kind: "waiting"; position: number; waitingCount: number }
   | { kind: "admitted" }
   | { kind: "error"; message: string; retryable: boolean };
+
+const KeepSlotContext = createContext<() => void>(() => {});
+
+// 좌석을 잡고 결제 화면으로 넘어갈 때 부른다. 부른 뒤에는 좌석 화면을 떠나도 대기열 자리를 반납하지 않는다.
+export function useKeepQueueSlot() {
+  return useContext(KeepSlotContext);
+}
 
 export function QueueGate({
   scheduleId,
@@ -37,6 +44,8 @@ export function QueueGate({
   const [attempt, setAttempt] = useState(0);
   const path = `/api/v1/schedules/${scheduleId}/queue`;
   const waitingRef = useRef(false);
+  const admittedRef = useRef(false);
+  const keepRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +55,8 @@ export function QueueGate({
       if (cancelled) return;
       if (status.status === "ADMITTED") {
         waitingRef.current = false;
+        admittedRef.current = true;
+        keepRef.current = false;
         setPhase({ kind: "admitted" });
         return;
       }
@@ -108,15 +119,27 @@ export function QueueGate({
       }
     }
 
+    // 입장한 채 좌석 화면을 떠나면 자리를 곧 반납한다고 알린다. 점유에 성공해 결제 화면으로 가는 것은 떠난 것이 아니다.
+    // 새로고침·창 닫기·뒤로 가기를 구분할 수 없어서 서버가 30초 뒤에 비우고, 그 전에 돌아오면 그대로 둔다. (doc/queue-design.md)
+    // keepalive 는 창이 닫히는 중에도 요청이 나가게 한다.
+    function leaveSeats() {
+      if (!admittedRef.current || keepRef.current) return;
+      void api(path, { method: "DELETE", query: { delayed: "true" }, keepalive: true }).catch(() => {});
+    }
+
+    window.addEventListener("pagehide", leaveSeats);
     void enter();
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
-      // 줄을 선 채로 화면을 떠나면 자리를 비워 뒷사람이 들어오게 한다. (입장해 있는 사람은 그대로 둔다)
+      window.removeEventListener("pagehide", leaveSeats);
+      // 줄을 선 채로 화면을 떠나면 자리를 바로 비워 뒷사람이 들어오게 한다.
       if (waitingRef.current) {
         waitingRef.current = false;
         void api(path, { method: "DELETE" }).catch(() => {});
       }
+      leaveSeats();
+      admittedRef.current = false;
     };
     // toLogin 은 router 만 쓰므로 다시 만들어져도 입장을 다시 시작하지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,7 +150,13 @@ export function QueueGate({
     setAttempt((n) => n + 1);
   }, []);
 
-  if (phase.kind === "admitted") return <>{children(reenter)}</>;
+  const keepSlot = useCallback(() => {
+    keepRef.current = true;
+  }, []);
+
+  if (phase.kind === "admitted") {
+    return <KeepSlotContext.Provider value={keepSlot}>{children(reenter)}</KeepSlotContext.Provider>;
+  }
   if (phase.kind === "entering") return <Loading label="대기열에 입장하는 중" />;
 
   return (

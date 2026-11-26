@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
  *   <li>{@code tickting:queue:{회차}:seq} 도착 순번 카운터</li>
  *   <li>{@code tickting:queue:{회차}:seen:USER:번호} 대기 중인 사람이 최근에 상태를 확인했다는 표시(짧은 만료)</li>
  *   <li>{@code tickting:queue:{회차}:open} 이 회차가 입장을 받을 수 있다고 DB 로 확인한 표시(짧은 만료)</li>
+ *   <li>{@code tickting:queue:{회차}:keep:USER:번호} 좌석 화면을 떠난 입장자의 원래 만료 시각(유예 동안만)</li>
  * </ul>
  * 멤버에는 계정 종류(USER)를 붙인다. 예매자·판매자·관리자는 번호가 겹칠 수 있다.
  *
@@ -44,6 +45,7 @@ public class QueueService {
 
 	private static final DefaultRedisScript<List> POLL_SCRIPT = script("redis/queue-poll.lua", List.class);
 	private static final DefaultRedisScript<Long> CHECK_SCRIPT = script("redis/queue-check.lua", Long.class);
+	private static final DefaultRedisScript<Long> LEAVE_SOON_SCRIPT = script("redis/queue-leave-soon.lua", Long.class);
 
 	private final StringRedisTemplate redis;
 	private final QueueProperties properties;
@@ -66,7 +68,21 @@ public class QueueService {
 		String member = member(userId);
 		redis.opsForZSet().remove(waitKey(scheduleId), member);
 		redis.opsForZSet().remove(activeKey(scheduleId), member);
-		redis.delete(seenKey(scheduleId, member));
+		redis.delete(List.of(seenKey(scheduleId, member), keepKey(scheduleId, member)));
+	}
+
+	/**
+	 * 입장한 사람이 좌석 화면을 떠났다. 바로 비우지 않고 leaveGrace 뒤에 비워지게 한다. 화면은 새로고침·창 닫기·뒤로 가기를 믿을 만하게
+	 * 구분할 수 없어서, 바로 비우면 새로고침만 해도 줄을 처음부터 다시 서게 된다. 그 전에 돌아오면(입장·상태 확인·좌석 조회·점유)
+	 * 원래 입장 만료 시각이 되살아난다. 입장해 있지 않으면 아무것도 하지 않는다. (대기 중인 사람의 순번은 건드리지 않는다)
+	 */
+	public void leaveSoon(Long userId, Long scheduleId) {
+		if (!properties.enabled()) {
+			return;
+		}
+		String member = member(userId);
+		redis.execute(LEAVE_SOON_SCRIPT, List.of(activeKey(scheduleId), keepKey(scheduleId, member)),
+			member, String.valueOf(properties.leaveGrace().toMillis()));
 	}
 
 	/** 지금 입장해 있는지(만료 전인지). 좌석 조회·점유 요청마다 부른다. */
@@ -74,7 +90,9 @@ public class QueueService {
 		if (!properties.enabled()) {
 			return true;
 		}
-		Long admitted = redis.execute(CHECK_SCRIPT, List.of(activeKey(scheduleId)), member(userId));
+		String member = member(userId);
+		Long admitted = redis.execute(CHECK_SCRIPT,
+			List.of(activeKey(scheduleId), keepKey(scheduleId, member)), member);
 		return admitted != null && admitted == 1L;
 	}
 
@@ -93,7 +111,8 @@ public class QueueService {
 		}
 		String member = member(userId);
 		List<?> result = redis.execute(POLL_SCRIPT,
-			List.of(waitKey(scheduleId), activeKey(scheduleId), seqKey(scheduleId), seenKey(scheduleId, member)),
+			List.of(waitKey(scheduleId), activeKey(scheduleId), seqKey(scheduleId), seenKey(scheduleId, member),
+				keepKey(scheduleId, member)),
 			member, join ? "1" : "0",
 			String.valueOf(properties.maxActive()),
 			String.valueOf(properties.entryTtl().toMillis()),
@@ -145,6 +164,10 @@ public class QueueService {
 
 	private static String openKey(Long scheduleId) {
 		return base(scheduleId) + "open";
+	}
+
+	private static String keepKey(Long scheduleId, String member) {
+		return base(scheduleId) + "keep:" + member;
 	}
 
 	private static <T> DefaultRedisScript<T> script(String path, Class<T> resultType) {

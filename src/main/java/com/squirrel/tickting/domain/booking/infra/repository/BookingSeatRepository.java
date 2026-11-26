@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.booking.infra.repository;
 
 import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
+import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -29,6 +30,19 @@ public interface BookingSeatRepository extends JpaRepository<BookingSeat, Long> 
 		   AND bs.active = true
 		""")
 	long countActiveByUserAndPerformance(@Param("userId") Long userId, @Param("performanceId") Long performanceId);
+
+	/** 한 사람이 한 공연에서 가진 활성 좌석 중 예매 상태가 주어진 것의 수. 결제한 좌석만 따로 셀 때 쓴다. */
+	@Query("""
+		SELECT COUNT(bs)
+		  FROM BookingSeat bs, Booking b
+		 WHERE bs.bookingId = b.id
+		   AND b.userId = :userId
+		   AND b.performanceId = :performanceId
+		   AND b.status IN :statuses
+		   AND bs.active = true
+		""")
+	long countActiveByUserAndPerformanceAndStatusIn(@Param("userId") Long userId,
+		@Param("performanceId") Long performanceId, @Param("statuses") Collection<BookingStatus> statuses);
 
 	/** 예매들의 활성 좌석에 걸린 판매 좌석 번호. 만료된 예매의 좌석을 되돌릴 때 쓴다. */
 	@Query("""

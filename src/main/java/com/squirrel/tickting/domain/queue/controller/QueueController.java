@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 예매자의 회차 대기열. 예매자만 쓸 수 있다. (SecurityConfig 의 USER_ONLY_PATHS: /api/v1/schedules/{id}/queue) */
@@ -50,13 +51,17 @@ public class QueueController {
 	}
 
 	@Operation(summary = "대기열 나가기",
-		description = "줄에서 나가거나 입장 자리를 반납한다. 줄에 없어도 성공이다.")
+		description = "줄에서 나가거나 입장 자리를 반납한다. 줄에 없어도 성공이다. "
+			+ "delayed=true 는 입장한 사람이 좌석 화면을 떠날 때 부른다. 30초 뒤에 자리가 비고, 그 전에 입장·상태 확인·좌석 조회·점유를 부르면 "
+			+ "원래 입장 만료 시각이 유지된다. 대기 중인 사람에게는 아무 일도 하지 않는다.")
 	@DeleteMapping
 	public ResponseEntity<ApiResponse<Void>> leave(
 		@AuthenticationPrincipal CustomUserDetails account,
-		@Parameter(description = "회차 번호") @PathVariable Long scheduleId
+		@Parameter(description = "회차 번호") @PathVariable Long scheduleId,
+		@Parameter(description = "좌석 화면을 떠난 것이면 true. 바로 비우지 않는다")
+		@RequestParam(defaultValue = "false") boolean delayed
 	) {
-		queueFacade.leave(account.getId(), scheduleId);
+		queueFacade.leave(account.getId(), scheduleId, delayed);
 		return ResponseEntity.ok(ApiResponse.noContentSuccess());
 	}
 }
