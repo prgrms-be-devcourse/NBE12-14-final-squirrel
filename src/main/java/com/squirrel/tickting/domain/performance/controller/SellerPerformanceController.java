@@ -22,6 +22,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -167,6 +168,20 @@ public class SellerPerformanceController {
 		SellerPerformanceResponse.Canceled response = sellerPerformanceFacade.cancel(account.getBusinessId(),
 			account.getId(), performanceId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 삭제할 수 있다. */
+	@Operation(summary = "작성 중 공연 삭제",
+		description = "작성 중(DRAFT) 공연을 회차·등급·구역 설정·판매 좌석·상세 이미지와 함께 지운다. 되돌릴 수 없다. "
+			+ "공개했거나 취소한 공연은 409 다. 다른 사업체의 공연이거나 없는 공연은 404 다. "
+			+ "같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@DeleteMapping("/{performanceId}")
+	public ResponseEntity<ApiResponse<Void>> delete(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId
+	) {
+		sellerPerformanceService.delete(account.getBusinessId(), performanceId);
+		return ResponseEntity.ok(ApiResponse.noContentSuccess());
 	}
 
 	/** 등급은 공연의 하위 자원이라 공연 컨트롤러에 둔다. 대표·담당자 모두 조회할 수 있다. */

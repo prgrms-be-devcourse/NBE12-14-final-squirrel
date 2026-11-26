@@ -11,6 +11,7 @@ import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImag
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.SeatGradeRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.ZoneGradeRepository;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
@@ -83,6 +84,7 @@ public class SellerPerformanceService {
 	private final PerformanceImageRepository performanceImageRepository;
 	private final PerformanceScheduleRepository performanceScheduleRepository;
 	private final ZoneGradeRepository zoneGradeRepository;
+	private final SeatGradeRepository seatGradeRepository;
 	private final ScheduleSeatRepository scheduleSeatRepository;
 	private final DistributedLockExecutor lockExecutor;
 	private final TransactionTemplate transactionTemplate;
@@ -409,6 +411,34 @@ public class SellerPerformanceService {
 			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
 		}
 		return targetIds;
+	}
+
+	/**
+	 * 작성 중 공연을 딸린 행과 함께 지운다. 공개한 적이 없어 예매·결제가 없고 연기 이력도 생길 수 없다.
+	 * 검사 순서: 공연 조회 404(락 밖) → 락 → 재조회 → 작성 중. 공개와 겹쳐도 "작성 중일 때만" 지우는 쿼리가 마지막으로 막는다.
+	 */
+	public void delete(Long businessId, Long performanceId) {
+		// 남의 공연은 락을 잡기 전에 404 로 끝낸다.
+		getMineEntity(businessId, performanceId);
+		inPerformanceLock(performanceId, () -> {
+			deleteInTransaction(businessId, performanceId);
+			return null;
+		});
+	}
+
+	private void deleteInTransaction(Long businessId, Long performanceId) {
+		if (getMineEntity(businessId, performanceId).getStatus() != PerformanceStatus.DRAFT) {
+			throw new BusinessException(PerformanceExceptionCode.DELETE_NOT_DRAFT);
+		}
+		if (performanceRepository.deleteIfDraft(performanceId) == 0) {
+			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+		}
+		// 판매 좌석은 회차를 통해 찾으므로 회차보다 먼저 지운다.
+		scheduleSeatRepository.deleteByPerformanceId(performanceId);
+		performanceScheduleRepository.deleteByPerformanceId(performanceId);
+		zoneGradeRepository.deleteByPerformanceId(performanceId);
+		seatGradeRepository.deleteByPerformanceId(performanceId);
+		performanceImageRepository.deleteByPerformanceId(performanceId);
 	}
 
 	/** 바꿀 일시가 회차 추가와 같은 조건을 지키는가. 지난 시각은 요청 DTO 가 막는다. */

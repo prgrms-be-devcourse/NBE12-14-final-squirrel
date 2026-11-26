@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.performance;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -11,6 +12,7 @@ import com.squirrel.tickting.support.IntegrationTestSupport;
 import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -28,7 +30,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * 판매자의 공연 취소(SLR-16). 취소가 환불·예매에 이어지는지는 BookingCancelApiTest 가 확인한다.
+ * 판매자의 공연 취소(SLR-16)와 작성 중 공연 삭제. 취소가 환불·예매에 이어지는지는 BookingCancelApiTest 가 확인한다.
  * 끝나면 전용 공연장과 시드에 없는 사업체 번호의 공연·예매만 지운다.
  */
 class SellerPerformanceCancelDeleteApiTest extends IntegrationTestSupport {
@@ -36,6 +38,8 @@ class SellerPerformanceCancelDeleteApiTest extends IntegrationTestSupport {
 	private static final long MY_BUSINESS = 987L;
 	private static final long OTHER_BUSINESS = 988L;
 	private static final long SELLER_ID = 7L;
+	private static final List<String> CHILD_TABLES = List.of("performance_schedule", "seat_grade", "zone_grade",
+		"performance_image");
 
 	@Autowired
 	private RedissonClient redissonClient;
@@ -54,12 +58,14 @@ class SellerPerformanceCancelDeleteApiTest extends IntegrationTestSupport {
 	void deleteInsertedRows() {
 		String mine = "SELECT id FROM performance WHERE business_id IN (" + MY_BUSINESS + ", " + OTHER_BUSINESS + ")";
 		jdbc.update("DELETE FROM booking WHERE business_id = " + MY_BUSINESS);
-		jdbc.update("DELETE FROM performance_schedule WHERE performance_id IN (" + mine + ")");
+		jdbc.update("DELETE FROM schedule_seat WHERE schedule_id IN "
+			+ "(SELECT id FROM performance_schedule WHERE performance_id IN (" + mine + "))");
+		CHILD_TABLES.forEach(table -> jdbc.update("DELETE FROM " + table + " WHERE performance_id IN (" + mine + ")"));
 		jdbc.update("DELETE FROM performance WHERE business_id IN (" + MY_BUSINESS + ", " + OTHER_BUSINESS + ")");
 		jdbc.update("DELETE FROM venue WHERE id = ?", venueId);
 	}
 
-	/** 취소는 대표 전용이 아니라서 담당자 세션으로 보낸다. */
+	/** 취소·삭제는 대표 전용이 아니라서 담당자 세션으로 보낸다. */
 	private Cookie staff() {
 		return sessionCookie(new CustomUserDetails(SELLER_ID, AccountType.SELLER, "STAFF", MY_BUSINESS));
 	}
@@ -69,6 +75,10 @@ class SellerPerformanceCancelDeleteApiTest extends IntegrationTestSupport {
 			.cookie(staff())
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(Map.of("reason", "  제작사 사정  "))));
+	}
+
+	private ResultActions remove(Long performanceId) throws Exception {
+		return mockMvc.perform(delete("/api/v1/seller/performances/{id}", performanceId).cookie(staff()));
 	}
 
 	private Long insertPerformance(long businessId, String status) {
@@ -99,6 +109,39 @@ class SellerPerformanceCancelDeleteApiTest extends IntegrationTestSupport {
 			VALUES (?, 1, ?, ?, ?, ?, 'ONSITE', '홍길동', '01012345678', 'buyer@example.com', 1000, 0, 1000,
 			        '[]'::jsonb, NOW(), NOW(), NOW())
 			""", "T987-" + UUID.randomUUID().toString().substring(0, 8), scheduleId, performanceId, MY_BUSINESS, status);
+	}
+
+	/** 회차·등급·구역 설정·상세 이미지·판매 좌석이 하나씩 딸린 공연. */
+	private Long insertWithChildren(long businessId, String status) {
+		Long performanceId = insertPerformance(businessId, status);
+		Long scheduleId = insertSchedule(performanceId, 30, "ON_SALE");
+		Long gradeId = jdbc.queryForObject(
+			"INSERT INTO seat_grade (performance_id, name, price) VALUES (?, 'VIP', 1000) RETURNING id",
+			Long.class, performanceId);
+		jdbc.update("""
+			INSERT INTO zone_grade (performance_id, zone_id, grade_id, assignment_status)
+			VALUES (?, 1, ?, 'ASSIGNED')
+			""", performanceId, gradeId);
+		jdbc.update("INSERT INTO performance_image (performance_id, url, sort_order) "
+			+ "VALUES (?, 'https://cdn.example.com/detail.jpg', 1)", performanceId);
+		jdbc.update("""
+			INSERT INTO schedule_seat (schedule_id, venue_seat_id, zone_id, grade_id, price, status, version, updated_at)
+			VALUES (?, 1, 1, ?, 1000, 'RESERVED', 0, NOW())
+			""", scheduleId, gradeId);
+		return performanceId;
+	}
+
+	/** 공연 한 행과 딸린 행의 수. 순서는 공연, CHILD_TABLES, 판매 좌석이다. */
+	private List<Long> rowCounts(Long performanceId) {
+		List<Long> counts = new ArrayList<>();
+		counts.add(jdbc.queryForObject("SELECT count(*) FROM performance WHERE id = ?", Long.class, performanceId));
+		CHILD_TABLES.forEach(table -> counts.add(jdbc.queryForObject(
+			"SELECT count(*) FROM " + table + " WHERE performance_id = ?", Long.class, performanceId)));
+		counts.add(jdbc.queryForObject("""
+			SELECT count(*) FROM schedule_seat
+			 WHERE schedule_id IN (SELECT id FROM performance_schedule WHERE performance_id = ?)
+			""", Long.class, performanceId));
+		return counts;
 	}
 
 	private String performanceStatus(Long performanceId) {
@@ -206,22 +249,58 @@ class SellerPerformanceCancelDeleteApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("같은 공연의 다른 변경이 락을 쥐고 있으면 409 COMMON004 이고 취소하지 않는다")
+	@DisplayName("작성 중 공연을 삭제하면 딸린 행까지 지우고 다른 공연의 행은 남는다")
+	void deletesDraftWithChildren() throws Exception {
+		Long target = insertWithChildren(MY_BUSINESS, "DRAFT");
+		Long kept = insertWithChildren(MY_BUSINESS, "DRAFT");
+
+		remove(target).andExpect(status().isOk());
+
+		assertThat(rowCounts(target)).containsOnly(0L);
+		// 판매 좌석은 회차가 지워지면 위 쿼리로 보이지 않아 전체 수로도 확인한다
+		assertThat(rowCounts(kept)).containsOnly(1L);
+		assertThat(jdbc.queryForObject("""
+			SELECT count(*) FROM schedule_seat s
+			 WHERE NOT EXISTS (SELECT 1 FROM performance_schedule p WHERE p.id = s.schedule_id)
+			""", Long.class)).isZero();
+	}
+
+	@Test
+	@DisplayName("남의 공연 삭제는 404, 공개·취소한 공연 삭제는 409 이고 아무것도 지우지 않는다")
+	void rejectsDelete() throws Exception {
+		Map<Long, String> expected = Map.of(
+			insertWithChildren(OTHER_BUSINESS, "DRAFT"), "PERFORMANCE000",
+			insertWithChildren(MY_BUSINESS, "PUBLISHED"), "PERFORMANCE014",
+			insertWithChildren(MY_BUSINESS, "CANCELED"), "PERFORMANCE014");
+
+		for (Map.Entry<Long, String> entry : expected.entrySet()) {
+			remove(entry.getKey()).andExpect(jsonPath("$.code").value(entry.getValue()));
+			assertThat(rowCounts(entry.getKey())).containsOnly(1L);
+		}
+	}
+
+	@Test
+	@DisplayName("같은 공연의 다른 변경이 락을 쥐고 있으면 취소와 삭제는 409 COMMON004 다")
 	void waitsForPerformanceLock() throws Exception {
-		Long performanceId = insertPerformance(MY_BUSINESS, "PUBLISHED");
-		RLock lock = redissonClient.getLock("tickting:lock:performance:" + performanceId);
-		lock.lock();
+		Long published = insertPerformance(MY_BUSINESS, "PUBLISHED");
+		Long draft = insertWithChildren(MY_BUSINESS, "DRAFT");
+		List<RLock> locks = List.of(published, draft).stream()
+			.map(id -> redissonClient.getLock("tickting:lock:performance:" + id))
+			.toList();
+		locks.forEach(RLock::lock);
 		try {
 			// 락은 스레드마다 따로라서 다른 스레드에서 요청한다
 			CompletableFuture.runAsync(() -> {
 				try {
-					assertCancelRejected(performanceId, 409, "COMMON004");
+					assertCancelRejected(published, 409, "COMMON004");
+					remove(draft).andExpect(jsonPath("$.code").value("COMMON004"));
 				} catch (Exception e) {
 					throw new IllegalStateException(e);
 				}
 			}).get(10, TimeUnit.SECONDS);
 		} finally {
-			lock.unlock();
+			locks.forEach(RLock::unlock);
 		}
+		assertThat(rowCounts(draft)).containsOnly(1L);
 	}
 }

@@ -67,6 +67,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SCHEDULE_POSTPONED("PERFORMANCE012", HttpStatus.CONFLICT, "연기된 회차는 일시를 바꿀 수 없습니다."),
 	/** 작성 중(DRAFT) 공연을 취소하려 함(SLR-16). 예매자에게 보인 적이 없어 취소 이력을 남기지 않고 삭제하게 한다 */
 	DRAFT_CANCEL_NOT_ALLOWED("PERFORMANCE013", HttpStatus.CONFLICT, "작성 중인 공연은 취소할 수 없습니다. 삭제해 주세요."),
+	/** 공개했거나 취소한 공연을 삭제하려 함. 예매·환불 기록이 가리키는 공연이라 지우지 않는다 */
+	DELETE_NOT_DRAFT("PERFORMANCE014", HttpStatus.CONFLICT, "작성 중인 공연만 삭제할 수 있습니다."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */

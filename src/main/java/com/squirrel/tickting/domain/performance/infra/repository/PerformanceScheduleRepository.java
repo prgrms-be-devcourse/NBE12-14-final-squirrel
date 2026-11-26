@@ -119,6 +119,11 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 	int cancelAll(@Param("scheduleIds") Collection<Long> scheduleIds, @Param("reason") String reason,
 		@Param("now") LocalDateTime now);
 
+	/** 공연의 모든 회차를 지운다. 작성 중 공연을 삭제할 때만 쓴다. */
+	@Modifying(flushAutomatically = true)
+	@Query("DELETE FROM PerformanceSchedule s WHERE s.performance.id = :performanceId")
+	void deleteByPerformanceId(@Param("performanceId") Long performanceId);
+
 	/**
 	 * 이 공연의 회차 중, 주어진 공연장의 다른 회차와 시간이 겹치는 회차의 시작 일시. 빠른 순이다.
 	 * 회차가 차지하는 시간은 시작부터 러닝타임 + bufferMinutes 까지이고, 끝나는 시각과 다음 시작이 같으면 겹치지 않는다.
