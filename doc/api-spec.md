@@ -99,7 +99,7 @@
 | SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 구현됨 |
 | SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 구현됨 |
 | SLR-15 | 회차 취소 | POST `/api/v1/seller/schedules/{scheduleId}/cancel` | 구현됨 |
-| SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
+| SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 구현됨 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 구현됨 |
 | SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 구현됨 (사용 중단 예정, SLR-23 사용) |
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
@@ -108,6 +108,7 @@
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | SLR-23 | 내 사업체 예매 목록 | GET `/api/v1/seller/bookings` | 구현됨 |
 | SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
+| SLR-25 | 작성 중 공연 삭제 | DELETE `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -1557,7 +1558,7 @@ Body 없음. `DRAFT` → `PUBLISHED`. 판매자(대표·담당자) 토큰만 쓸
 10. 전석(`ALL`)과 다른 등급이 함께 구역에 지정되어 있으면 안 됩니다. (`PERFORMANCE303`)
 
 - 공연 수정, 같은 공연의 구역·등급 수정(SLR-10·11), 그 공연이 쓰는 취소 규정 수정(SLR-22)과 겹치면 하나씩 처리됩니다. 락을 1초 안에 잡지 못하면 409 `COMMON004`(잠시 후 다시 시도)입니다. 서비스 기본 규정을 쓰는 공연은 규정 락을 잡지 않습니다. (기본 규정은 항상 수정할 수 없어서 부딪히지 않습니다)
-- 공개 두 번이나 공연 취소와 겹쳐도 상태 조건부 UPDATE(`DRAFT`일 때만 바뀜)가 마지막으로 막아 409 `PERFORMANCE400`입니다.
+- 공개 두 번이나 삭제(SLR-25)와 겹쳐도 상태 조건부 UPDATE(`DRAFT`일 때만 바뀜)가 마지막으로 막아 409 `PERFORMANCE400`입니다.
 - 문제 구역·회차는 에러 응답의 `data`가 아니라 **메시지**에 나옵니다. (에러 응답에 `data`를 담는 방식은 아직 정하지 않았습니다)
 
 **응답 200**
@@ -2151,9 +2152,11 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 | 409 | `PERFORMANCE501` | 이미 취소한 회차 |
 | 400 | `PERFORMANCE502` | 이미 시작한 회차 |
 
-### SLR-16 공연 취소 — `POST /api/v1/seller/performances/{performanceId}/cancel`
+### SLR-16 공연 취소 — `POST /api/v1/seller/performances/{performanceId}/cancel` (구현됨)
 
-**요청**
+대표·담당자 모두 취소할 수 있습니다. **공개(`PUBLISHED`) 공연만** 취소하고 **되돌릴 수 없습니다.** 작성 중 공연은 삭제(SLR-25)를 씁니다.
+
+**요청** (`reason`은 필수, 앞뒤 공백을 뺀 500자 이하)
 
 ```json
 { "reason": "공연 전체 취소" }
@@ -2175,7 +2178,44 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 }
 ```
 
-**에러**(코드 미정): 409 이미 취소된 공연
+- **취소하는 회차**: 취소되지 않았고 **아직 시작하지 않았거나 연기(`POSTPONED`)된** 회차입니다. 연기 회차는 새 일정이 정해지기 전이라 시작 일시가 지났어도 열린 적이 없습니다.
+- **이미 시작한 회차**는 상태를 바꾸지 않고 그 예매도 환불하지 않습니다.
+- 회차가 없거나 모두 따로 취소(SLR-15)한 공연은 취소할 수 있습니다. 취소되지 않은 회차가 있는데 모두 시작했으면 취소할 수 없습니다.
+- `canceledScheduleCount`와 `refundRequestedCount`는 **이번 요청으로 취소한 회차**만 셉니다. 환불 대상은 결제 완료(`PAID`)·일부 취소(`PARTIAL_CANCELED`) 예매 수입니다. 먼저 따로 취소한 회차는 빠지고 취소 사유도 그대로입니다.
+- 공연 상태를 `CANCELED`로 바꾸고, 취소하는 회차는 `CANCELED`로 바꾸며 일시중지 사유를 비우고 취소 사유를 저장합니다. 공연에는 사유 컬럼이 없어 취소한 회차와 감사 로그에만 남습니다.
+- 감사 로그(`SELLER`, `PERFORMANCE`, `CANCEL`, 취소한 회차 번호 포함) 한 줄을 같은 트랜잭션에 남기고, 저장하지 못하면 취소도 되돌립니다.
+- 환불은 회차 취소(SLR-15)의 "요청 뒤의 흐름"과 같습니다. 요청 안에서는 환불을 만들지도 토스를 부르지도 않습니다.
+- 취소한 공연은 예매자의 공연 목록에서 빠지고 상세는 404입니다. (공개 조회 캐시 시간만큼 늦을 수 있습니다)
+
+**에러** (겹치면 위가 먼저)
+
+| HTTP | 코드 | 언제 |
+|---|---|---|
+| 400 | `COMMON000` | 취소 사유가 비었거나 500자 초과 |
+| 404 | `PERFORMANCE000` | 없는 공연, 다른 사업체의 공연 |
+| 409 | `COMMON004` | 같은 공연의 다른 변경과 겹쳐 락을 1초 안에 잡지 못함, 또는 확인 뒤 저장 전에 공연·회차가 바뀜 |
+| 409 | `PERFORMANCE002` | 이미 취소한 공연 |
+| 409 | `PERFORMANCE013` | 작성 중 공연 |
+| 409 | `PERFORMANCE010` | 취소할 회차 없이 모두 시작함 |
+
+### SLR-25 작성 중 공연 삭제 — `DELETE /api/v1/seller/performances/{performanceId}` (구현됨)
+
+대표·담당자 모두 삭제할 수 있습니다. **작성 중(`DRAFT`) 공연만** 지우고 **되돌릴 수 없습니다.** 요청 본문은 없습니다.
+
+**응답 200** (`data`는 `null`)
+
+- 공연과 회차, 등급, 구역 설정, 판매 좌석(판매자 보류석 포함), 상세 이미지 행을 한 트랜잭션에서 완전히 지웁니다. 업로드한 이미지 파일은 지우지 않습니다.
+- 작성 중 공연은 공개한 적이 없어 예매·결제·환불이 없습니다. 감사 로그를 남기지 않습니다. (이미 남은 회차 취소 로그는 그대로입니다)
+- 삭제하면 그 공연장 시간이 비고, 그 공연만 쓰던 취소 규정은 계속 수정할 수 있습니다.
+- 락은 공연 단위(`performance:{공연 번호}`)입니다. 공개와 겹쳐도 "작성 중일 때만 지운다"는 조건이 막습니다. 등급 추가(SLR-09)는 이 락을 잡지 않아, 동시에 오면 어느 화면에도 보이지 않는 등급 행이 남을 수 있습니다.
+
+**에러** (겹치면 위가 먼저)
+
+| HTTP | 코드 | 언제 |
+|---|---|---|
+| 404 | `PERFORMANCE000` | 없는 공연(이미 삭제 포함), 다른 사업체의 공연 |
+| 409 | `COMMON004` | 락을 1초 안에 잡지 못함, 또는 확인 뒤 지우기 전에 상태가 바뀜 |
+| 409 | `PERFORMANCE014` | 공개했거나 취소한 공연 |
 
 ### SLR-17 판매 현황 — `GET /api/v1/seller/performances/{performanceId}/sales` (구현됨)
 
