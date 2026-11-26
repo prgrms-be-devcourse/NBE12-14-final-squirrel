@@ -1,22 +1,31 @@
 package com.squirrel.tickting.domain.performance;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
 import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * 판매자의 판매 현황(SLR-17).
+ * 판매자의 판매 현황(SLR-17)과, 끝난 회차의 좌석을 지운 뒤에도 같은 값을 보여 주는지.
  * 시드 공연을 믿는 다른 테스트가 있어서 테이블을 비우지 않는다. 시드에 없는 사업체 번호로 공연을 넣고,
  * 끝나면 그 사업체의 공연·회차·판매 좌석만 지운다. 공연장은 시드의 가상 아레나를 쓰고 판매 좌석은 그 좌석을 복사해 SQL 로 넣는다.
  */
@@ -25,6 +34,14 @@ class SellerSalesApiTest extends IntegrationTestSupport {
 	private static final String URL = "/api/v1/seller/performances/{performanceId}/sales";
 	private static final long MY_BUSINESS = 897L;
 	private static final long OTHER_BUSINESS = 898L;
+	/**
+	 * 좌석 정리를 돌릴 기준 시각. 정리는 모든 회차를 보므로, 시드 회차(지금 근처)가 대상이 되지 않게 아주 먼 과거로 잡고
+	 * 이 테스트의 회차도 그 근처에 둔다. 보관 기간은 application.yaml 의 30일이다.
+	 */
+	private static final LocalDateTime CLEANUP_NOW = LocalDateTime.of(2001, 1, 1, 4, 0);
+
+	@Autowired
+	private ScheduleSeatService scheduleSeatService;
 
 	@AfterEach
 	void deleteInsertedRows() {
@@ -160,5 +177,87 @@ class SellerSalesApiTest extends IntegrationTestSupport {
 			.andExpect(status().isOk());
 		mockMvc.perform(get(URL, performanceId).cookie(token(AccountType.USER, "USER", null)))
 			.andExpect(status().isForbidden());
+	}
+
+	private int seatCount(Long scheduleId) {
+		return jdbc.queryForObject("SELECT COUNT(*) FROM schedule_seat WHERE schedule_id = ?", Integer.class, scheduleId);
+	}
+
+	@Test
+	@DisplayName("보관 기간이 지난 회차(취소 회차 포함)만 좌석을 지우고, 판매 현황은 지우기 전과 같은 개수를 보여 준다")
+	void purgedScheduleKeepsSalesCounts() throws Exception {
+		Long performanceId = insertPerformance(MY_BUSINESS, "PUBLISHED");
+		Long ended = insertSchedule(performanceId, CLEANUP_NOW.minusDays(40), "ON_SALE", true);
+		Long canceled = insertSchedule(performanceId, CLEANUP_NOW.minusDays(35), "CANCELED", true);
+		Long recent = insertSchedule(performanceId, CLEANUP_NOW.minusDays(29), "ON_SALE", true);
+		Long notGenerated = insertSchedule(performanceId, CLEANUP_NOW.minusDays(50), "ON_SALE", false);
+		insertSeats(ended, "SOLD", 0, 3, null);
+		insertSeats(ended, "AVAILABLE", 3, 5, null);
+		insertSeats(ended, "RESERVED", 8, 2, null);
+		insertSeats(ended, "BLOCKED", 10, 1, null);
+		insertSeats(canceled, "AVAILABLE", 0, 4, null);
+		insertSeats(recent, "SOLD", 0, 2, null);
+
+		assertThat(scheduleSeatService.purgeEndedSeats(CLEANUP_NOW)).isEqualTo(2);
+
+		assertThat(seatCount(ended)).isZero();
+		assertThat(seatCount(canceled)).isZero();
+		assertThat(seatCount(recent)).isEqualTo(2);
+		assertThat(jdbc.queryForObject("SELECT seats_purged_at FROM performance_schedule WHERE id = ?",
+			Timestamp.class, notGenerated)).isNull();
+		// 공연 일시순: notGenerated(50일 전) → ended(40일 전) → canceled(35일 전) → recent(29일 전)
+		mockMvc.perform(request(performanceId))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.schedules[0].seatsGenerated").value(false))
+			.andExpect(jsonPath("$.data.schedules[0].soldSeats").doesNotExist())
+			.andExpect(jsonPath("$.data.schedules[1].scheduleId").value(ended))
+			.andExpect(jsonPath("$.data.schedules[1].seatsGenerated").value(true))
+			.andExpect(jsonPath("$.data.schedules[1].soldSeats").value(3))
+			.andExpect(jsonPath("$.data.schedules[1].heldSeats").value(0))
+			.andExpect(jsonPath("$.data.schedules[1].availableSeats").value(5))
+			.andExpect(jsonPath("$.data.schedules[1].reservedSeats").value(2))
+			.andExpect(jsonPath("$.data.schedules[1].blockedSeats").value(1))
+			.andExpect(jsonPath("$.data.schedules[2].scheduleId").value(canceled))
+			.andExpect(jsonPath("$.data.schedules[2].availableSeats").value(4))
+			.andExpect(jsonPath("$.data.schedules[3].scheduleId").value(recent))
+			.andExpect(jsonPath("$.data.schedules[3].soldSeats").value(2));
+	}
+
+	@Test
+	@DisplayName("서버 여러 대가 동시에 정리해도 회차마다 한 번만 지우고, 다시 돌려도 남긴 개수가 0 으로 덮이지 않는다")
+	void purgesOnceConcurrently() throws Exception {
+		Long performanceId = insertPerformance(MY_BUSINESS, "PUBLISHED");
+		Long ended = insertSchedule(performanceId, CLEANUP_NOW.minusDays(40), "ON_SALE", true);
+		insertSeats(ended, "SOLD", 0, 3, null);
+		insertSeats(ended, "AVAILABLE", 3, 5, null);
+
+		int threads = 5;
+		ExecutorService executor = Executors.newFixedThreadPool(threads);
+		CountDownLatch start = new CountDownLatch(1);
+		List<Future<Integer>> results = new ArrayList<>();
+		try {
+			for (int i = 0; i < threads; i++) {
+				results.add(executor.submit(() -> {
+					start.await();
+					return scheduleSeatService.purgeEndedSeats(CLEANUP_NOW);
+				}));
+			}
+			start.countDown();
+			int purged = 0;
+			for (Future<Integer> result : results) {
+				purged += result.get();
+			}
+
+			assertThat(purged).isEqualTo(1);
+		} finally {
+			executor.shutdownNow();
+		}
+		assertThat(scheduleSeatService.purgeEndedSeats(CLEANUP_NOW.plusDays(1))).isZero();
+
+		assertThat(seatCount(ended)).isZero();
+		assertThat(jdbc.queryForMap(
+			"SELECT final_sold_seats, final_available_seats FROM performance_schedule WHERE id = ?", ended))
+			.containsEntry("final_sold_seats", 3)
+			.containsEntry("final_available_seats", 5);
 	}
 }

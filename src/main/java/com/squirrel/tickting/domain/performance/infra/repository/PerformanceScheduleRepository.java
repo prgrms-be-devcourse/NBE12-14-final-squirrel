@@ -182,6 +182,44 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("excludedStatus") ScheduleStatus excludedStatus, @Param("now") LocalDateTime now,
 		@Param("openUntil") LocalDateTime openUntil);
 
+	/**
+	 * 판매 좌석을 지울 때가 된 회차 번호. 좌석을 만들었고 아직 지우지 않았으며 공연 일시가 cutoff 이전인 회차다.
+	 * 취소된 회차도 포함한다. 취소 회차의 좌석도 다시 팔 일이 없고, 환불은 좌석 행을 쓰지 않는다. (refund·payment·booking_seat 만 씀)
+	 * 오래된 회차부터다. (부분 인덱스 idx_performance_schedule_seats_purge)
+	 */
+	@Query("""
+		SELECT s.id
+		  FROM PerformanceSchedule s
+		 WHERE s.seatsGeneratedAt IS NOT NULL
+		   AND s.seatsPurgedAt IS NULL
+		   AND s.startAt < :cutoff
+		 ORDER BY s.startAt, s.id
+		""")
+	List<Long> findSeatPurgeTargets(@Param("cutoff") LocalDateTime cutoff);
+
+	/**
+	 * 회차를 "좌석 지움"으로 표시하고 지우기 직전의 상태별 좌석 수를 남긴다. 아직 지우지 않은 회차만 바꿔서,
+	 * 서버 여러 대가 같은 회차를 동시에 정리해도 한 서버만 1행을 얻는다. 0행을 받은 서버는 좌석을 지우지 않고 넘어간다.
+	 * 먼저 바꾼 서버가 커밋할 때까지 뒤에 온 UPDATE 는 행 잠금을 기다렸다가 조건을 다시 보고 0행이 된다.
+	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣는다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE PerformanceSchedule s
+		   SET s.seatsPurgedAt = :now,
+		       s.finalSoldSeats = :sold,
+		       s.finalHeldSeats = :held,
+		       s.finalAvailableSeats = :available,
+		       s.finalReservedSeats = :reserved,
+		       s.finalBlockedSeats = :blocked,
+		       s.updatedAt = :now
+		 WHERE s.id = :scheduleId
+		   AND s.seatsPurgedAt IS NULL
+		""")
+	int markSeatsPurged(@Param("scheduleId") Long scheduleId, @Param("sold") int sold, @Param("held") int held,
+		@Param("available") int available, @Param("reserved") int reserved, @Param("blocked") int blocked,
+		@Param("now") LocalDateTime now);
+
 	/** findSeatGenerationTargets 의 결과 한 줄. */
 	interface SeatGenerationTarget {
 

@@ -137,7 +137,7 @@ PENDING ──결제 성공──→ PAID ──일부 좌석 취소──→ PA
 |---|---|---|---|---|---|
 | PK | 예매 좌석 번호 | `id` | Long | NOT NULL |  |
 | FK | 예매 번호 | `booking_id` | Long | NOT NULL | (booking) |
-| FK | 판매 좌석 번호 | `schedule_seat_id` | Long | NULL | 끝난 회차의 좌석을 지우면 비게 됨 (schedule_seat) |
+| FK | 판매 좌석 번호 | `schedule_seat_id` | Long | NULL | 끝난 회차의 좌석을 지워도 번호는 남아서 없는 좌석을 가리킴 (schedule_seat) |
 |  | 구역명 | `zone_name` | String | NOT NULL | 스냅샷. 예: F2구역 |
 |  | 열 | `row_label` | String | NOT NULL | 스냅샷. 예: 9열 |
 |  | 좌석 번호 | `seat_number` | String | NOT NULL | 스냅샷. 예: 6 |

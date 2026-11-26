@@ -263,6 +263,8 @@ erDiagram
 |  | 판매 상태 | `status` | enum | NOT NULL | ON_SALE 판매 중 / PAUSED 일시중지 / POSTPONED 연기 / CANCELED 회차 취소 |
 |  | 중지 사유 | `pause_reason` | String | NULL | 일시중지일 때만 |
 |  | 좌석 생성 일시 | `seats_generated_at` | LocalDateTime | NULL | 판매 좌석(`schedule_seat`)을 만든 시각. 비어 있으면 아직 안 만든 회차 (3-5) |
+|  | 좌석 정리 일시 | `seats_purged_at` | LocalDateTime | NULL | 끝난 회차의 판매 좌석을 지운 시각. 비어 있으면 아직 안 지운 회차 (3-5) |
+|  | 정리 전 좌석 수 | `final_sold_seats` · `final_held_seats` · `final_available_seats` · `final_reserved_seats` · `final_blocked_seats` | Integer | NULL | 지우기 직전의 상태별 좌석 수. 판매 현황(SLR-17)이 지운 회차에 이 값을 보여 준다 (3-5) |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |
 
@@ -568,9 +570,12 @@ ALTER TABLE schedule_seat SET (fillfactor = 80, autovacuum_vacuum_scale_factor =
 | 지우는 대상 | 끝난 회차의 `schedule_seat` (회차, 예매, 결제는 남김) |
 | 지우는 시점 | 공연이 끝나고 **무료 취소·환불 처리 기간이 지난 뒤** (예: 공연 후 30일) |
 | 지워도 되는 이유 | 누가 어떤 좌석을 얼마에 샀는지는 `booking_seat`에 **스냅샷**(구역명, 열, 번호, 등급명, 가격)으로 남아 있음 |
-| 필요한 설계 | `booking_seat`가 `schedule_seat`를 가리키는 컬럼을 **NULL 허용**으로 둠 (4부) |
-| 지우는 방법 | 스케줄러가 회차 단위로 묶어서 삭제 |
-| 지우지 않는 경우 | 환불이 진행 중인 예매가 있는 회차 |
+| 필요한 설계 | `booking_seat`가 `schedule_seat`를 가리키는 컬럼을 **NULL 허용**으로 둠 (4부). 지울 때 이 값을 비우지는 않는다. 논리 FK라 없는 번호를 가리켜도 오류가 나지 않고, 비우려면 행이 많은 `booking_seat`를 UPDATE해야 해서다 |
+| 지우는 방법 | 스케줄러가 매일 새벽 4시(한국 시각, 임시)에 대상 회차를 오래된 순으로 찾아 **회차 하나 = 트랜잭션 하나**로 지운다. 한 회차가 실패해도 나머지는 계속하고, 실패한 회차는 다음 실행에서 다시 대상이 된다. 보관 기간은 설정값(`app.performance.seat-cleanup.retention`, 임시 30일)이라 코드를 고치지 않고 바꿀 수 있다. 줄이면 다음 실행에서 그만큼 더 지우고, 지운 좌석은 늘려도 돌아오지 않는다 |
+| 판매 현황 | 지우기 직전의 상태별 좌석 수를 회차(`final_*` 컬럼)에 남기고, 판매 현황(SLR-17)은 지운 회차에 그 값을 보여 준다. 세기·기록·삭제가 한 트랜잭션이고, 공연 당일부터는 예매자가 취소할 수 없어서 지울 무렵에는 판매 수가 더 바뀌지 않는다 |
+| 서버 여러 대 | 락을 잡지 않는다. 끝난 회차의 좌석을 바꾸는 흐름이 없고, "아직 지우지 않은 회차만" 기록하는 조건부 UPDATE가 한 서버만 통과시킨다. 0행을 받은 서버는 지우지 않는다 |
+| 취소된 회차 | 같이 지운다. 기준은 취소 시각이 아니라 원래 공연 일시다. 환불이 끝나기 전에 지우면 아직 돌려주지 않은 좌석이 `final_sold_seats`에 들어갈 수 있는데, 취소 회차의 판매 수는 의미가 없어 감수한다 |
+| 환불이 남은 회차 | **기다리지 않고 지운다** (2026-11-27 변경, 처음에는 "지우지 않는 경우"였다). 환불 보내기·재시도·관리자 재처리는 `refund`·`payment`만 쓰고, 좌석을 돌려주는 UPDATE는 대상이 없으면 0행으로 끝나 실패하지 않는다. 기다리게 하면 재시도를 다 쓴 실패 환불이 있는 회차가 영원히 남는다 |
 | 확장 | 파티셔닝(회차 기준), 보관용 테이블로 이동 |
 
 > ⚠️ 이 방침은 **"예매 좌석에 스냅샷을 저장한다"**는 전제 위에서만 성립합니다. 4부에서 `booking_seat`를 그렇게 설계합니다.

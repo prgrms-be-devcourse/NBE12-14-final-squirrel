@@ -59,6 +59,29 @@ public class PerformanceSchedule extends BaseTimeEntity {
 	private LocalDateTime seatsGeneratedAt;
 
 	/**
+	 * 끝난 회차의 판매 좌석을 지운 시각. 비어 있으면 아직 지우지 않았다. 지운 회차의 판매 현황은 아래 final_* 값으로 보여 준다.
+	 * 값은 정리 작업의 조건부 UPDATE 로만 채운다. (ScheduleSeatService.purgeEndedSeats)
+	 */
+	@Column
+	private LocalDateTime seatsPurgedAt;
+
+	/** 좌석을 지우기 직전의 상태별 좌석 수. seatsPurgedAt 이 있을 때만 값이 있다. */
+	@Column
+	private Integer finalSoldSeats;
+
+	@Column
+	private Integer finalHeldSeats;
+
+	@Column
+	private Integer finalAvailableSeats;
+
+	@Column
+	private Integer finalReservedSeats;
+
+	@Column
+	private Integer finalBlockedSeats;
+
+	/**
 	 * 연기 이력(읽기 전용). 최신 이력이 먼저다. 연기 무료 취소는 가장 최근 이력만 보고 판단한다.
 	 * 연기 이력은 SchedulePostponement 를 직접 저장해서 만들고, 이 목록으로는 저장하지 않는다.
 	 */

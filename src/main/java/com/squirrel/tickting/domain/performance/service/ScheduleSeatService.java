@@ -10,17 +10,23 @@ import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScheduleSeatService {
 
 	private final ScheduleSeatRepository scheduleSeatRepository;
 	private final PerformanceScheduleRepository performanceScheduleRepository;
+	private final PerformanceProperties properties;
+	private final TransactionTemplate transactionTemplate;
 
 	/**
 	 * 작성 중(DRAFT) 공연의 판매 좌석을 모두 지우고, 취소되지 않은 회차의 좌석 생성 시각을 비워 스케줄러가 다시 만들게 한다.
@@ -117,6 +123,56 @@ public class ScheduleSeatService {
 		if (sold != seatIds.size()) {
 			throw new IllegalStateException("점유 중인 좌석 " + seatIds.size() + "개 중 " + sold + "개만 판매 완료로 바꿨다.");
 		}
+	}
+
+	/**
+	 * 공연 일시부터 보관 기간(app.performance.seat-cleanup.retention)이 지난 회차의 판매 좌석을 지운다. (doc/part3-performance-area.md 3-5)
+	 * 지우기 직전의 상태별 좌석 수를 회차에 남겨서 판매 현황(SLR-17)이 같은 값을 계속 보여 준다.
+	 * 회차 하나가 트랜잭션 하나다. 한 회차가 실패해도 나머지는 계속하고, 실패한 회차는 다음 실행에서 다시 대상이 된다.
+	 *
+	 * 환불이 남은 회차도 지운다. 환불을 보내고 다시 보내는 흐름은 refund·payment 만 쓰고, 좌석을 돌려주는 UPDATE 는 대상이 없으면
+	 * 0행으로 끝나서 좌석 행이 없어도 실패하지 않는다. 기다리게 하면 재시도를 다 쓴 실패 환불이 있는 회차가 영원히 남는다.
+	 * 락은 잡지 않는다. 끝난 회차의 좌석은 바꾸는 흐름이 없고, 서버끼리 겹치면 markSeatsPurged 의 조건이 한쪽만 통과시킨다.
+	 *
+	 * @return 좌석을 지운 회차 수
+	 */
+	public int purgeEndedSeats(LocalDateTime now) {
+		LocalDateTime cutoff = now.minus(properties.seatCleanup().retention());
+		int purged = 0;
+		for (Long scheduleId : performanceScheduleRepository.findSeatPurgeTargets(cutoff)) {
+			try {
+				Optional<Integer> deleted = transactionTemplate.execute(status -> purgeSeatsOf(scheduleId, now));
+				if (deleted != null && deleted.isPresent()) {
+					purged++;
+					log.info("끝난 회차의 판매 좌석을 지웠다. 회차 {}, 좌석 {}개", scheduleId, deleted.get());
+				} else {
+					log.debug("다른 서버가 먼저 정리한 회차라 건너뛴다. 회차 {}", scheduleId);
+				}
+			} catch (RuntimeException e) {
+				log.error("끝난 회차의 판매 좌석을 지우지 못했다. 다음 실행에서 다시 시도한다. 회차 {}", scheduleId, e);
+			}
+		}
+		return purged;
+	}
+
+	/**
+	 * 한 회차의 좌석을 세서 회차에 남기고 지운다. 다른 서버가 먼저 정리했으면 비어 있다.
+	 * 세기·표시·삭제가 한 트랜잭션이라, 센 뒤 지우기 전에 값이 바뀌는 틈이 없다. (끝난 회차라 바꾸는 흐름도 없다)
+	 */
+	private Optional<Integer> purgeSeatsOf(Long scheduleId, LocalDateTime now) {
+		List<ScheduleSeatRepository.SeatStatusCount> counts = scheduleSeatRepository.countByStatus(List.of(scheduleId));
+		int marked = performanceScheduleRepository.markSeatsPurged(scheduleId, count(counts, SeatStatus.SOLD),
+			count(counts, SeatStatus.HELD), count(counts, SeatStatus.AVAILABLE), count(counts, SeatStatus.RESERVED),
+			count(counts, SeatStatus.BLOCKED), now);
+		if (marked == 0) {
+			return Optional.empty();
+		}
+		return Optional.of(scheduleSeatRepository.deleteByScheduleId(scheduleId));
+	}
+
+	private static int count(List<ScheduleSeatRepository.SeatStatusCount> counts, SeatStatus status) {
+		return Math.toIntExact(counts.stream().filter(c -> c.getStatus() == status)
+			.mapToLong(ScheduleSeatRepository.SeatStatusCount::getCount).sum());
 	}
 
 	private static boolean isExcludedFromSale(ScheduleSeat seat) {

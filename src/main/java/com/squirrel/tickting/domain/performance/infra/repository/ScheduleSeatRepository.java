@@ -64,6 +64,15 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 		""")
 	int deleteByPerformanceId(@Param("performanceId") Long performanceId);
 
+	/**
+	 * 회차 하나의 판매 좌석을 지운다. 끝난 회차 좌석 정리만 쓴다. 예매 좌석(booking_seat)은 구역·열·번호·등급·가격을 복사해 두어서
+	 * 원본을 지워도 예매 내역이 남는다. booking_seat.schedule_seat_id 는 비우지 않는다. (논리 FK 라 없는 번호를 가리켜도 오류가 나지 않고,
+	 * 비우려면 행이 많은 booking_seat 를 UPDATE 해야 한다)
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("DELETE FROM ScheduleSeat s WHERE s.scheduleId = :scheduleId")
+	int deleteByScheduleId(@Param("scheduleId") Long scheduleId);
+
 	/** 점유 중(HELD)인 좌석의 점유 만료 시각만 늘리고 바뀐 행 수를 돌려준다. */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""

@@ -319,9 +319,18 @@ public class SellerPerformanceResponse {
 		Long blockedSeats
 	) {
 
-		/** 좌석을 만든 회차는 상태별 개수(없는 상태는 0)를, 만들지 않은 회차는 null 을 담는다. */
+		/**
+		 * 좌석을 만든 회차는 상태별 개수(없는 상태는 0)를, 만들지 않은 회차는 null 을 담는다.
+		 * 끝나서 좌석을 지운 회차는 지우기 직전에 남긴 개수를 담는다. 응답 모양은 같아서 화면은 구분하지 않아도 된다.
+		 */
 		public static ScheduleSales of(PerformanceSchedule schedule, Integer totalSeats,
 			List<ScheduleSeatRepository.SeatStatusCount> counts) {
+			if (schedule.getSeatsPurgedAt() != null) {
+				return new ScheduleSales(schedule.getId(), schedule.getStartAt(), schedule.getStatus(), true, totalSeats,
+					schedule.getFinalSoldSeats().longValue(), schedule.getFinalHeldSeats().longValue(),
+					schedule.getFinalAvailableSeats().longValue(), schedule.getFinalReservedSeats().longValue(),
+					schedule.getFinalBlockedSeats().longValue());
+			}
 			boolean generated = schedule.getSeatsGeneratedAt() != null;
 			return new ScheduleSales(schedule.getId(), schedule.getStartAt(), schedule.getStatus(), generated,
 				totalSeats,

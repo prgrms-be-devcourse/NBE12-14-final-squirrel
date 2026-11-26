@@ -203,7 +203,7 @@ erDiagram
 | 결제 불일치 보정 | 5분 | `payment`, `booking`, `refund` | 토스 조회 후 확정·환불·만료 |
 | 환불 재시도 | 1~5분 | `refund` | `FAILED` 중 재시도 3회 미만인 건 재요청, 오래된 `PROCESSING` 건 토스 조회 후 확정 |
 | 일괄 환불 처리 | 수시 | `refund` | `REQUESTED` 건을 차례로 처리 |
-| 끝난 회차 좌석 정리 | 하루 1회 | `schedule_seat` | 공연 후 30일이 지난 회차의 판매 좌석 삭제 (3부) |
+| 끝난 회차 좌석 정리 | 하루 1회 (새벽 4시, 임시) | `performance_schedule`, `schedule_seat` | 공연 후 30일(임시)이 지난 회차의 상태별 좌석 수를 회차에 남기고 판매 좌석 삭제. 환불이 남아도 지운다 (3부 3-5) |
 | 판매 좌석 생성 | 1시간 | `performance_schedule`, `schedule_seat` | 판매 오픈 24시간 전이 된 회차의 좌석 복사. 실패하면 다음 주기에 재시도 (3부) |
 
 환불 재시도와 일괄 환불 처리는 같은 작업(`REQUESTED`와 재시도 가능한 `FAILED`를 함께 처리)으로 합칠 수 있습니다.
