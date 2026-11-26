@@ -2,8 +2,9 @@
 
 import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
 import { getVenueLayout } from "@/lib/venue-layouts";
@@ -26,7 +27,7 @@ type Picked = {
 const tint = (color: string | null, alpha: string) => (color ? `${color}${alpha}` : undefined);
 
 export default function SeatSelectPage() {
-  const { id, scheduleId } = useParams<{ id: string; scheduleId: string }>();
+  const { id, scheduleId } = useRouteParams<{ id: string; scheduleId: string }>("/performances/[id]/schedules/[scheduleId]");
   // 예매하기를 누르면 먼저 대기열에 입장해야 구역·좌석을 볼 수 있다.
   return (
     <QueueGate scheduleId={scheduleId} backHref={`/performances/${id}`}>
@@ -36,7 +37,7 @@ export default function SeatSelectPage() {
 }
 
 function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
-  const { id, scheduleId } = useParams<{ id: string; scheduleId: string }>();
+  const { id, scheduleId } = useRouteParams<{ id: string; scheduleId: string }>("/performances/[id]/schedules/[scheduleId]");
   const router = useRouter();
   const account = useAccount();
   const toLogin = () => router.push("/login");

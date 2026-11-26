@@ -1,6 +1,7 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useRouteParams } from "@/lib/route-params";
 import { api, useApi } from "@/lib/api";
 import type { PerformanceForm, SellerPerformanceDetail } from "@/lib/types";
 import { ConsoleTitle } from "@/components/console";
@@ -8,7 +9,7 @@ import { PerformanceFormView } from "@/components/performance-form";
 import { ErrorBox, Loading } from "@/components/ui";
 
 export default function EditPerformancePage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/seller/performances/[id]/edit");
   const router = useRouter();
   const { data, error, loading, reload } = useApi<SellerPerformanceDetail>(`/api/v1/seller/performances/${id}`);
 

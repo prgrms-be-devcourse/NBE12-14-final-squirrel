@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouteParams } from "@/lib/route-params";
 
 export default function PayFailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/bookings/[id]/pay/fail");
   const params = useSearchParams();
   // 토스가 failUrl 에 code, message 를 붙여 준다. 화면에는 메시지만 보여 주고 주문 번호 등은 노출하지 않는다.
   const message = params.get("message") || "결제가 완료되지 않았습니다";

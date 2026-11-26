@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api } from "@/lib/api";
 import { clearBooking } from "@/lib/booking-cache";
 import { dateTimeText, won } from "@/lib/format";
@@ -15,7 +16,7 @@ type Failure = { code: string; message: string };
 const NO_RETRY_CODES = new Set(["PAYMENT006", "PAYMENT003"]);
 
 export default function PaySuccessPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/bookings/[id]/pay/success");
   const router = useRouter();
   const params = useSearchParams();
   const [failure, setFailure] = useState<Failure | null>(null);

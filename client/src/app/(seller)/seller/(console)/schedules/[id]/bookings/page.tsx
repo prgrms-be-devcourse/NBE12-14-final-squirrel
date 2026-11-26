@@ -1,7 +1,8 @@
 "use client";
 
-import { useParams } from "next/navigation";
+
 import { useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { useApi } from "@/lib/api";
 import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingStatus, Page, ScheduleBooking, TicketGroup } from "@/lib/types";
@@ -28,7 +29,7 @@ const groupText = (groups: TicketGroup[]) =>
   groups.map((g) => `${gradeLabel(g.gradeName)} ${g.count}매`).join(", ");
 
 export default function ScheduleBookingsPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/seller/schedules/[id]/bookings");
   const [status, setStatus] = useState<BookingStatus | "">("");
   const [receiveType, setReceiveType] = useState<"" | "ONSITE" | "DELIVERY">("");
   const [numberInput, setNumberInput] = useState("");

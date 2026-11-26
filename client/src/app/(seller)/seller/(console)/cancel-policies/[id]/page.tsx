@@ -1,7 +1,8 @@
 "use client";
 
-import { useParams } from "next/navigation";
+
 import { useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { api, useApi } from "@/lib/api";
 import type { CancelRule, PolicyDetail } from "@/lib/types";
 import { ConsoleTitle } from "@/components/console";
@@ -9,7 +10,7 @@ import { PolicyFormView } from "@/components/policy-form";
 import { ErrorBox, Loading } from "@/components/ui";
 
 export default function PolicyDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/seller/cancel-policies/[id]");
   const { data, error, loading, reload } = useApi<PolicyDetail>(`/api/v1/seller/cancel-policies/${id}`);
   const [saved, setSaved] = useState(false);
 
