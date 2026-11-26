@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -112,7 +113,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		""")
 	int markExpiredAsCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
 
-	/** 일부 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다. */
+	/**
+	 * 예매자의 일부 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다.
+	 * 회차가 취소되지 않았을 때만 바꾼다. 취소 회차의 환불은 따로 만들어져서, 예매 락이 듣지 않아도 직접 취소가 뒤늦게 반영되지 않게 한다.
+	 */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE Booking b
@@ -121,10 +125,32 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		 WHERE b.id = :id
 		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
 		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		   AND NOT EXISTS (SELECT s.id FROM PerformanceSchedule s
+		                    WHERE s.id = b.scheduleId
+		                      AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED)
 		""")
 	int markPartiallyCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
 
-	/** 전체 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 전체 취소 일시를 남긴다. */
+	/** 예매자의 전체 취소 처리. 결제 완료·일부 취소이고 회차가 취소되지 않은 예매만 바꾸고 전체 취소 일시를 남긴다. */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.CANCELED,
+		       b.canceledAt = :now,
+		       b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		   AND NOT EXISTS (SELECT s.id FROM PerformanceSchedule s
+		                    WHERE s.id = b.scheduleId
+		                      AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED)
+		""")
+	int markCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/**
+	 * 회차 취소 환불이 끝난 예매를 전체 취소로 바꾼다. 취소 회차의 예매를 바꾸는 것이라 markCanceled 와 달리 회차 조건이 없다.
+	 * 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다.
+	 */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE Booking b
@@ -135,5 +161,55 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
 		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
 		""")
-	int markCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
+	int markCanceledBySchedule(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/**
+	 * 결제 완료·일부 취소인 예매의 수정 시각만 바꿔 그 행을 트랜잭션이 끝날 때까지 잠근다. 0행이면 그 상태가 아니다.
+	 * 회차 취소 환불을 만들기 전에 부른다. 같은 예매를 바꾸는 중인 직접 취소가 있으면 그 커밋을 기다리게 되어,
+	 * 이 뒤에 읽는 남은 좌석에는 직접 취소가 반영돼 있다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		""")
+	int lockPaid(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/** 그 회차에서 주어진 상태인 예매 수. */
+	long countByScheduleIdAndStatusIn(Long scheduleId, Collection<BookingStatus> statuses);
+
+	/**
+	 * 회차 취소 환불을 만들 예매 번호. 취소 회차의 결제 완료·일부 취소 예매 중 회차 취소 환불이 아직 없는 것이다.
+	 * 실패한 환불도 있는 것으로 본다. (새로 만들지 않고 같은 환불을 다시 보낸다)
+	 * 번호 순으로 afterId 뒤부터 가져와, 처리에 실패한 예매가 있어도 뒤의 예매가 막히지 않는다.
+	 */
+	@Query("""
+		SELECT b.id
+		  FROM Booking b
+		 WHERE b.id > :afterId
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		   AND b.schedule.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED
+		   AND NOT EXISTS (SELECT r.id FROM b.refunds r
+		                    WHERE r.reasonType = com.squirrel.tickting.domain.payment.type.RefundReasonType.PERFORMANCE_CANCEL)
+		 ORDER BY b.id
+		""")
+	List<Long> findScheduleRefundTargetIds(@Param("afterId") Long afterId, Limit limit);
+
+	/** 회차 취소 환불이 끝났는데 예매에 아직 반영되지 않은 예매 번호. 번호 순으로 afterId 뒤부터 가져온다. */
+	@Query("""
+		SELECT b.id
+		  FROM Booking b
+		 WHERE b.id > :afterId
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		   AND EXISTS (SELECT r.id FROM b.refunds r
+		                WHERE r.reasonType = com.squirrel.tickting.domain.payment.type.RefundReasonType.PERFORMANCE_CANCEL
+		                  AND r.status = com.squirrel.tickting.domain.payment.type.RefundStatus.DONE)
+		 ORDER BY b.id
+		""")
+	List<Long> findScheduleCancelApplyTargetIds(@Param("afterId") Long afterId, Limit limit);
 }

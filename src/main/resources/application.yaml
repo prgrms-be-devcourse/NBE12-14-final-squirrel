@@ -108,6 +108,12 @@ app:
     expiry-enabled: true
     expiry-interval: 1m
     expiry-batch-size: 500
+    # 취소한 회차의 예매에 환불을 만들고, 환불이 끝나면 예매를 취소로 바꾸는 작업. 토스에 보내는 것은 환불 스케줄러다.
+    # batch-size 는 대상을 한 번에 가져오는 수이고 한 번 실행에서 모두 처리한다. (모두 임시값)
+    schedule-cancel:
+      enabled: true
+      interval: 1m
+      batch-size: 100
   queue:
     # 회차별 대기열. 끄면 누구나 바로 입장한 것으로 본다. (테스트·로컬 확인용. 운영은 켠다)
     enabled: true

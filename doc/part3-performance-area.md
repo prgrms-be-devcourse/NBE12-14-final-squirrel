@@ -51,6 +51,7 @@ erDiagram
         LocalDateTime start_at
         enum status "ON_SALE PAUSED POSTPONED CANCELED"
         String pause_reason
+        String cancel_reason
         LocalDateTime seats_generated_at "판매 좌석 생성 시각, NULL이면 아직 안 만듦"
         LocalDateTime created_at
         LocalDateTime updated_at
@@ -262,6 +263,7 @@ erDiagram
 |  | 공연 일시 | `start_at` | LocalDateTime | NOT NULL |  |
 |  | 판매 상태 | `status` | enum | NOT NULL | ON_SALE 판매 중 / PAUSED 일시중지 / POSTPONED 연기 / CANCELED 회차 취소 |
 |  | 중지 사유 | `pause_reason` | String | NULL | 일시중지일 때만 |
+|  | 취소 사유 | `cancel_reason` | String(500) | NULL | 취소한 회차만. 회차 취소 환불의 상세 사유가 됨 (2026-11-26) |
 |  | 좌석 생성 일시 | `seats_generated_at` | LocalDateTime | NULL | 판매 좌석(`schedule_seat`)을 만든 시각. 비어 있으면 아직 안 만든 회차 (3-5) |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |

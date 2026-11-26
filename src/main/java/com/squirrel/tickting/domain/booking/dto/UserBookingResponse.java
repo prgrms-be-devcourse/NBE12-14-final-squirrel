@@ -39,6 +39,8 @@ public class UserBookingResponse {
 		String posterUrl,
 		@Schema(description = "회차 일시. 연기되면 바뀐 일시. 회차 정보가 없으면 null")
 		LocalDateTime scheduleStartAt,
+		@Schema(description = "회차 상태. CANCELED 면 판매자가 취소한 회차다")
+		ScheduleStatus scheduleStatus,
 		@Schema(description = "처음 예매한 좌석 수 (취소된 좌석 포함)", example = "2")
 		Integer seatCount,
 		@Schema(description = "처음 결제 금액 (취소해도 바뀌지 않음)", example = "312000")
@@ -59,6 +61,7 @@ public class UserBookingResponse {
 				.performanceTitle(booking.getPerformance().getTitle())
 				.posterUrl(booking.getPerformance().getPosterUrl())
 				.scheduleStartAt(booking.getSchedule().getStartAt())
+				.scheduleStatus(booking.getSchedule().getStatus())
 				.seatCount(booking.getBookingSeats().size())
 				.totalAmount(booking.getTotalAmount())
 				.createdAt(booking.getCreatedAt())

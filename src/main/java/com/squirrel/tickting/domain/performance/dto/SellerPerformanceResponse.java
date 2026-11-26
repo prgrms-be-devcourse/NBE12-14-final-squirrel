@@ -262,6 +262,19 @@ public class SellerPerformanceResponse {
 	) {
 	}
 
+	@Builder
+	@Schema(name = "SellerPerformanceScheduleCanceled", description = "회차 취소 결과")
+	public record ScheduleCanceled(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "회차 상태", example = "CANCELED")
+		ScheduleStatus status,
+		@Schema(description = "환불 대상 예매 수 (취소 시점의 결제 완료·일부 취소 예매. 좌석 수가 아니다). 환불은 이 요청 뒤에 차례로 처리한다",
+			example = "120")
+		long refundRequestedCount
+	) {
+	}
+
 	/** 판매 좌석 생성(SLR-14) 결과. 개수는 만든 좌석을 DB에서 상태별로 센 값이다. */
 	@Builder
 	@Schema(name = "SellerPerformanceSeatsGenerated", description = "판매 좌석 생성 결과")

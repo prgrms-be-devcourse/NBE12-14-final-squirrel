@@ -357,6 +357,28 @@ public class SellerPerformanceService {
 		}
 	}
 
+	/**
+	 * 회차를 취소한다. 검사 순서: 취소된 공연 → 이미 취소한 회차 → 이미 시작함. 모두 이미 읽은 값으로 판단한다.
+	 * 시작한 회차는 새 예매가 없어 급히 막을 이유가 없고, 지난 회차를 잘못 고르면 전액 환불되어 막는다.
+	 * 판매 중·일시 중지·연기 회차, 작성 중 공연의 회차, 마지막 남은 회차는 취소할 수 있다.
+	 * 환불은 여기서 만들지 않는다. 0행이면 락이 듣지 않아 그 사이 바뀐 것이라 COMMON004 로 답한다.
+	 */
+	@Transactional
+	public void cancelSchedule(PerformanceSchedule schedule, String reason, LocalDateTime now) {
+		if (schedule.getPerformance().getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED);
+		}
+		if (schedule.getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_CANCELED, "이미 취소된 회차입니다.");
+		}
+		if (!schedule.getStartAt().isAfter(now)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_ALREADY_STARTED, "이미 시작한 회차는 취소할 수 없습니다.");
+		}
+		if (performanceScheduleRepository.cancel(schedule.getId(), reason, now) == 0) {
+			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+		}
+	}
+
 	/** 바꿀 일시가 회차 추가와 같은 조건을 지키는가. 지난 시각은 요청 DTO 가 막는다. */
 	public void validateRescheduleStartAt(Performance performance, LocalDateTime startAt, LocalDateTime now) {
 		validateNewStartAt(performance, startAt, now, "작성 중인 공연의 회차는 지금부터 3시간 뒤의 일시로만 바꿀 수 있습니다.");

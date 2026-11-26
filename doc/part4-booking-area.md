@@ -292,7 +292,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 
 ### ④ 공연 취소·연기 무료 취소
 
-판매자가 회차를 취소하면 그 회차의 `PAID`/`PARTIAL_CANCELED` 예매 전부에 대해 **수수료 0%로 환불**을 일괄 생성합니다. 연기는 3부 흐름대로 사용자가 직접 취소할 때 개별 환불이 생깁니다.
+판매자가 회차를 취소하면 그 회차의 `PAID`/`PARTIAL_CANCELED` 예매 전부에 대해 **수수료 0%로 환불**을 만듭니다. 취소 요청이 아니라 스케줄러가 만들고, 예매·좌석은 **환불에 성공한 뒤에** 취소로 바뀝니다. 그동안 그 회차의 결제와 직접 취소는 막힙니다. (5부 5-2 ④, 2026-11-26) 연기는 3부 흐름대로 사용자가 직접 취소할 때 개별 환불이 생깁니다.
 
 ---
 
@@ -398,6 +398,7 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 | 결제 대기 만료 처리 | `booking (status, expires_at)` |
 | 활성 좌석 중복 방지 | UNIQUE `booking_seat (schedule_seat_id)` WHERE active |
 | 환불 실패 재처리 | `refund (status)` |
+| 회차 취소 환불은 예매당 한 건 | UNIQUE `refund (booking_id)` WHERE reason_type = 'PERFORMANCE_CANCEL' |
 
 ---
 

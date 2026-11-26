@@ -1,5 +1,8 @@
 package com.squirrel.tickting.domain.performance.facade;
 
+import com.squirrel.tickting.domain.audit.service.AuditLogCommand;
+import com.squirrel.tickting.domain.audit.service.AuditLogService;
+import com.squirrel.tickting.domain.audit.type.ActorType;
 import com.squirrel.tickting.domain.booking.service.BookingService;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
@@ -13,18 +16,20 @@ import com.squirrel.tickting.domain.performance.service.PerformanceProperties;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
 import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
+import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 판매자의 공연 등록·수정과 회차 수정. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매 서비스를 엮고,
+ * 판매자의 공연 등록·수정과 회차 수정·취소. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매·감사 로그 서비스를 엮고,
  * 쓰기는 TransactionTemplate 으로 한 트랜잭션에 묶는다. (조회는 공연의 읽기 전용 연관으로 서비스가 직접 응답을 만든다)
  */
 @Component
@@ -37,6 +42,7 @@ public class SellerPerformanceFacade {
 	private final GradeService gradeService;
 	private final ScheduleSeatService scheduleSeatService;
 	private final BookingService bookingService;
+	private final AuditLogService auditLogService;
 	private final DistributedLockExecutor lockExecutor;
 	private final PerformanceProperties properties;
 	private final TransactionTemplate transactionTemplate;
@@ -159,5 +165,46 @@ public class SellerPerformanceFacade {
 			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_HAS_BOOKING);
 		}
 		return sellerPerformanceService.reschedule(businessId, schedule, startAt, now);
+	}
+
+	/**
+	 * 회차를 취소한다. 감사 로그와 환불 대상 건수가 다른 도메인이라 파사드가 맡는다. 락은 회차 수정과 같은 공연 단위(performance:{번호})다.
+	 * 여기서는 환불을 만들지도 토스를 부르지도 않는다. 예매 도메인의 스케줄러가 취소 회차의 예매에 환불을 만들고 끝난 환불을 예매에 반영한다.
+	 * 좌석 점유는 공연 락을 잡지 않아 취소 순간의 점유는 막지 못하지만, 그 예매는 결제가 막혀 만료된다.
+	 * 검사 순서: 요청 형식(DB 전) → 회차 조회 404(락 밖) → 락 → 재조회 → 공연·회차 상태 → 조건부 UPDATE → 감사 로그 → 건수.
+	 */
+	public SellerPerformanceResponse.ScheduleCanceled cancelSchedule(Long businessId, Long sellerId, Long scheduleId,
+		SellerPerformanceRequest.ScheduleCancel request) {
+		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
+		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
+
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(
+				status -> cancelScheduleInTransaction(businessId, sellerId, scheduleId, request.reason())));
+	}
+
+	/** 감사 로그 저장이 실패하면 취소도 함께 되돌린다. 누가 취소했는지 남지 않은 채 환불이 나가면 안 된다. */
+	private SellerPerformanceResponse.ScheduleCanceled cancelScheduleInTransaction(Long businessId, Long sellerId,
+		Long scheduleId, String reason) {
+		LocalDateTime now = LocalDateTime.now();
+		PerformanceSchedule schedule = sellerPerformanceService.getMySchedule(businessId, scheduleId);
+		// 일괄 UPDATE 는 엔티티에 반영되지 않아, 이 값은 취소하기 전 상태다.
+		ScheduleStatus beforeStatus = schedule.getStatus();
+		sellerPerformanceService.cancelSchedule(schedule, reason, now);
+		auditLogService.saveHistory(AuditLogCommand.builder()
+			.actorType(ActorType.SELLER)
+			.actorId(sellerId)
+			.businessId(businessId)
+			.targetType("SCHEDULE")
+			.targetId(scheduleId)
+			.action("CANCEL")
+			.before(Map.of("status", beforeStatus))
+			.after(Map.of("status", ScheduleStatus.CANCELED, "reason", reason))
+			.build());
+		return SellerPerformanceResponse.ScheduleCanceled.builder()
+			.scheduleId(scheduleId)
+			.status(ScheduleStatus.CANCELED)
+			.refundRequestedCount(bookingService.countRefundTargets(scheduleId))
+			.build();
 	}
 }

@@ -7,6 +7,10 @@ import com.squirrel.tickting.domain.booking.infra.repository.BookingRepository;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingSeatRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.domain.payment.infra.entity.Refund;
+import com.squirrel.tickting.domain.payment.type.RefundReasonType;
+import com.squirrel.tickting.domain.payment.type.RefundStatus;
+import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
@@ -16,10 +20,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookingService {
@@ -27,6 +34,9 @@ public class BookingService {
 	/** 좌석을 차지한 예매 상태. 전체 취소(CANCELED)와 만료(EXPIRED)는 좌석을 돌려줬으므로 뺀다. */
 	private static final List<BookingStatus> OCCUPYING_STATUSES =
 		List.of(BookingStatus.PENDING, BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED);
+	/** 돈을 받았고 아직 다 돌려주지 않은 예매 상태. 회차를 취소하면 환불할 대상이다. */
+	private static final List<BookingStatus> PAID_STATUSES =
+		List.of(BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED);
 
 	private final BookingRepository bookingRepository;
 	private final BookingSeatRepository bookingSeatRepository;
@@ -74,6 +84,16 @@ public class BookingService {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE);
 		}
 		return booking;
+	}
+
+	/**
+	 * 취소된 회차의 예매는 결제할 수 없다. 열리지 않는 공연에 돈이 나가지 않게 결제 준비와 승인 시작에서 부른다.
+	 * 회차를 예매의 읽기 전용 연관에서 꺼내므로 호출한 쪽의 트랜잭션 안에서 불러야 한다.
+	 */
+	public void validatePayableSchedule(Booking booking) {
+		if (booking.getSchedule().getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE, "취소된 회차라 결제할 수 없습니다.");
+		}
 	}
 
 	/** 내 예매를 찾는다. 없거나 남의 예매면 비어 있다. 호출한 쪽이 "없는 결제" 같은 자기 도메인의 404 로 바꿔 답할 때 쓴다. */
@@ -176,7 +196,7 @@ public class BookingService {
 	 * 예매 취소에서 취소할 좌석과 금액을 계산한다. 아무것도 바꾸지 않는다. 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 불러야
 	 * 계산한 뒤 반영하기 전에 다른 취소가 끼어들지 않는다.
 	 *
-	 * 판정 순서: 없거나 남의 예매 404 → 결제 완료·일부 취소가 아님 409 → 취소 불가 기간 400 → 취소할 수 없는 좌석 400
+	 * 판정 순서: 없거나 남의 예매 404 → 결제 완료·일부 취소가 아님 409 → 취소된 회차 409 → 취소 불가 기간 400 → 취소할 수 없는 좌석 400
 	 *
 	 * @param bookingSeatIds 취소할 예매 좌석. 비어 있으면(null 포함) 남은 좌석 전부다. 같은 번호가 여러 번 와도 한 번으로 본다
 	 */
@@ -187,12 +207,17 @@ public class BookingService {
 		if (booking.getStatus() != BookingStatus.PAID && booking.getStatus() != BookingStatus.PARTIAL_CANCELED) {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE);
 		}
+		// 계산기도 취소 불가로 답하지만, 그러면 "취소할 수 없는 기간"으로 보여 환불을 못 받는다고 오해한다.
+		if (booking.getSchedule().getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE,
+				"취소된 회차입니다. 환불은 자동으로 처리됩니다.");
+		}
 		CancelPolicyCalculator.Quote quote = cancelPolicyCalculator.quote(booking, now);
 		if (!quote.cancelable()) {
 			throw new BusinessException(BookingExceptionCode.CANCEL_PERIOD_OVER);
 		}
 
-		List<BookingSeat> activeSeats = booking.getBookingSeats().stream().filter(BookingSeat::isActive).toList();
+		List<BookingSeat> activeSeats = activeSeats(booking);
 		List<BookingSeat> targets = selectTargets(activeSeats, bookingSeatIds);
 
 		int feeRate = quote.feeRate();
@@ -202,36 +227,163 @@ public class BookingService {
 			.toList();
 		int cancelFeeTotal = lines.stream().mapToInt(BookingCancelPlan.Line::cancelFee).sum();
 		// 예매 수수료는 취소한 좌석 몫만 돌려준다. (좌석 1장당 붙는 수수료라서. 임시 정책)
-		int refundAmount = targets.stream().mapToInt(seat -> seat.getPrice() + seat.getBookingFee()).sum()
-			- cancelFeeTotal;
+		int refundAmount = paidAmount(targets) - cancelFeeTotal;
 		return new BookingCancelPlan(bookingId, feeRate, lines, cancelFeeTotal, refundAmount,
 			targets.size() == activeSeats.size());
 	}
 
 	/**
-	 * 계산한 취소를 반영한다. 좌석마다 취소 수수료와 환불 번호를 적고 예매 상태를 일부 취소·전체 취소로 바꾼다.
-	 * 상태 조건이 있는 UPDATE 라서 계산한 뒤 다른 요청이 먼저 취소했으면 바뀐 행 수가 모자라고, 예외로 트랜잭션 전체(환불 행 포함)를 되돌린다.
+	 * 예매자의 취소를 반영한다. 좌석마다 취소 수수료와 환불 번호를 적고 예매 상태를 일부 취소·전체 취소로 바꾼다.
+	 * 상태 조건이 있는 UPDATE 라서 계산한 뒤 다른 요청이 먼저 취소했거나 회차가 취소됐으면 바뀐 행 수가 모자라고,
+	 * 예외로 트랜잭션 전체(환불 행 포함)를 되돌린다.
 	 * 좌석 도메인의 상태(SOLD)는 바꾸지 않고, 되돌릴 판매 좌석 번호만 돌려줘서 파사드가 같은 트랜잭션에서 되돌린다.
 	 *
 	 * @return 다시 팔 수 있게 되돌릴 판매 좌석 번호. 끝난 회차의 좌석을 지워 번호가 없는 좌석은 빠진다
 	 */
 	@Transactional
 	public List<Long> applyCancel(BookingCancelPlan plan, Long refundId, LocalDateTime now) {
-		for (BookingCancelPlan.Line line : plan.lines()) {
-			if (bookingSeatRepository.cancel(line.bookingSeatId(), plan.bookingId(), line.cancelFee(), refundId, now) != 1) {
-				throw new BusinessException(BookingExceptionCode.SEAT_NOT_CANCELABLE);
-			}
-		}
+		List<Long> scheduleSeatIds = cancelSeats(plan, refundId, now);
 		int changed = plan.fullyCanceled()
 			? bookingRepository.markCanceled(plan.bookingId(), now)
 			: bookingRepository.markPartiallyCanceled(plan.bookingId(), now);
 		if (changed != 1) {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE);
 		}
+		return scheduleSeatIds;
+	}
+
+	/**
+	 * 회차 취소 환불이 끝난 예매를 반영한다. 남은 좌석을 모두 취소하고 예매를 전체 취소로 바꾼다. 상태 조건은 applyCancel 과 같고
+	 * 회차 조건만 없다.
+	 *
+	 * @return 되돌릴 판매 좌석 번호
+	 */
+	@Transactional
+	public List<Long> applyScheduleCancel(BookingCancelPlan plan, Long refundId, LocalDateTime now) {
+		List<Long> scheduleSeatIds = cancelSeats(plan, refundId, now);
+		if (bookingRepository.markCanceledBySchedule(plan.bookingId(), now) != 1) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE);
+		}
+		return scheduleSeatIds;
+	}
+
+	/** 그 회차에서 환불 대상인 예매(결제 완료·일부 취소) 수. */
+	@Transactional(readOnly = true)
+	public long countRefundTargets(Long scheduleId) {
+		return bookingRepository.countByScheduleIdAndStatusIn(scheduleId, PAID_STATUSES);
+	}
+
+	/** 회차 취소 환불을 만들 예매 번호를 afterId 뒤부터 limit 건까지. */
+	@Transactional(readOnly = true)
+	public List<Long> findScheduleRefundTargets(Long afterId, int limit) {
+		return bookingRepository.findScheduleRefundTargetIds(afterId, Limit.of(limit));
+	}
+
+	/** 만들 회차 취소 환불의 금액과 사유. */
+	public record ScheduleRefund(int amount, String reason) {
+	}
+
+	/**
+	 * 회차 취소 환불을 만들 예매의 행을 잠그고 환불 금액(남은 좌석의 가격 + 예매 수수료, 취소 수수료 없음)과 사유를 돌려준다.
+	 * 일부 취소한 예매는 남은 좌석분만이고, 이전 부분 취소에서 뗀 수수료는 돌려주지 않는다. 예매·좌석 상태는 바꾸지 않는다.
+	 * 잠근 뒤에 읽어야 해서 순서를 바꾸면 안 된다. (먼저 읽으면 진행 중이던 직접 취소의 좌석까지 환불 금액에 들어간다)
+	 *
+	 * @return 환불을 만들지 않아도 되면(상태가 바뀜, 이미 환불이 있음) 비어 있다
+	 * @throws IllegalStateException 환불 대상인데 남은 좌석이 없다. 예매와 좌석이 어긋난 것이다
+	 */
+	@Transactional
+	public Optional<ScheduleRefund> prepareScheduleRefund(Long bookingId, LocalDateTime now) {
+		if (bookingRepository.lockPaid(bookingId, now) == 0) {
+			return Optional.empty();
+		}
+		Booking booking = getById(bookingId);
+		boolean requested = booking.getRefunds().stream()
+			.anyMatch(refund -> refund.getReasonType() == RefundReasonType.PERFORMANCE_CANCEL);
+		if (booking.getSchedule().getStatus() != ScheduleStatus.CANCELED || requested) {
+			return Optional.empty();
+		}
+		List<BookingSeat> activeSeats = activeSeats(booking);
+		if (activeSeats.isEmpty()) {
+			throw new IllegalStateException("환불할 남은 좌석이 없다. 예매 번호: " + bookingId);
+		}
+		return Optional.of(new ScheduleRefund(paidAmount(activeSeats), booking.getSchedule().getCancelReason()));
+	}
+
+	/** 회차 취소 환불이 끝나 예매에 반영할 예매 번호를 afterId 뒤부터 limit 건까지. */
+	@Transactional(readOnly = true)
+	public List<Long> findScheduleCancelApplyTargets(Long afterId, int limit) {
+		return bookingRepository.findScheduleCancelApplyTargetIds(afterId, Limit.of(limit));
+	}
+
+	/** 예매에 반영할 회차 취소. 좌석에는 refundId 를 환불 번호로 적는다. */
+	public record ScheduleCancel(BookingCancelPlan plan, Long refundId) {
+	}
+
+	/**
+	 * 끝난 회차 취소 환불을 예매에 반영할 내용을 계산한다. 아무것도 바꾸지 않는다. 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 부른다.
+	 * 환불 금액이 남은 좌석의 합과 달라도 남은 좌석은 모두 취소한다. 돈은 이미 나갔고, 반영하지 않으면 고칠 기능 없이 결제 완료로 남는다.
+	 * 대신 사람이 확인하도록 오류 로그를 남긴다.
+	 *
+	 * @return 반영할 것이 없으면(끝난 환불이 없음, 이미 반영됨) 비어 있다
+	 */
+	@Transactional
+	public Optional<ScheduleCancel> planScheduleCancel(Long bookingId) {
+		Booking booking = getById(bookingId);
+		Refund done = booking.getRefunds().stream()
+			.filter(refund -> refund.getReasonType() == RefundReasonType.PERFORMANCE_CANCEL
+				&& refund.getStatus() == RefundStatus.DONE)
+			.findFirst()
+			.orElse(null);
+		if (done == null) {
+			return Optional.empty();
+		}
+		if (!PAID_STATUSES.contains(booking.getStatus())) {
+			boolean applied = booking.getBookingSeats().stream()
+				.anyMatch(seat -> done.getId().equals(seat.getRefundId()));
+			if (!applied) {
+				log.error("회차 취소 환불이 아닌 경로로 끝난 예매에 완료된 회차 취소 환불이 있다. 이중 환불인지 확인해야 한다. "
+					+ "예매 번호: {}, 환불 번호: {}", bookingId, refundIds(booking));
+			}
+			return Optional.empty();
+		}
+		List<BookingSeat> activeSeats = activeSeats(booking);
+		int remaining = paidAmount(activeSeats);
+		if (done.getAmount() != remaining) {
+			log.error("회차 취소 환불 금액이 남은 좌석의 합과 다르다. 남은 좌석은 모두 취소하니 확인해야 한다. "
+				+ "예매 번호: {}, 환불 번호: {}, 환불 금액: {}, 남은 좌석 합: {}",
+				bookingId, refundIds(booking), done.getAmount(), remaining);
+		}
+		List<BookingCancelPlan.Line> lines = activeSeats.stream()
+			.map(seat -> new BookingCancelPlan.Line(seat.getId(), seat.getScheduleSeatId(), 0))
+			.toList();
+		return Optional.of(new ScheduleCancel(
+			new BookingCancelPlan(bookingId, 0, lines, 0, done.getAmount(), true), done.getId()));
+	}
+
+	/** 계획한 좌석을 취소하고 되돌릴 판매 좌석 번호를 돌려준다. 그 사이 취소된 좌석이 있으면 트랜잭션 전체를 되돌린다. */
+	private List<Long> cancelSeats(BookingCancelPlan plan, Long refundId, LocalDateTime now) {
+		for (BookingCancelPlan.Line line : plan.lines()) {
+			if (bookingSeatRepository.cancel(line.bookingSeatId(), plan.bookingId(), line.cancelFee(), refundId, now) != 1) {
+				throw new BusinessException(BookingExceptionCode.SEAT_NOT_CANCELABLE);
+			}
+		}
 		return plan.lines().stream()
 			.map(BookingCancelPlan.Line::scheduleSeatId)
 			.filter(Objects::nonNull)
 			.toList();
+	}
+
+	private static List<BookingSeat> activeSeats(Booking booking) {
+		return booking.getBookingSeats().stream().filter(BookingSeat::isActive).toList();
+	}
+
+	/** 좌석들에 낸 돈 = 좌석 가격 + 예매 수수료. 취소 수수료를 떼지 않은 금액이다. */
+	private static int paidAmount(List<BookingSeat> seats) {
+		return seats.stream().mapToInt(seat -> seat.getPrice() + seat.getBookingFee()).sum();
+	}
+
+	private static List<Long> refundIds(Booking booking) {
+		return booking.getRefunds().stream().map(Refund::getId).toList();
 	}
 
 	/** 요청한 좌석이 모두 이 예매의 활성 좌석이어야 한다. 하나라도 아니면(이미 취소됨, 다른 예매의 좌석) 전체를 거절한다. */

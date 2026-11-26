@@ -182,6 +182,7 @@ export type BookingSummary = {
   performanceTitle: string;
   posterUrl: string | null;
   scheduleStartAt: string;
+  scheduleStatus: string;
   seatCount: number;
   totalAmount: number;
   createdAt: string;

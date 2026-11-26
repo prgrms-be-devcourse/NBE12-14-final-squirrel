@@ -54,6 +54,10 @@ public class PerformanceSchedule extends BaseTimeEntity {
 	@Column
 	private String pauseReason;
 
+	/** 회차를 취소한 사유. 취소한 회차에만 값이 있고, 회차 취소 환불의 상세 사유가 된다. */
+	@Column(length = 500)
+	private String cancelReason;
+
 	/** 판매 좌석을 만든 시각. 비어 있으면 아직 안 만든 회차다. 끝난 회차의 좌석을 지워도 값은 남아 다시 만들지 않는다. */
 	@Column
 	private LocalDateTime seatsGeneratedAt;

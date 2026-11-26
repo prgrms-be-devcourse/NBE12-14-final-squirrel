@@ -4,6 +4,7 @@ import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SchedulePostponement;
+import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
@@ -46,15 +47,20 @@ public class CancelPolicyCalculator {
 	 *
 	 * 순서:
 	 *   1. 결제 완료·일부 취소가 아니면 취소할 수 없다.
-	 *   2. 연기 무료 취소 대상이면 수수료 0% 로 취소할 수 있다. 새 일정이 미정이거나 원래 일시가 지났어도 된다.
-	 *   3. 회차가 이미 시작했으면 취소할 수 없다. (당일을 취소 가능으로 둔 규정이어도 시작 뒤에는 막는다)
-	 *   4. 예매 때 복사한 규정에서 남은 일수가 들어가는 구간을 찾는다. 맞는 구간이 없으면 취소할 수 없다.
+	 *   2. 취소된 회차는 직접 취소할 수 없다. 환불을 수수료 없이 자동으로 만들기 때문에, 직접 취소하면 같은 좌석이 두 번 환불될 수 있다.
+	 *      연기했다가 취소한 회차도 있어서 연기 무료 취소보다 먼저 본다.
+	 *   3. 연기 무료 취소 대상이면 수수료 0% 로 취소할 수 있다. 새 일정이 미정이거나 원래 일시가 지났어도 된다.
+	 *   4. 회차가 이미 시작했으면 취소할 수 없다. (당일을 취소 가능으로 둔 규정이어도 시작 뒤에는 막는다)
+	 *   5. 예매 때 복사한 규정에서 남은 일수가 들어가는 구간을 찾는다. 맞는 구간이 없으면 취소할 수 없다.
 	 */
 	public Quote quote(Booking booking, LocalDateTime now) {
 		if (booking.getStatus() != BookingStatus.PAID && booking.getStatus() != BookingStatus.PARTIAL_CANCELED) {
 			return Quote.NOT_CANCELABLE;
 		}
 		PerformanceSchedule schedule = booking.getSchedule();
+		if (schedule.getStatus() == ScheduleStatus.CANCELED) {
+			return Quote.NOT_CANCELABLE;
+		}
 		if (isFreeCancel(booking, schedule, now)) {
 			return new Quote(true, 0);
 		}

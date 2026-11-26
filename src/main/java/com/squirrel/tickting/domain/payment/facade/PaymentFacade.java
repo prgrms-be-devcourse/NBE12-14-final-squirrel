@@ -64,6 +64,7 @@ public class PaymentFacade {
 
 	private PaymentResponse.Prepared prepareInTransaction(Long userId, Long bookingId, PaymentRequest.Prepare request) {
 		Booking booking = bookingService.getPayable(userId, bookingId, LocalDateTime.now());
+		bookingService.validatePayableSchedule(booking);
 		Performance performance = scheduleService.getPayablePerformance(booking.getPerformanceId());
 		validateReceive(performance.getReceiveType(), request);
 
@@ -136,6 +137,7 @@ public class PaymentFacade {
 		if (booking.getStatus() != BookingStatus.PENDING || !booking.getExpiresAt().isAfter(now)) {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE);
 		}
+		bookingService.validatePayableSchedule(booking);
 
 		if (!attempted) {
 			extendHold(booking, now);

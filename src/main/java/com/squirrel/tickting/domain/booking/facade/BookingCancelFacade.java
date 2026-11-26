@@ -15,9 +15,15 @@ import com.squirrel.tickting.domain.payment.service.RefundService;
 import com.squirrel.tickting.domain.payment.type.RefundReasonType;
 import com.squirrel.tickting.domain.payment.type.RefundStatus;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
+import com.squirrel.tickting.global.exception.BusinessException;
+import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.lock.DistributedLockExecutor;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.function.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -38,6 +44,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * 같은 예매의 취소는 예매 단위 분산락(booking:{id})으로 하나씩 처리한다. 결제 승인과 같은 락이라 승인과도 겹치지 않는다.
  * 락이 뚫려도 좌석 취소·예매 상태 UPDATE 의 상태 조건이 마지막으로 막아 같은 좌석이 두 번 환불되지 않는다.
+ *
+ * 판매자가 회차를 취소한 예매는 예매자가 아니라 스케줄러가 이 파사드로 처리한다. 순서가 반대라 환불에 성공한 뒤에 예매를 취소한다.
+ * (화면의 "결제 완료·취소"가 돈의 상태와 맞게) 토스에 보내는 일은 환불 스케줄러(RefundRetryFacade)가 맡고 여기서는 부르지 않는다.
+ *   ① 환불 만들기(requestScheduleRefunds): 취소 회차의 결제 완료·일부 취소 예매마다 수수료 없는 환불(REQUESTED)을 만든다.
+ *   ② 예매에 반영(applyScheduleCancels): 그 환불이 완료(DONE)되면 남은 좌석을 취소하고 판매 좌석을 되돌린다.
  */
 @Slf4j
 @Component
@@ -68,6 +79,84 @@ public class BookingCancelFacade {
 			plan.bookingSeatIds(),
 			plan.cancelFeeTotal(),
 			new BookingResponse.Refund(canceled.refundId(), plan.refundAmount(), refundStatus));
+	}
+
+	/**
+	 * 취소 회차의 예매에 환불(REQUESTED)을 만든다. 예매·결제·좌석 상태는 바꾸지 않는다.
+	 *
+	 * @return 이번에 환불을 만든 예매 수
+	 */
+	public int requestScheduleRefunds(LocalDateTime now) {
+		return forEachBooking(bookingService::findScheduleRefundTargets,
+			bookingId -> requestScheduleRefund(bookingId, now), "회차 취소 환불을 만들지 못했다");
+	}
+
+	/**
+	 * 완료된 회차 취소 환불을 예매에 반영한다.
+	 *
+	 * @return 이번에 취소로 바꾼 예매 수
+	 */
+	public int applyScheduleCancels(LocalDateTime now) {
+		return forEachBooking(bookingService::findScheduleCancelApplyTargets,
+			bookingId -> applyScheduleCancel(bookingId, now), "끝난 회차 취소 환불을 예매에 반영하지 못했다");
+	}
+
+	/**
+	 * 대상 예매를 번호 순으로 batchSize 건씩 가져와 모두 처리한다. 예매 하나가 락 하나·트랜잭션 하나라 하나가 실패해도 나머지는 이어 가고,
+	 * 실패한 예매는 대상에 남아 다음 실행에서 다시 시도한다.
+	 * 예매 락은 기다리지 않는다. 취소 회차는 결제·직접 취소가 막혀 겹치는 일이 드물고, 못 잡으면 다음 실행에서 처리하면 된다.
+	 */
+	private int forEachBooking(BiFunction<Long, Integer, List<Long>> findTargets, Predicate<Long> process,
+		String failMessage) {
+		int batchSize = properties.scheduleCancel().batchSize();
+		int processed = 0;
+		long afterId = 0;
+		List<Long> bookingIds;
+		do {
+			bookingIds = findTargets.apply(afterId, batchSize);
+			for (Long bookingId : bookingIds) {
+				afterId = bookingId;
+				try {
+					if (lockExecutor.execute(List.of(bookingLock(bookingId)), Duration.ZERO,
+						() -> transactionTemplate.execute(status -> process.test(bookingId)))) {
+						processed++;
+					}
+				} catch (BusinessException e) {
+					if (e.getExceptionCode() != CommonExceptionCode.LOCK_ACQUISITION_FAILED) {
+						log.error("{}. 예매 번호: {}", failMessage, bookingId, e);
+					}
+				} catch (RuntimeException e) {
+					log.error("{}. 예매 번호: {}", failMessage, bookingId, e);
+				}
+			}
+		} while (bookingIds.size() == batchSize);
+		return processed;
+	}
+
+	private boolean requestScheduleRefund(Long bookingId, LocalDateTime now) {
+		Optional<BookingService.ScheduleRefund> target = bookingService.prepareScheduleRefund(bookingId, now);
+		target.ifPresent(refund -> refundService.request(paymentService.getRefundable(bookingId), bookingId,
+			refund.amount(), RefundReasonType.PERFORMANCE_CANCEL, refund.reason(), now));
+		return target.isPresent();
+	}
+
+	/**
+	 * 결제 상태 변경을 좌석 취소(일괄 UPDATE)보다 먼저 하는 이유는 cancelInTransaction 과 같다.
+	 * 실패하면 환불 번호를 붙여 다시 던진다. 돈은 돌려줬는데 예매가 결제 완료로 남은 건이고 관리자 환불 목록에는 완료로만 보여서,
+	 * 로그의 예매 번호·환불 번호로 찾아야 한다.
+	 */
+	private boolean applyScheduleCancel(Long bookingId, LocalDateTime now) {
+		Optional<BookingService.ScheduleCancel> target = bookingService.planScheduleCancel(bookingId);
+		target.ifPresent(cancel -> {
+			try {
+				paymentService.applyCancel(paymentService.getRefundable(bookingId), true);
+				List<Long> scheduleSeatIds = bookingService.applyScheduleCancel(cancel.plan(), cancel.refundId(), now);
+				scheduleSeatService.releaseSold(scheduleSeatIds, now);
+			} catch (RuntimeException e) {
+				throw new IllegalStateException("회차 취소 반영에 실패했다. 환불 번호: " + cancel.refundId(), e);
+			}
+		});
+		return target.isPresent();
 	}
 
 	/** 1단계에서 정한 값. 토스에는 이 값만 보낸다. */

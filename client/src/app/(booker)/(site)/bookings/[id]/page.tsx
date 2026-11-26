@@ -31,6 +31,7 @@ export default function BookingDetailPage() {
   if (!b) return null;
 
   const activeIds = b.seats.filter((s) => s.active).map((s) => s.bookingSeatId);
+  const scheduleCanceled = b.schedule.status === "CANCELED";
 
   async function cancel(bookingSeatIds?: number[]) {
     if (!b) return;
@@ -73,11 +74,14 @@ export default function BookingDetailPage() {
         <ArrowLeft size={16} strokeWidth={1.5} />내 예매
       </Link>
 
-      {b.status === "PENDING" && (
-        <Link href={`/bookings/${b.bookingId}/pay`} className="btn btn-primary btn-lg w-full">
-          결제하러 가기
-        </Link>
-      )}
+      {b.status === "PENDING" &&
+        (scheduleCanceled ? (
+          <p className="card p-6 text-sm">취소된 회차라 결제할 수 없습니다.</p>
+        ) : (
+          <Link href={`/bookings/${b.bookingId}/pay`} className="btn btn-primary btn-lg w-full">
+            결제하러 가기
+          </Link>
+        ))}
 
       <Ticket
         head={
@@ -192,7 +196,11 @@ export default function BookingDetailPage() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted">지금은 취소할 수 없습니다. (공연 당일이거나 이미 모두 취소됨)</p>
+            <p className="text-sm text-muted">
+              {scheduleCanceled
+                ? "회차가 취소되어 환불을 처리하고 있습니다. 환불이 끝나면 예매가 취소로 바뀝니다. 카드사에 따라 입금까지 며칠 걸릴 수 있습니다. 하루가 지나도 취소로 바뀌지 않으면 문의해 주세요."
+                : "지금은 취소할 수 없습니다. (공연 당일이거나 이미 모두 취소됨)"}
+            </p>
           )}
         </section>
       )}

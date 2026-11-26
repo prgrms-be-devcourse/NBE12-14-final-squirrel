@@ -17,7 +17,7 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	/**
 	 * 취소(CANCELED)된 공연을 고치려 함. 공연 취소는 모든 회차를 취소해 locked 가 false 가 되므로 따로 막는다.
 	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다.
-	 * 회차 추가(SLR-12)·수정(SLR-13)과 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다
+	 * 회차 추가(SLR-12)·수정(SLR-13)·취소(SLR-15)와 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다
 	 */
 	PERFORMANCE_CANCELED("PERFORMANCE002", HttpStatus.CONFLICT, "취소된 공연은 수정할 수 없습니다."),
 	/**
@@ -170,7 +170,7 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SCHEDULE_CANCELED("PERFORMANCE501", HttpStatus.CONFLICT, "취소된 회차는 판매 좌석을 만들 수 없습니다."),
 	/**
 	 * 이미 시작한(시작 시각이 지금 이전이거나 같은) 회차에서 판매 좌석을 만들려 함. 팔 수 없는 좌석만 쌓이고 가격이 잠긴다.
-	 * 시작한 회차의 일시를 바꾸려 할 때(SLR-13)도 메시지를 바꿔 쓴다. 지난 공연이 다시 팔리면 안 된다
+	 * 시작한 회차의 일시를 바꾸거나(SLR-13) 취소하려 할 때(SLR-15)도 메시지를 바꿔 쓴다. 지난 공연이 다시 팔리거나 환불되면 안 된다
 	 */
 	SCHEDULE_ALREADY_STARTED("PERFORMANCE502", HttpStatus.BAD_REQUEST, "이미 시작한 회차는 판매 좌석을 만들 수 없습니다."),
 	/**

@@ -73,6 +73,9 @@ public abstract class IntegrationTestSupport {
 			() -> "classpath:db/migration,classpath:db/seed,classpath:db/seed-demo,classpath:db/test-seed");
 		// 주기 작업이 테스트가 만든 데이터를 먼저 처리하지 않게 끈다. 작업이 하는 일은 파사드를 직접 불러서 확인한다.
 		registry.add("app.booking.expiry-enabled", () -> "false");
+		registry.add("app.booking.schedule-cancel.enabled", () -> "false");
+		// 대상을 한 건씩 끊어 가져오게 해서, 예매가 몇 건만 있어도 "끊어서 모두 처리"를 확인한다.
+		registry.add("app.booking.schedule-cancel.batch-size", () -> "1");
 		registry.add("app.payment.refund-retry.enabled", () -> "false");
 		registry.add("app.payment.reconcile.enabled", () -> "false");
 		registry.add("app.performance.seat-generation.enabled", () -> "false");
