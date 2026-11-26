@@ -49,6 +49,9 @@ class PaymentReconcileTest extends BookingTestSupport {
 	/** 승인을 시작한 지 5분이 지났고, 예매 점유(7분)도 지난 시각. */
 	private final LocalDateTime later = now.plusMinutes(10);
 
+	/** 보정 작업이 포기하는 시간(1시간)도 지난 시각. 이때부터 만료 정리가 승인 중 결제의 예매도 만료한다. */
+	private final LocalDateTime afterGiveUp = now.plusMinutes(61);
+
 	@BeforeEach
 	void resetPayments() {
 		jdbc.execute("TRUNCATE TABLE payment, refund RESTART IDENTITY");
@@ -151,7 +154,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 		assertThat(reconciled).isEqualTo(1);
 		Map<String, Object> payment = jdbc.queryForMap("SELECT * FROM payment WHERE order_id = ?", order.orderId());
 		assertThat(payment.get("status")).isEqualTo("DONE");
-		// 결제 키는 승인 응답을 잃어서 몰랐던 값이다. 토스 조회로 알게 된 값이 저장된다
+		// 승인 시작 때 저장한 키는 사용자가 보낸 값이다. 확정할 때는 토스 조회로 받은 값으로 다시 쓴다
 		assertThat(payment.get("payment_key")).isEqualTo("pay_real");
 		assertThat(payment.get("method")).isEqualTo("카드");
 		assertThat(bookingStatus(order.bookingId())).isEqualTo("PAID");
@@ -162,6 +165,90 @@ class PaymentReconcileTest extends BookingTestSupport {
 		assertThat(gateway.cancelCalls()).isEmpty();
 	}
 
+	@Test
+	@DisplayName("승인 시작 때 승인 요청의 결제 키를 저장한다 (응답을 잃어도 보정 작업이 이 키로 토스에 조회한다)")
+	void storesPaymentKeyWhenApprovalStarts() throws Exception {
+		Show show = show(1);
+		User user = signup("first");
+		Order order = lostApproval(user, show, 1);
+
+		assertThat(jdbc.queryForObject("SELECT payment_key FROM payment WHERE order_id = ?", String.class, order.orderId()))
+			.isEqualTo("unavailable_1");
+	}
+
+	@Test
+	@DisplayName("결제 키가 없는 승인 중 결제는 토스에 조회하지 않고 그대로 둔다 (사람이 확인한다)")
+	void skipsLookupWithoutPaymentKey() throws Exception {
+		Show show = show(1);
+		User user = signup("first");
+		Order order = lostApproval(user, show, 1);
+		jdbc.update("UPDATE payment SET payment_key = NULL WHERE order_id = ?", order.orderId());
+
+		int reconciled = reconcileFacade.reconcileDue(later);
+
+		assertThat(reconciled).isZero();
+		assertThat(gateway.lookedUpOrderIds()).isEmpty();
+		assertThat(paymentStatus(order.orderId())).isEqualTo("PROCESSING");
+		assertThat(bookingStatus(order.bookingId())).isEqualTo("PENDING");
+	}
+
+	// ---------------------------------------------------------------- 만료 정리는 보정을 기다린다
+
+	@Test
+	@DisplayName("승인 응답을 잃은 예매는 점유 시각이 지나도 만료 정리가 풀지 않고, 보정이 결제됨을 확인하면 환불 없이 확정한다")
+	void expiryWaitsForReconcileThenConfirms() throws Exception {
+		Show show = show(2);
+		User user = signup("first");
+		Order order = lostApproval(user, show, 2);
+
+		int released = bookingExpiryFacade.expireOverdue(later, 100);
+
+		assertThat(released).isZero();
+		assertThat(bookingStatus(order.bookingId())).isEqualTo("PENDING");
+		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("HELD");
+
+		tossPaid(order, order.amount());
+		assertThat(reconcileFacade.reconcileDue(later)).isEqualTo(1);
+
+		assertThat(bookingStatus(order.bookingId())).isEqualTo("PAID");
+		for (Long seatId : show.seatIds()) {
+			assertThat(seatStatus(seatId)).isEqualTo("SOLD");
+		}
+		assertThat(refundCount()).isZero();
+	}
+
+	@Test
+	@DisplayName("만료 정리가 기다린 예매도 보정이 결제 안 됨을 확인하면 만료되고 좌석이 풀린다")
+	void expiryWaitsForReconcileThenReleases() throws Exception {
+		Show show = show(1);
+		User user = signup("first");
+		Order order = lostApproval(user, show, 1);
+		bookingExpiryFacade.expireOverdue(later, 100);
+
+		reconcileFacade.reconcileDue(later);
+
+		assertThat(paymentStatus(order.orderId())).isEqualTo("FAILED");
+		assertThat(bookingStatus(order.bookingId())).isEqualTo("EXPIRED");
+		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
+	}
+
+	@Test
+	@DisplayName("조회가 계속 실패해 보정이 포기하는 시간(1시간)이 지나면 만료 정리가 더 기다리지 않고 예매를 만료해 좌석을 푼다")
+	void expiryStopsWaitingAfterGiveUp() throws Exception {
+		Show show = show(1);
+		User user = signup("first");
+		Order order = lostApproval(user, show, 1);
+		gateway.failLookups(true);
+		reconcileFacade.reconcileDue(later);
+
+		int released = bookingExpiryFacade.expireOverdue(afterGiveUp, 100);
+
+		assertThat(released).isEqualTo(1);
+		assertThat(bookingStatus(order.bookingId())).isEqualTo("EXPIRED");
+		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
+		assertThat(paymentStatus(order.orderId())).isEqualTo("PROCESSING");
+	}
+
 	// ---------------------------------------------------------------- 결제됨 + 좌석이 이미 풀림: 자동 환불
 
 	@Test
@@ -170,7 +257,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 		Show show = show(3);
 		User user = signup("first");
 		Order order = lostApproval(user, show, 2);
-		bookingExpiryFacade.expireOverdue(later, 100);
+		bookingExpiryFacade.expireOverdue(afterGiveUp, 100);
 		assertThat(bookingStatus(order.bookingId())).isEqualTo("EXPIRED");
 		tossPaid(order, order.amount());
 
@@ -205,7 +292,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 		Show show = show(1);
 		User user = signup("first");
 		Order order = lostApproval(user, show, 1);
-		bookingExpiryFacade.expireOverdue(later, 100);
+		bookingExpiryFacade.expireOverdue(afterGiveUp, 100);
 		// 환불 거절을 고르려면 결제 키에 refund_reject_ 접두사가 필요하다
 		gateway.reportLookup(order.orderId(), GatewayLookup.paid(
 			new GatewayPayment("refund_reject_pay", "카드", LocalDateTime.now().withNano(0)), order.amount()));
@@ -408,7 +495,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 		Show show = show(2);
 		User user = signup("first");
 		Order order = lostApproval(user, show, 1);
-		bookingExpiryFacade.expireOverdue(later, 100);
+		bookingExpiryFacade.expireOverdue(afterGiveUp, 100);
 		tossPaid(order, order.amount());
 
 		List<Integer> results = runConcurrently(5, i -> () -> reconcileFacade.reconcileDue(later));

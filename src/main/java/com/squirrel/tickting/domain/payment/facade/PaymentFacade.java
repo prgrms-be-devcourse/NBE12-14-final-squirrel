@@ -129,7 +129,7 @@ public class PaymentFacade {
 		// 이번 결제를 승인 중으로 바꾸기 전에 센다. 바꾼 뒤에 세면 이번 결제가 "시도한 적 있음"으로 잡혀 점유를 늘리지 못한다.
 		boolean attempted = paymentService.hasAttemptedApproval(booking.getId());
 		// 아래 검사에서 거절하면 예외로 트랜잭션이 되돌려져 결제는 준비(READY) 상태로 돌아간다.
-		paymentService.startProcessing(payment, now);
+		paymentService.startProcessing(payment, request.paymentKey(), now);
 		if (!payment.getAmount().equals(request.amount())) {
 			throw new BusinessException(PaymentExceptionCode.AMOUNT_MISMATCH);
 		}

@@ -26,7 +26,8 @@ import org.springframework.stereotype.Component;
  *   refund_unavailable_  승인은 성공, 환불 결과를 알 수 없음
  *   그 밖의 값            성공
  *
- * 결제 조회(lookup)는 기본으로 "승인에 성공한 주문(lostpaid_ 포함)은 결제됨, 그 밖은 결제 안 됨"이다. 기본과 다른 결과가 필요하면
+ * 결제 조회(lookup)는 결제 키를 받지만 주문 ID 로 답한다. (승인 요청에 온 키와 주문의 짝은 토스 구현과 그 테스트가 확인한다)
+ * 기본으로 "승인에 성공한 주문(lostpaid_ 포함)은 결제됨, 그 밖은 결제 안 됨"이다. 기본과 다른 결과가 필요하면
  * 테스트가 reportLookup 으로 주문별 결과를 정하고, 조회 자체가 실패하는 상황은 failLookups 로 만든다.
  *
  * 부하 테스트에서 토스의 응답 시간을 흉내 내려고 승인·조회에 지연을 줄 수 있다. (app.payment.mock.confirm-delay, lookup-delay. 기본 0)
@@ -90,7 +91,7 @@ public class MockPaymentGateway implements PaymentGateway {
 	}
 
 	@Override
-	public GatewayLookup lookup(String orderId) {
+	public GatewayLookup lookup(String paymentKey, String orderId) {
 		lookedUpOrderIds.add(orderId);
 		sleep(lookupDelay);
 		if (lookupsFail) {

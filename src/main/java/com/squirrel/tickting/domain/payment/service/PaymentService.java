@@ -68,11 +68,11 @@ public class PaymentService {
 	 * 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 불러야 같은 결제의 승인 요청이 두 번 시작되지 않는다.
 	 */
 	@Transactional
-	public void startProcessing(Payment payment, LocalDateTime now) {
+	public void startProcessing(Payment payment, String paymentKey, LocalDateTime now) {
 		if (payment.getStatus() != PaymentStatus.READY) {
 			throw new BusinessException(PaymentExceptionCode.PAYMENT_ALREADY_PROCESSED);
 		}
-		payment.startProcessing(now);
+		payment.startProcessing(paymentKey, now);
 	}
 
 	/**
@@ -86,6 +86,12 @@ public class PaymentService {
 		List<Long> due = new ArrayList<>(paymentRepository.findProcessingDueIds(processingCutoff, processingLimit));
 		due.addAll(paymentRepository.findReadyDueIds(readyCutoff, readyLimit));
 		return due;
+	}
+
+	/** 승인을 시작한 지 since 이후인 승인 중(PROCESSING) 결제의 예매 번호. 만료 정리가 보정을 기다릴 예매를 고르는 데 쓴다. */
+	@Transactional(readOnly = true)
+	public List<Long> findProcessingBookingIds(LocalDateTime since) {
+		return paymentRepository.findProcessingBookingIds(since);
 	}
 
 	/** 결제를 읽는다. 호출한 쪽의 트랜잭션 밖에서 부르면 값만 읽는 용도이고, 안에서 부르면 이어서 고칠 수 있다. */

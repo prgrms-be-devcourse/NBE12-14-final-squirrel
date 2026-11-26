@@ -25,12 +25,14 @@ public interface PaymentGateway {
 	void cancel(String paymentKey, int amount, String reason, String idempotencyKey);
 
 	/**
-	 * 주문 ID 로 결제가 됐는지 조회한다. 승인 요청의 응답을 받지 못해 승인 중(PROCESSING)으로 남은 결제를 확정하는 보정 작업이 쓴다.
-	 * 결제 키는 승인 응답으로만 알 수 있어서 응답을 못 받은 결제에는 없다. 그래서 주문 ID 로 조회한다.
+	 * 결제 키로 결제가 됐는지 조회한다. 승인 요청의 응답을 받지 못해 승인 중(PROCESSING)으로 남은 결제를 확정하는 보정 작업이 쓴다.
+	 * 주문 ID 로 조회하지 않는 이유: 화면이 결제위젯을 써서 서버도 결제위젯 시크릿 키를 쓰는데, 토스는 이 키로 주문 ID 조회를 막는다.
+	 * 결제 키는 사용자가 승인 요청에 보낸 값이라 다른 주문의 키일 수 있다. 조회된 결제의 주문 ID 가 orderId 와 다르면 이 주문은
+	 * 결제되지 않은 것으로 본다. (토스는 승인할 때 결제 키·주문 ID·금액이 짝이 맞는지 확인해서, 짝이 다른 키로는 이 주문에 돈이 나가지 않는다)
 	 * 읽기만 하므로 몇 번을 불러도 결제나 돈이 바뀌지 않는다.
 	 *
 	 * @throws GatewayUnavailableException 결과를 알 수 없다. 통신 오류, 시간 초과, 서버 오류, 키 설정 문제 등.
 	 *                                     결제 여부를 추측하지 말고 결제를 그대로 둔 채 다음 주기에 다시 조회한다
 	 */
-	GatewayLookup lookup(String orderId);
+	GatewayLookup lookup(String paymentKey, String orderId);
 }

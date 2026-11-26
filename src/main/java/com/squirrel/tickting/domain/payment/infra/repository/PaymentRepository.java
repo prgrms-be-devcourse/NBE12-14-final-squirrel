@@ -24,6 +24,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 		""", nativeQuery = true)
 	List<Long> findProcessingDueIds(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
 
+	/**
+	 * 승인을 시작한 지 since 이후인 승인 중(PROCESSING) 결제의 예매 번호. 만료 정리가 보정 작업의 확인을 기다릴 예매를 고르는 데 쓴다.
+	 * 승인 중 결제는 응답을 잃은 것만 남아서 많지 않다. (부분 인덱스 idx_payment_reconcile_processing)
+	 */
+	@Query(value = """
+		SELECT DISTINCT booking_id FROM payment
+		WHERE status = 'PROCESSING' AND processing_started_at >= :since
+		""", nativeQuery = true)
+	List<Long> findProcessingBookingIds(@Param("since") LocalDateTime since);
+
 	/** 보정 작업이 닫을 준비(READY) 결제. 준비한 지 cutoff 이전인 것만이다. 오래된 것부터. (부분 인덱스 idx_payment_reconcile_ready) */
 	@Query(value = """
 		SELECT id FROM payment

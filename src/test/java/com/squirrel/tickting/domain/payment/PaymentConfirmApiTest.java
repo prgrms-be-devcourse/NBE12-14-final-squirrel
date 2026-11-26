@@ -236,7 +236,8 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		Map<String, Object> failed = jdbc.queryForMap("SELECT * FROM payment WHERE order_id = ?", order.orderId());
 		assertThat(failed.get("status")).isEqualTo("FAILED");
 		assertThat(failed.get("fail_reason")).isEqualTo("카드사에서 결제를 거절했습니다.");
-		assertThat(failed.get("payment_key")).isNull();
+		// 결제 키는 승인 시작 때 저장돼 실패한 결제에도 남는다. (토스에서 그 시도를 찾아볼 수 있다)
+		assertThat(failed.get("payment_key")).isEqualTo("reject_card");
 		assertThat(bookingStatus(order.bookingId())).isEqualTo("PENDING");
 		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("HELD");
 

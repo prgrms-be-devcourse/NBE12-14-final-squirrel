@@ -71,6 +71,22 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 	List<Long> lockOverdueIds(@Param("now") LocalDateTime now, @Param("limit") int limit);
 
 	/**
+	 * lockOverdueIds 와 같고 excludedIds 의 예매는 고르지 않는다. 보정 작업이 결제 결과를 확인할 때까지 기다릴 예매를 빼는 데 쓴다.
+	 * 빈 목록이면 SQL 의 IN () 이 문법 오류라 호출한 쪽이 lockOverdueIds 를 부른다. 뺄 예매를 LIMIT 앞에서 걸러야
+	 * 그 예매가 계속 앞자리를 차지해 만료 정리가 같은 예매만 다시 고르며 끝나지 않는 일이 없다.
+	 */
+	@Query(value = """
+		SELECT id FROM booking
+		 WHERE status = 'PENDING' AND expires_at < :now
+		   AND id NOT IN (:excludedIds)
+		 ORDER BY expires_at
+		 LIMIT :limit
+		 FOR UPDATE SKIP LOCKED
+		""", nativeQuery = true)
+	List<Long> lockOverdueIdsExcluding(@Param("now") LocalDateTime now,
+		@Param("excludedIds") Collection<Long> excludedIds, @Param("limit") int limit);
+
+	/**
 	 * 결제 완료 처리. 결제 대기(PENDING)인 예매만 PAID 로 바꾸고 바뀐 행 수를 돌려준다.
 	 * 일괄 UPDATE 는 영속성 컨텍스트를 비우는데(clearAutomatically), 그 전에 flush 하지 않으면 같은 트랜잭션에서 엔티티로 바꿔 둔
 	 * 값(예: 결제 DONE)이 DB 에 반영되기 전에 사라진다. 그래서 이 저장소의 일괄 UPDATE 는 모두 flushAutomatically 도 켠다.

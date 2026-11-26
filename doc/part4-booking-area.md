@@ -179,7 +179,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 | PK | 결제 번호 | `id` | Long | NOT NULL |  |
 | FK | 예매 번호 | `booking_id` | Long | NOT NULL | (booking). 결제 시도가 여러 번일 수 있음 |
 |  | 주문 ID | `order_id` | String | NOT NULL | 토스에 보내는 orderId. 중복 불가. 승인 요청이 두 번 처리되지 않게 하는 키로도 씀 |
-|  | 결제 키 | `payment_key` | String | NULL | 토스 승인 후에만 생김. 중복 불가 |
+|  | 결제 키 | `payment_key` | String | NULL | 승인을 시작할 때 승인 요청에 온 값을 넣고, 승인에 성공하면 토스가 준 값으로 다시 씀. 결제 보정이 이 키로 토스에 조회함(5부 5-2 ②). 중복 불가 |
 |  | 결제 수단 | `method` | String | NULL | 카드, 간편결제 등 (승인 후 기록) |
 |  | 결제 금액 | `amount` | Integer | NOT NULL | 서버가 계산한 금액 |
 |  | 상태 | `status` | enum | NOT NULL | READY 준비 / PROCESSING 토스에 승인 요청 중 / DONE 승인 / FAILED 실패 / PARTIAL_CANCELED 일부 환불 / CANCELED 전액 환불 |
@@ -194,7 +194,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 2. 프론트가 토스 결제창을 열고, 사용자가 결제합니다.
 3. 결제창이 성공하면 `paymentKey`, `orderId`, `amount`를 들고 돌아옵니다.
 4. 서버가 먼저 **결제 제한 시각(`expires_at`)이 지나지 않았는지**, **금액이 내가 계산한 금액과 같은지** 확인합니다. (클라이언트가 보낸 금액을 그대로 믿으면 안 됩니다) 이미 지났으면 **토스를 호출하지 않고** 거절합니다. 토스는 승인 API를 호출하기 전에는 돈을 빼지 않으므로 돈이 나가지 않습니다.
-5. 통과하면 **한 트랜잭션**으로 `payment`=`PROCESSING`으로 바꾸고, `booking.expires_at`과 `schedule_seat.held_until`을 **지금 + 2분**으로 늘립니다. 토스를 부르는 도중에 7분이 지나 스케줄러가 좌석을 풀어 버리면 돈은 나갔는데 좌석이 다른 사람에게 팔릴 수 있기 때문입니다. 연장은 **남은 시간이 2분보다 짧을 때만** 하고, **예매당 한 번만** 합니다. (승인을 시작했다 실패하고 다시 시작하기를 반복해서 좌석을 계속 잡는 것을 막으려는 것입니다. 이미 승인을 시도한 `payment`가 있는 예매는 연장하지 않습니다)
+5. 통과하면 **한 트랜잭션**으로 `payment`=`PROCESSING`으로 바꾸고 요청에 온 `paymentKey`를 저장하고(응답을 잃으면 보정이 이 키로 조회합니다), `booking.expires_at`과 `schedule_seat.held_until`을 **지금 + 2분**으로 늘립니다. 토스를 부르는 도중에 7분이 지나 스케줄러가 좌석을 풀어 버리면 돈은 나갔는데 좌석이 다른 사람에게 팔릴 수 있기 때문입니다. 연장은 **남은 시간이 2분보다 짧을 때만** 하고, **예매당 한 번만** 합니다. (승인을 시작했다 실패하고 다시 시작하기를 반복해서 좌석을 계속 잡는 것을 막으려는 것입니다. 이미 승인을 시도한 `payment`가 있는 예매는 연장하지 않습니다)
 6. 트랜잭션 **밖에서** 토스에 **결제 승인**을 요청합니다. (외부 호출은 DB 트랜잭션 밖에서 합니다)
 7. 승인에 성공하면 `payment`=`DONE`, `booking`=`PAID`, 좌석=`SOLD`로 바꿉니다. **이 세 가지는 한 트랜잭션**입니다.
 8. 실패하면 `payment`=`FAILED`와 사유를 기록합니다. 좌석 점유는 연장된 시간까지 유지되고 지나면 풀립니다. 서버가 죽어서 `PROCESSING`으로 오래 남은 건은 스케줄러가 토스에 조회해서 확정합니다. (5부)
@@ -277,6 +277,7 @@ CREATE UNIQUE INDEX uq_booking_seat_active
 |---|---|
 | 스케줄러(1분마다, 주기는 설정값)가 만료된 점유를 정리 | `schedule_seat`: `HELD` → `AVAILABLE`, `held_by`·`held_until` 비움 |
 | 예매 만료 처리 | `booking` → EXPIRED, `booking_seat.active` → false, `payment` → FAILED 또는 그대로 |
+| 단, 승인 중(`PROCESSING`) 결제가 있는 예매는 건너뜀 | 결제 보정이 결과를 확인할 때까지 그대로 둠. 승인 시작 뒤 1시간이 지나면 건너뛰지 않음 (5부 5-2 ①) |
 
 ### ③ 일부 좌석 취소 (3장 중 1장)
 

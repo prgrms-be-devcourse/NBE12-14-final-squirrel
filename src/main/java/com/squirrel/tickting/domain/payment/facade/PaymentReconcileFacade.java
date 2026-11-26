@@ -175,10 +175,19 @@ public class PaymentReconcileFacade {
 			return settleUnpaid(payment, now, "결제를 준비만 하고 승인하지 않은 채 오래 지남");
 		}
 
+		if (payment.getPaymentKey() == null) {
+			// 결제 키를 승인 시작 때 저장하기 전에 승인 중이 된 결제다. 조회할 수 없어 사람이 토스 관리자 화면에서 확인해야 한다.
+			// 예매는 만료 정리가 보정을 기다리는 시간이 지나면 풀어 준다.
+			count("needs_review");
+			log.error("결제 키가 없어 토스에 조회할 수 없다. 사람이 확인해야 한다. 결제 번호: {}, 주문 ID: {}",
+				paymentId, payment.getOrderId());
+			return false;
+		}
+
 		GatewayLookup lookup;
 		Timer.Sample lookupTime = Timer.start(meterRegistry);
 		try {
-			lookup = paymentGateway.lookup(payment.getOrderId());
+			lookup = paymentGateway.lookup(payment.getPaymentKey(), payment.getOrderId());
 		} catch (GatewayUnavailableException e) {
 			count("lookup_failed");
 			log.warn("토스 결제 조회 결과를 알 수 없어 결제를 그대로 둔다. 결제 번호: {}", paymentId);

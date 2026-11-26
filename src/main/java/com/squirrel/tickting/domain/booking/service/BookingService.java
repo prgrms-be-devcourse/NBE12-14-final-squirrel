@@ -10,6 +10,7 @@ import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -125,11 +126,14 @@ public class BookingService {
 	 * 호출한 쪽의 트랜잭션에 참여한다. 예매 행은 이 트랜잭션이 끝날 때까지 잠기고, 다른 서버는 잠긴 행을 건너뛴다.
 	 * 좌석 도메인의 상태(HELD)는 이 서비스가 바꾸지 않고, 되돌릴 판매 좌석 번호만 돌려줘서 파사드가 같은 트랜잭션에서 되돌린다.
 	 *
+	 * @param excludedBookingIds 제한 시각이 지났어도 만료하지 않을 예매. 결제 결과를 아직 모르는 예매다
 	 * @return 이번에 만료 처리한 예매들의 판매 좌석 번호. 처리할 예매가 없으면 빈 목록이다
 	 */
 	@Transactional
-	public List<Long> expireOverdue(LocalDateTime now, int batchSize) {
-		List<Long> bookingIds = bookingRepository.lockOverdueIds(now, batchSize);
+	public List<Long> expireOverdue(LocalDateTime now, int batchSize, Collection<Long> excludedBookingIds) {
+		List<Long> bookingIds = excludedBookingIds.isEmpty()
+			? bookingRepository.lockOverdueIds(now, batchSize)
+			: bookingRepository.lockOverdueIdsExcluding(now, excludedBookingIds, batchSize);
 		if (bookingIds.isEmpty()) {
 			return List.of();
 		}
