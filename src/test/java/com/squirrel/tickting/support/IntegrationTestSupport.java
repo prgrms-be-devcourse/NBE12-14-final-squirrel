@@ -57,7 +57,9 @@ import tools.jackson.databind.ObjectMapper;
 // 대기열 테스트는 @DynamicPropertySource 로 켠다. (그 값이 여기 값보다 우선한다)
 // 공연 조회 캐시도 기본으로 꺼 둔다. 테스트는 데이터를 바로 고쳐서 확인하고, Redis 에 남은 값이 다음 테스트에 섞이면 안 된다.
 // 캐시 테스트(UserPerformanceCacheApiTest)는 @TestPropertySource 로 켠다.
-@SpringBootTest(properties = {"app.queue.enabled=false", "app.performance.cache.enabled=false"})
+// 좌석 점유 요청 횟수 제한도 끈다. 횟수가 Redis 에 남아 번호가 같은 다음 테스트의 사용자에게 섞인다. HoldLimitApiTest 가 켠다.
+@SpringBootTest(properties = {"app.queue.enabled=false", "app.performance.cache.enabled=false",
+	"app.booking.hold-limit.enabled=false"})
 @AutoConfigureMockMvc
 @Import({TestcontainersConfiguration.class, EmailTestConfiguration.class})
 public abstract class IntegrationTestSupport {

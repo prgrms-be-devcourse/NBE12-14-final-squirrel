@@ -34,7 +34,9 @@ public enum BookingExceptionCode implements ExceptionCode {
 	/** 취소 규정상 지금은 취소할 수 없음. 공연 당일처럼 취소 불가 구간이거나 회차가 이미 시작함 */
 	CANCEL_PERIOD_OVER("BOOKING009", HttpStatus.BAD_REQUEST, "지금은 취소할 수 없는 기간입니다."),
 	/** 이미 취소된 좌석이거나 이 예매의 좌석이 아님 */
-	SEAT_NOT_CANCELABLE("BOOKING010", HttpStatus.BAD_REQUEST, "취소할 수 없는 좌석이 포함되어 있습니다.");
+	SEAT_NOT_CANCELABLE("BOOKING010", HttpStatus.BAD_REQUEST, "취소할 수 없는 좌석이 포함되어 있습니다."),
+	/** 한 계정이 정해진 시간 안에 좌석 점유를 너무 많이 요청함 (매크로 방어). 횟수·시간은 app.booking.hold-limit */
+	HOLD_TOO_MANY_REQUESTS("BOOKING011", HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해 주세요.");
 
 	private final String code;
 	private final HttpStatus status;

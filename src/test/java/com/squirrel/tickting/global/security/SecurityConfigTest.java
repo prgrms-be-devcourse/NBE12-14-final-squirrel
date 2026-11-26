@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.squirrel.tickting.domain.booking.service.HoldLimitProperties;
+import com.squirrel.tickting.domain.booking.service.HoldLimitService;
 import com.squirrel.tickting.domain.captcha.interceptor.CaptchaInterceptor;
 import com.squirrel.tickting.domain.captcha.verifier.CaptchaVerifier;
 import com.squirrel.tickting.domain.queue.service.QueueProperties;
@@ -41,7 +43,7 @@ class SecurityConfigTest {
 	@Autowired
 	MockMvc mockMvc;
 
-	/** @WebMvcTest 는 대기열·캡챠 인터셉터도 만든다. 이 테스트는 경로 규칙만 보므로 꺼진(enabled=false) 대기열을 넣어 통과시킨다. */
+	/** @WebMvcTest 는 대기열·점유 제한·캡챠 인터셉터도 만든다. 이 테스트는 경로 규칙만 보므로 꺼진(enabled=false) 대기열·제한을 넣어 통과시킨다. */
 	@TestConfiguration
 	static class QueueStub {
 
@@ -53,6 +55,12 @@ class SecurityConfigTest {
 		@Bean
 		QueueService queueService(QueueProperties properties) {
 			return new QueueService(new StringRedisTemplate(), properties);
+		}
+
+		@Bean
+		HoldLimitService holdLimitService() {
+			return new HoldLimitService(new StringRedisTemplate(),
+				new HoldLimitProperties(false, 1, Duration.ofSeconds(1)));
 		}
 
 		/** 캡챠 인터셉터도 만들어지므로 항상 통과하는 검증기를 넣는다. 캡챠 자체는 CaptchaApiTest 가 확인한다. */

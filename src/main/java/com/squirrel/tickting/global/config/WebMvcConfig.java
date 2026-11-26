@@ -1,5 +1,6 @@
 package com.squirrel.tickting.global.config;
 
+import com.squirrel.tickting.domain.booking.interceptor.HoldLimitInterceptor;
 import com.squirrel.tickting.domain.captcha.interceptor.CaptchaInterceptor;
 import com.squirrel.tickting.domain.queue.interceptor.QueueAdmissionInterceptor;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
 	private final CaptchaInterceptor captchaInterceptor;
 	private final QueueAdmissionInterceptor queueAdmissionInterceptor;
+	private final HoldLimitInterceptor holdLimitInterceptor;
 
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
@@ -28,5 +30,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 			"/api/v1/schedules/*/zones",
 			"/api/v1/schedules/*/zones/*/seats",
 			"/api/v1/schedules/*/bookings");
+		// 좌석 점유 요청 횟수 제한. 등록한 순서대로 실행되므로 대기열 입장 확인 뒤에 둔다. (입장하지 않은 요청은 세지 않는다)
+		registry.addInterceptor(holdLimitInterceptor).addPathPatterns("/api/v1/schedules/*/bookings");
 	}
 }
