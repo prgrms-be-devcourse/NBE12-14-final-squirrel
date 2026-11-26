@@ -33,8 +33,7 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 
 	private static final String SEND = "/api/v1/auth/users/email-verification";
 	private static final String CONFIRM = SEND + "/confirm";
-	private static final String SIGNUP_V1 = "/api/v1/auth/users/signup";
-	private static final String SIGNUP_V2 = "/api/v2/auth/users/signup";
+	private static final String SIGNUP = "/api/v2/auth/users/signup";
 	private static final String EMAIL = "member@example.com";
 	private static final String KEY_PREFIX = "tickting:email-verify:USER:";
 
@@ -96,7 +95,7 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.verifiedUntil").exists());
 
-		postJson(SIGNUP_V1, unverifiedUserSignupBody(EMAIL)).andExpect(status().isCreated());
+		postJson(SIGNUP, unverifiedUserSignupBody(EMAIL)).andExpect(status().isCreated());
 
 		assertThat(jdbc.queryForObject("SELECT email_verified_at IS NOT NULL FROM user_member WHERE email = ?",
 			Boolean.class, EMAIL)).isTrue();
@@ -104,11 +103,9 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("인증하지 않고 가입하면 400(AUTH307)이고 회원이 만들어지지 않는다 (v1·v2 모두)")
+	@DisplayName("인증하지 않고 가입하면 400(AUTH307)이고 회원이 만들어지지 않는다")
 	void signupWithoutVerification() throws Exception {
-		postJson(SIGNUP_V1, unverifiedUserSignupBody(EMAIL))
-			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("AUTH307"));
-		postJson(SIGNUP_V2, unverifiedUserSignupBody(EMAIL))
+		postJson(SIGNUP, unverifiedUserSignupBody(EMAIL))
 			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("AUTH307"));
 
 		assertThat(userCount(EMAIL)).isZero();
@@ -119,7 +116,7 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 	void verificationIsBoundToEmail() throws Exception {
 		verify("other@example.com");
 
-		postJson(SIGNUP_V1, unverifiedUserSignupBody(EMAIL))
+		postJson(SIGNUP, unverifiedUserSignupBody(EMAIL))
 			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("AUTH307"));
 	}
 
@@ -133,7 +130,7 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 
 		// 유효 시간이 지난 것으로 만든다
 		redis.delete(keys("verified"));
-		postJson(SIGNUP_V1, unverifiedUserSignupBody(EMAIL))
+		postJson(SIGNUP, unverifiedUserSignupBody(EMAIL))
 			.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("AUTH307"));
 	}
 
@@ -144,9 +141,9 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 		Map<String, Object> wrong = unverifiedUserSignupBody(EMAIL);
 		wrong.put("passwordConfirm", "different1!");
 
-		postJson(SIGNUP_V1, wrong).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("AUTH005"));
+		postJson(SIGNUP, wrong).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("AUTH005"));
 
-		postJson(SIGNUP_V1, unverifiedUserSignupBody(EMAIL)).andExpect(status().isCreated());
+		postJson(SIGNUP, unverifiedUserSignupBody(EMAIL)).andExpect(status().isCreated());
 	}
 
 	@Test
@@ -155,13 +152,13 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 		send(" Member@Example.com ").andExpect(status().isOk());
 		confirm("MEMBER@example.com", fakeEmailSender.lastCode(EMAIL)).andExpect(status().isOk());
 
-		postJson(SIGNUP_V1, unverifiedUserSignupBody("Member@EXAMPLE.com")).andExpect(status().isCreated());
+		postJson(SIGNUP, unverifiedUserSignupBody("Member@EXAMPLE.com")).andExpect(status().isCreated());
 	}
 
 	@Test
 	@DisplayName("이미 가입한 이메일은 발송이 409(USER000)이고 메일도 번호도 간격·횟수 키도 만들지 않는다")
 	void alreadyRegisteredEmail() throws Exception {
-		postJson(SIGNUP_V1, userSignupBody(EMAIL)).andExpect(status().isCreated());
+		postJson(SIGNUP, userSignupBody(EMAIL)).andExpect(status().isCreated());
 
 		send(EMAIL).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("USER000"));
 
@@ -176,7 +173,7 @@ class EmailVerificationApiTest extends IntegrationTestSupport {
 		Map<String, Object> body = unverifiedUserSignupBody(EMAIL);
 
 		List<Integer> statuses = runConcurrently(6,
-			i -> () -> postJson(SIGNUP_V1, body).andReturn().getResponse().getStatus());
+			i -> () -> postJson(SIGNUP, body).andReturn().getResponse().getStatus());
 
 		assertThat(statuses.stream().filter(s -> s == 201)).hasSize(1);
 		assertThat(statuses.stream().filter(s -> s != 201)).allMatch(s -> s == 409 || s == 400);

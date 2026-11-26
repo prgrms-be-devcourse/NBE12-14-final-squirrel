@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,14 +33,14 @@ class SellerCancelPolicyDetailApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM cancel_policy WHERE business_id IN (?, ?)", MY_BUSINESS, OTHER_BUSINESS);
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 내 사업체 담당자 토큰으로 보내는 요청. 대표 전용 기능이 아니라서 담당자로도 되는지 같이 확인한다. */
 	private ResultActions requestDetail(Object cancelPolicyId) throws Exception {
 		return mockMvc.perform(get(URL, cancelPolicyId)
-			.header("Authorization", token(AccountType.SELLER, "STAFF", MY_BUSINESS)));
+			.cookie(token(AccountType.SELLER, "STAFF", MY_BUSINESS)));
 	}
 
 	private long insertPolicy(long businessId, String name) {

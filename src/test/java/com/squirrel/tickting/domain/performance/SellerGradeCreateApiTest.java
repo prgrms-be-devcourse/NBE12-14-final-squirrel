@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,8 +40,8 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM performance WHERE business_id IN (" + MY_BUSINESS + ", " + OTHER_BUSINESS + ")");
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 내 사업체 대표 토큰으로 보내는 등급 추가 요청 */
@@ -48,9 +49,9 @@ class SellerGradeCreateApiTest extends IntegrationTestSupport {
 		return add(performanceId, body, token(AccountType.SELLER, "OWNER", MY_BUSINESS));
 	}
 
-	private ResultActions add(Long performanceId, Map<String, Object> body, String authorization) throws Exception {
+	private ResultActions add(Long performanceId, Map<String, Object> body, Cookie authorization) throws Exception {
 		return mockMvc.perform(post(URL, performanceId)
-			.header("Authorization", authorization)
+			.cookie(authorization)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}

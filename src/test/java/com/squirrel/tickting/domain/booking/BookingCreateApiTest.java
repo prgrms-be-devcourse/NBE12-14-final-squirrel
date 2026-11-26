@@ -54,7 +54,7 @@ class BookingCreateApiTest extends BookingTestSupport {
 		Show show = show(3);
 		User user = signup("first");
 
-		MvcResult result = book(user.bearer(), show.scheduleId(), show.seatIds().subList(0, 2))
+		MvcResult result = book(user.session(), show.scheduleId(), show.seatIds().subList(0, 2))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.data.status").value("PENDING"))
@@ -76,6 +76,8 @@ class BookingCreateApiTest extends BookingTestSupport {
 		assertThat(booking.get("user_id")).isEqualTo(user.id());
 		assertThat(booking.get("schedule_id")).isEqualTo(show.scheduleId());
 		assertThat(booking.get("performance_id")).isEqualTo(show.performanceId());
+		assertThat(booking.get("business_id")).isEqualTo(jdbc.queryForObject(
+			"SELECT business_id FROM performance WHERE id = ?", Long.class, show.performanceId()));
 		assertThat(booking.get("status")).isEqualTo("PENDING");
 		assertThat(booking.get("receive_type")).isEqualTo("ONSITE");
 		assertThat(booking.get("orderer_name")).isEqualTo("홍길동");
@@ -106,9 +108,9 @@ class BookingCreateApiTest extends BookingTestSupport {
 		Show show = show(2);
 		User first = signup("first");
 		User second = signup("second");
-		book(first.bearer(), show.scheduleId(), List.of(show.seatIds().get(0))).andExpect(status().isCreated());
+		book(first.session(), show.scheduleId(), List.of(show.seatIds().get(0))).andExpect(status().isCreated());
 
-		book(second.bearer(), show.scheduleId(), show.seatIds())
+		book(second.session(), show.scheduleId(), show.seatIds())
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("BOOKING000"));
 
@@ -130,7 +132,7 @@ class BookingCreateApiTest extends BookingTestSupport {
 			VALUES (999, ?, 'F2구역', '9열', '1', 'R', 154000, 2000, true)
 			""", seat);
 
-		book(user.bearer(), show.scheduleId(), List.of(seat))
+		book(user.session(), show.scheduleId(), List.of(seat))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("BOOKING000"));
 
@@ -146,7 +148,7 @@ class BookingCreateApiTest extends BookingTestSupport {
 		Show show = show(MAX_PER_PERSON + 1);
 		User user = signup("first");
 
-		book(user.bearer(), show.scheduleId(), show.seatIds())
+		book(user.session(), show.scheduleId(), show.seatIds())
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("BOOKING001"));
 
@@ -167,10 +169,10 @@ class BookingCreateApiTest extends BookingTestSupport {
 		}
 		// 첫 요청은 클래스 로딩 때문에 느려서, 락 대기 시간(1초)을 넘기지 않도록 다른 좌석으로 한 번 미리 실행해 둔다
 		User warm = signup("warm");
-		assertThat(bookForResult(warm.bearer(), show.scheduleId(), List.of(show.seatIds().get(1)))).isEqualTo("OK");
+		assertThat(bookForResult(warm.session(), show.scheduleId(), List.of(show.seatIds().get(1)))).isEqualTo("OK");
 
 		List<String> results = runConcurrently(20,
-			i -> () -> bookForResult(users.get(i).bearer(), show.scheduleId(), List.of(contested)));
+			i -> () -> bookForResult(users.get(i).session(), show.scheduleId(), List.of(contested)));
 
 		assertThat(countOf("OK", results)).isEqualTo(1);
 		// 진 요청은 좌석이 이미 잡혔다는 409 이거나, 줄이 길어 락 대기 시간을 넘긴 409 다
@@ -192,10 +194,10 @@ class BookingCreateApiTest extends BookingTestSupport {
 		Show show = show(requests + 1);
 		User user = signup("first");
 		User warm = signup("warm");
-		assertThat(bookForResult(warm.bearer(), show.scheduleId(), List.of(show.seatIds().get(requests)))).isEqualTo("OK");
+		assertThat(bookForResult(warm.session(), show.scheduleId(), List.of(show.seatIds().get(requests)))).isEqualTo("OK");
 
 		List<String> results = runConcurrently(requests,
-			i -> () -> bookForResult(user.bearer(), show.scheduleId(), List.of(show.seatIds().get(i))));
+			i -> () -> bookForResult(user.session(), show.scheduleId(), List.of(show.seatIds().get(i))));
 
 		assertThat(countOf("OK", results)).isEqualTo(MAX_PER_PERSON);
 		assertThat(countOf("BOOKING001", results)).isEqualTo(requests - MAX_PER_PERSON);
@@ -231,7 +233,7 @@ class BookingCreateApiTest extends BookingTestSupport {
 			locked.await();
 			long startedAt = System.nanoTime();
 
-			book(user.bearer(), show.scheduleId(), List.of(seat))
+			book(user.session(), show.scheduleId(), List.of(seat))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("COMMON004"));
 

@@ -8,12 +8,12 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
-/** 로그인하지 않고(토큰 없이) 인증이 필요한 경로를 호출했을 때 401 을 ApiResponse 형식으로 내린다. */
-public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
+/** 로그인하지 않고(세션 쿠키 없이) 인증이 필요한 경로를 호출했을 때 401 을 ApiResponse 형식으로 내린다. */
+public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
 	private final HandlerExceptionResolver exceptionResolver;
 
-	public JwtAuthenticationEntryPoint(HandlerExceptionResolver exceptionResolver) {
+	public ApiAuthenticationEntryPoint(HandlerExceptionResolver exceptionResolver) {
 		this.exceptionResolver = exceptionResolver;
 	}
 

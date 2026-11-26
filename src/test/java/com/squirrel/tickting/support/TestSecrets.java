@@ -42,10 +42,4 @@ public final class TestSecrets {
 		return builder.toString();
 	}
 
-	/** JWT 서명 키로 쓸 수 있는 길이(48바이트)의 무작위 문자열 */
-	public static String randomJwtSecret() {
-		byte[] bytes = new byte[48];
-		RANDOM.nextBytes(bytes);
-		return Base64.getEncoder().encodeToString(bytes);
-	}
 }

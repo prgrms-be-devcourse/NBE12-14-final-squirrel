@@ -9,6 +9,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -51,14 +52,14 @@ class SellerPerformancePublishApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM cancel_policy WHERE business_id IN (?, ?)", MY_BUSINESS, OTHER_BUSINESS);
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 공개는 대표 전용이 아니라서 담당자 토큰으로 보낸다. */
 	private ResultActions publish(Long performanceId) throws Exception {
 		return mockMvc.perform(post(URL, performanceId)
-			.header("Authorization", token(AccountType.SELLER, "STAFF", MY_BUSINESS)));
+			.cookie(token(AccountType.SELLER, "STAFF", MY_BUSINESS)));
 	}
 
 	private Long defaultPolicyId() {
@@ -257,7 +258,7 @@ class SellerPerformancePublishApiTest extends IntegrationTestSupport {
 	void onlySellerCanCall() throws Exception {
 		Long performanceId = insertReadyPerformance();
 
-		mockMvc.perform(post(URL, performanceId).header("Authorization", token(AccountType.USER, null, null)))
+		mockMvc.perform(post(URL, performanceId).cookie(token(AccountType.USER, null, null)))
 			.andExpect(status().isForbidden());
 		mockMvc.perform(post(URL, performanceId)).andExpect(status().isUnauthorized());
 		assertThat(statusOf(performanceId)).isEqualTo("DRAFT");

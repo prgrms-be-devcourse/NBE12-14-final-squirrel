@@ -1,16 +1,10 @@
 package com.squirrel.tickting.domain.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.squirrel.tickting.global.jwt.JwtProperties;
-import com.squirrel.tickting.global.jwt.JwtProvider;
-import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.support.IntegrationTestSupport;
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -19,9 +13,8 @@ import org.springframework.test.web.servlet.MvcResult;
 
 class UserAuthApiTest extends IntegrationTestSupport {
 
-	private static final String SIGNUP = "/api/v1/auth/users/signup";
-	private static final String LOGIN = "/api/v1/auth/users/login";
-	private static final String REFRESH = "/api/v1/auth/refresh";
+	private static final String SIGNUP = "/api/v2/auth/users/signup";
+	private static final String LOGIN = "/api/v2/auth/users/login";
 
 	private MvcResult signup(String email) throws Exception {
 		return postJson(SIGNUP, userSignupBody(email)).andExpect(status().isCreated()).andReturn();
@@ -31,22 +24,19 @@ class UserAuthApiTest extends IntegrationTestSupport {
 		return postJson(LOGIN, loginBody(email, password)).andReturn();
 	}
 
-	// ---------------------------------------------------------------- 가입과 토큰
+	// ---------------------------------------------------------------- 가입
 
 	@Test
-	@DisplayName("가입하면 액세스 토큰은 본문, 리프레시 토큰은 HttpOnly 쿠키로 받고 DB 에는 해시만 저장된다")
-	void signupIssuesTokensAndStoresSafely() throws Exception {
+	@DisplayName("가입하면 SESSION 쿠키로 바로 로그인되고, 비밀번호는 해시로만 저장된다")
+	void signupStartsSessionAndStoresSafely() throws Exception {
 		MvcResult result = postJson(SIGNUP, userSignupBody("User@Example.com"))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.success").value(true))
-			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
 			.andExpect(jsonPath("$.data.accountType").value("USER"))
-			.andExpect(jsonPath("$.data.expiresIn").value(900))
-			.andExpect(jsonPath("$.data.accessToken").isNotEmpty())
 			.andReturn();
 
-		String setCookie = result.getResponse().getHeader("Set-Cookie");
-		assertThat(setCookie).contains("refreshToken=", "HttpOnly", "Path=/api/v1/auth", "SameSite=Lax");
+		assertThat(sessionCookie(result)).isNotNull();
+		assertThat(result.getResponse().getContentAsString()).doesNotContain("accessToken", "refreshToken");
 
 		Map<String, Object> row = jdbc.queryForMap("SELECT * FROM user_member");
 		assertThat(row.get("email")).isEqualTo("user@example.com");
@@ -71,8 +61,6 @@ class UserAuthApiTest extends IntegrationTestSupport {
 		assertThat(count("user_member")).isEqualTo(1);
 	}
 
-	// ---------------------------------------------------------------- 약관
-
 	// ---------------------------------------------------------------- 동시성
 
 	@Test
@@ -95,18 +83,16 @@ class UserAuthApiTest extends IntegrationTestSupport {
 	// ---------------------------------------------------------------- 로그인
 
 	@Test
-	@DisplayName("로그인하면 토큰을 받고, 이메일 대소문자·공백은 무시한다")
+	@DisplayName("로그인하면 SESSION 쿠키를 받고, 이메일 대소문자·공백은 무시한다")
 	void loginSuccess() throws Exception {
 		signup("user@example.com");
 
 		MvcResult result = postJson(LOGIN, loginBody(" USER@example.com ", PASSWORD))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.accountType").value("USER"))
-			.andExpect(jsonPath("$.data.accessToken").isNotEmpty())
 			.andReturn();
 
-		assertThat(refreshCookie(result)).isNotBlank();
-		assertThat(jwtProvider.parseAccessToken(accessToken(result)).getAccountType()).isEqualTo(AccountType.USER);
+		assertThat(sessionCookie(result)).isNotNull();
 	}
 
 	@Test
@@ -122,8 +108,7 @@ class UserAuthApiTest extends IntegrationTestSupport {
 		assertThat(read(wrongPassword, "$.code")).isEqualTo("AUTH001");
 		assertThat(read(unknownEmail, "$.code")).isEqualTo("AUTH001");
 		assertThat(read(wrongPassword, "$.message")).isEqualTo(read(unknownEmail, "$.message"));
-		assertThat(refreshCookie(wrongPassword)).isNull();
-		assertThat(wrongPassword.getResponse().getContentAsString()).doesNotContain("accessToken");
+		assertThat(sessionCookie(wrongPassword)).isNull();
 	}
 
 	@Test
@@ -148,60 +133,5 @@ class UserAuthApiTest extends IntegrationTestSupport {
 
 		assertThat(result.getResponse().getStatus()).isEqualTo(401);
 		assertThat(read(result, "$.code")).isEqualTo("AUTH001");
-	}
-
-	// ---------------------------------------------------------------- 재발급
-
-	@Test
-	@DisplayName("리프레시 쿠키로 액세스 토큰을 다시 받는다")
-	void refreshSuccess() throws Exception {
-		String refresh = refreshCookie(signup("user@example.com"));
-
-		MvcResult result = mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", refresh)))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.accountType").value("USER"))
-			.andReturn();
-
-		assertThat(refreshCookie(result)).isNotBlank();
-		assertThat(jwtProvider.parseAccessToken(accessToken(result)).getAccountType()).isEqualTo(AccountType.USER);
-	}
-
-	@Test
-	@DisplayName("액세스 토큰이나 위조·만료된 토큰을 리프레시 쿠키로 보내면 거절한다")
-	void refreshWithWrongTokens() throws Exception {
-		MvcResult signup = signup("user@example.com");
-		Long id = jwtProvider.parseAccessToken(accessToken(signup)).getId();
-
-		// 액세스 토큰은 리프레시 자리에 쓸 수 없다
-		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", accessToken(signup))))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH201"));
-
-		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", "forged")))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH201"));
-
-		String expired = new JwtProvider(new JwtProperties(
-			jwtProperties.secret(), jwtProperties.issuer(), -10, -10))
-			.createRefreshToken(id, AccountType.USER);
-		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", expired)))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH202"));
-	}
-
-	@Test
-	@DisplayName("이용이 제한되거나 탈퇴한 회원은 이미 받은 리프레시 토큰으로도 재발급받을 수 없다")
-	void refreshBlockedForDisabledAccounts() throws Exception {
-		String refresh = refreshCookie(signup("user@example.com"));
-
-		jdbc.update("UPDATE user_member SET status = 'SUSPENDED'");
-		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", refresh)))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH003"));
-
-		jdbc.update("UPDATE user_member SET status = 'ACTIVE', deleted_at = now()");
-		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", refresh)))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH201"));
 	}
 }

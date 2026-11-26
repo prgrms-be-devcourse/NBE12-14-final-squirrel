@@ -9,6 +9,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -47,13 +48,13 @@ class SellerPerformanceApiTest extends IntegrationTestSupport {
 		insertedVenueIds.clear();
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 내 사업체 대표 토큰으로 보내는 목록 요청 */
 	private MockHttpServletRequestBuilder listRequest() {
-		return get(URL).header("Authorization", token(AccountType.SELLER, "OWNER", MY_BUSINESS));
+		return get(URL).cookie(token(AccountType.SELLER, "OWNER", MY_BUSINESS));
 	}
 
 	private Long arenaVenueId() {
@@ -97,7 +98,7 @@ class SellerPerformanceApiTest extends IntegrationTestSupport {
 
 	/** 내 사업체 대표 토큰으로 보내는 상세 요청 */
 	private MockHttpServletRequestBuilder detailRequest(Long performanceId) {
-		return get(URL + "/" + performanceId).header("Authorization", token(AccountType.SELLER, "OWNER", MY_BUSINESS));
+		return get(URL + "/" + performanceId).cookie(token(AccountType.SELLER, "OWNER", MY_BUSINESS));
 	}
 
 	private List<String> titles(MvcResult result) throws Exception {

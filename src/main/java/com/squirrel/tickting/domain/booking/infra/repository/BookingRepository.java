@@ -22,11 +22,17 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 	/** 그 공연에 주어진 상태의 예매가 하나라도 있는가. performance_id 는 예매 때 복사해 둔 값이라 조인 없이 본다. */
 	boolean existsByPerformanceIdAndStatusIn(Long performanceId, Collection<BookingStatus> statuses);
 
+	/** 그 회차에 주어진 상태가 아닌 예매가 하나라도 있는가. */
+	boolean existsByScheduleIdAndStatusNot(Long scheduleId, BookingStatus status);
+
 	/**
 	 * 판매자의 회차별 예매 목록. 예매 시각 최신순, 같으면 번호가 큰 순으로 고정한다(페이지를 넘겨도 순서가 바뀌지 않게).
 	 * PostgreSQL 에서 null 파라미터가 타입 오류를 내서 선택 조건은 null 대신 "전부 넘기기"로 쓴다:
 	 * 상태·수령 방법은 허용할 값 목록을 항상 받고, 예매 번호는 빈 문자열이면 거르지 않는다. 예매 번호는 정확 일치다.
+	 *
+	 * @deprecated 역할별 예매 조회를 BookingQueryService 로 모았다. 새 코드는 BookingQueryRepository.searchOfBusiness 를 쓴다. 이미 쓰는 곳이 있어서 지우지 않고 남겨 둔다.
 	 */
+	@Deprecated(since = "2026-11-25")
 	@Query(value = """
 		SELECT b
 		  FROM Booking b
@@ -90,6 +96,21 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		   AND b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PENDING
 		""")
 	int markExpired(@Param("ids") Collection<Long> ids, @Param("now") LocalDateTime now);
+
+	/**
+	 * 만료된 예매를 취소로 바꾼다. 만료(EXPIRED)된 예매만 바꾸고 바뀐 행 수를 돌려준다. 결제 불일치 보정이 "예매는 만료됐는데
+	 * 토스에서는 결제된" 건을 환불할 때 쓴다. 결제된 예매가 만료로 남아 있으면 사용자가 돈을 낸 기록과 어긋난다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.CANCELED,
+		       b.canceledAt = :now,
+		       b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.EXPIRED
+		""")
+	int markExpiredAsCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
 
 	/** 일부 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다. */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)

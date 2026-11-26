@@ -24,17 +24,16 @@
 | --- | --- | --- |
 | 인증 | `/api/v1/auth/**` | 누구나 |
 | 공개 조회 | GET `/api/v1/terms`, `/api/v1/performances`, `/api/v1/performances/*`, `/api/v1/schedules/*/zones`, `/api/v1/schedules/*/zones/*/seats` | 누구나 (GET만. 같은 경로의 쓰기 요청은 로그인 필요) |
-| 예매자 | `/api/v1/users/**`, `/api/v1/bookings/**`, `/api/v1/payments/**`, `/api/v1/schedules/*/bookings` | 예매자만 (판매자·관리자 토큰은 403) |
+| 예매자 | `/api/v1/users/**`, `/api/v1/bookings/**`, `/api/v1/payments/**`, `/api/v1/schedules/*/bookings` | 예매자만 (판매자·관리자 계정은 403) |
 | 판매자 | `/api/v1/seller/**` | 판매자 (대표·STAFF). 대표만 가능한 기능은 메서드에 `@PreAuthorize("hasRole('SELLER_OWNER')")` |
 | 관리자 | `/api/v1/admin/**` | 관리자 |
 | 그 밖 | 위에 없는 경로 | 로그인 (계정 종류는 가리지 않음) |
 
-- **권한은 두 단계**입니다. ① 계정 종류·역할은 시큐리티가 토큰으로 검사하고(위 표), ② "이 데이터가 내 것인가"는 서비스가 토큰의 번호(`account.getId()`, `account.getBusinessId()`)로 조회해서 확인합니다. 남의 것은 403이 아니라 **404**로 답합니다.
-- 토큰의 역할은 발급 시점 값이라, 계정이 비활성화돼도 액세스 토큰이 만료될 때(15분)까지는 통합니다. (재발급은 DB 상태를 다시 읽습니다)
+- **권한은 두 단계**입니다. ① 계정 종류·역할은 시큐리티가 세션으로 검사하고(위 표), ② "이 데이터가 내 것인가"는 서비스가 세션의 번호(`account.getId()`, `account.getBusinessId()`)로 조회해서 확인합니다. 남의 것은 403이 아니라 **404**로 답합니다.
+- 세션의 역할은 로그인한 시점 값이라, 계정이 비활성화돼도 세션이 만료될 때(마지막 요청 후 30분)까지는 통합니다. 되돌리기 어려운 작업에서 최신 상태가 중요하면 서비스에서 DB로 한 번 더 확인합니다.
 - 새 API를 만들면 위 표의 어느 줄에 들어가는지 확인하고, 공개 조회나 예매자 전용이면 `SecurityConfig`의 `PUBLIC_READ_PATHS`, `USER_ONLY_PATHS`에 경로를 추가합니다.
 
-- 인증 헤더: `Authorization: Bearer {accessToken}`
-- 액세스 토큰 900초, 리프레시 토큰 14일(HttpOnly 쿠키 `refreshToken`, `Path=/api/v1/auth`, `SameSite=Lax`)
+- 인증: 로그인하면 `SESSION` 쿠키가 내려가고, 이후 요청은 그 쿠키만 보냅니다. (HttpOnly, SameSite=Lax, 마지막 요청 후 30분. JWT는 2026-11-26에 없앴고 `Authorization` 헤더는 쓰지 않습니다)
 - 페이징 요청: `page`(0부터), `size`. 기본 크기와 최대 크기는 API마다 정합니다. (공통 설정의 최대는 50이고, 사업체 목록은 기본 10·최대 20) 크기가 최대를 넘으면 에러가 아니라 최대로 줄어듭니다.
 - **목록 응답 구조 (확정)**: `data`에 `content`(항목 배열), `page`(현재 페이지, 0부터), `size`, `totalElements`, `totalPages`가 들어갑니다. (`PageResponse`)
 
@@ -61,22 +60,16 @@
 | ID | 이름 | 메서드 · URL | 상태 |
 | --- | --- | --- | --- |
 | AUTH-01 | 약관 조회 | GET `/api/v1/terms` | 구현됨 |
-| AUTH-02 | 예매자 가입 | POST `/api/v1/auth/users/signup` | 구현됨 |
-| AUTH-03 | 예매자 로그인 | POST `/api/v1/auth/users/login` | 구현됨 |
-| AUTH-04 | 로그아웃 | POST `/api/v1/auth/logout` | 미구현 |
-| AUTH-05 | 토큰 재발급 | POST `/api/v1/auth/refresh` | 구현됨 |
+| AUTH-02 | 예매자 가입 | POST `/api/v2/auth/users/signup` | 구현됨 |
 | AUTH-06 | 내 정보 조회 | GET `/api/v1/users/me` | 구현됨 |
 | AUTH-07 | 내 정보 수정 | PATCH `/api/v1/users/me` | 구현됨 |
 | AUTH-08 | 회원 탈퇴 | DELETE `/api/v1/users/me` | 구현됨 |
 | AUTH-09 | 판매자 가입 신청 | POST `/api/v1/auth/sellers/signup` | 구현됨 |
-| AUTH-10 | 판매자 로그인 | POST `/api/v1/auth/sellers/login` | 구현됨 |
-| AUTH-11 | 관리자 로그인 | POST `/api/v1/auth/admins/login` | 구현됨 |
-| AUTH-12 | 예매자 로그인 (v2 세션) | POST `/api/v2/auth/users/login` | 구현됨 |
-| AUTH-13 | 판매자 로그인 (v2 세션) | POST `/api/v2/auth/sellers/login` | 구현됨 |
-| AUTH-14 | 관리자 로그인 (v2 세션) | POST `/api/v2/auth/admins/login` | 구현됨 |
-| AUTH-15 | 로그아웃 (v2 세션) | POST `/api/v2/auth/logout` | 구현됨 |
+| AUTH-12 | 예매자 로그인 | POST `/api/v2/auth/users/login` | 구현됨 |
+| AUTH-13 | 판매자 로그인 | POST `/api/v2/auth/sellers/login` | 구현됨 |
+| AUTH-14 | 관리자 로그인 | POST `/api/v2/auth/admins/login` | 구현됨 |
+| AUTH-15 | 로그아웃 | POST `/api/v2/auth/logout` | 구현됨 |
 | PFM-01 | 공연 목록·검색 | GET `/api/v1/performances` | 구현됨 |
-| AUTH-16 | 예매자 가입 (v2 세션) | POST `/api/v2/auth/users/signup` | 구현됨 |
 | AUTH-17 | 가입 전 이메일 인증번호 발송 (예매자·판매자) | POST `/api/v1/auth/users/email-verification` · `/api/v1/auth/sellers/email-verification` | 구현됨 |
 | AUTH-18 | 가입 전 이메일 인증번호 확인 (예매자·판매자) | POST `/api/v1/auth/users/email-verification/confirm` · `/api/v1/auth/sellers/email-verification/confirm` | 구현됨 |
 | AUTH-19 | 예매자 비밀번호 재설정 메일 요청 | POST `/api/v1/auth/users/password-reset/request` | 구현됨 |
@@ -103,16 +96,18 @@
 | SLR-10 | 등급 수정 | PUT `/api/v1/seller/performances/{performanceId}/grades/{gradeId}` | 구현됨 |
 | SLR-11 | 구역별 상태·등급 설정 | PATCH `/api/v1/seller/performances/{performanceId}/zone-grades` | 구현됨 |
 | SLR-12 | 회차 추가 | POST `/api/v1/seller/performances/{performanceId}/schedules` | 구현됨 |
-| SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 미구현 |
+| SLR-13 | 회차 수정 | PUT `/api/v1/seller/schedules/{scheduleId}` | 구현됨 |
 | SLR-14 | 판매 좌석 생성 | POST `/api/v1/seller/schedules/{scheduleId}/seats/generate` | 구현됨 |
 | SLR-15 | 회차 취소 | POST `/api/v1/seller/schedules/{scheduleId}/cancel` | 미구현 |
 | SLR-16 | 공연 취소 | POST `/api/v1/seller/performances/{performanceId}/cancel` | 미구현 |
 | SLR-17 | 판매 현황 | GET `/api/v1/seller/performances/{performanceId}/sales` | 구현됨 |
-| SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 구현됨 |
+| SLR-18 | 회차별 예매 목록 | GET `/api/v1/seller/schedules/{scheduleId}/bookings` | 구현됨 (사용 중단 예정, SLR-23 사용) |
 | SLR-19 | 취소 규정 목록 | GET `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-20 | 취소 규정 상세 | GET `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | SLR-21 | 취소 규정 생성 | POST `/api/v1/seller/cancel-policies` | 구현됨 |
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
+| SLR-23 | 내 사업체 예매 목록 | GET `/api/v1/seller/bookings` | 구현됨 |
+| SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -120,6 +115,8 @@
 | ADM-05 | 환불 실패 목록 | GET `/api/v1/admin/refunds` | 구현됨 |
 | ADM-06 | 환불 수동 재처리 | POST `/api/v1/admin/refunds/{refundId}/retry` | 구현됨 |
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
+| ADM-08 | 전체 예매 목록 | GET `/api/v1/admin/bookings` | 구현됨 |
+| ADM-09 | 예매 상세 | GET `/api/v1/admin/bookings/{bookingId}` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
@@ -168,9 +165,9 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 
 **에러**: 400 `COMMON000` 알 수 없는 `type` 값
 
-### AUTH-02 예매자 가입 — `POST /api/v1/auth/users/signup` (공개, 구현됨)
+### AUTH-02 예매자 가입 — `POST /api/v2/auth/users/signup` (공개, 구현됨)
 
-가입하면 바로 로그인됩니다. 액세스 토큰은 본문, 리프레시 토큰은 `Set-Cookie`.
+가입하면 바로 로그인됩니다. `SESSION` 쿠키가 내려가고, 받은 쿠키로 `GET /api/v1/users/me` 같은 업무 API를 바로 쓸 수 있습니다.
 
 **가입 전에 이메일 인증(AUTH-17·18)을 마친 이메일만 가입할 수 있습니다.** 인증은 20분 동안 유효하고 가입에 성공하면 소모됩니다. 가입한 회원은 인증을 마친 것이라 가입 시각이 `email_verified_at`에 들어갑니다.
 
@@ -198,7 +195,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 | `phone` | 하이픈 없는 휴대폰 번호 (`01X` + 7~8자리) |
 | `agreedTermIds` | 최신 필수 약관을 모두 포함 |
 
-**응답 201**
+**응답 201** (`Set-Cookie: SESSION=...; Path=/; HttpOnly; SameSite=Lax`)
 
 ```json
 {
@@ -206,77 +203,15 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
   "code": "0000",
   "message": "",
   "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
     "accountType": "USER",
     "role": null
   }
 }
 ```
+
+가입이 실패하면(이메일 중복 `USER000`, 필수 약관 미동의 등) 세션이 만들어지지 않고 회원도 저장되지 않습니다.
 
 **에러** (확인 순서대로): 400 `COMMON000` 형식 오류 · 400 `AUTH307` 이메일 인증을 안 했거나 20분이 지남 · 400 `TERMS000` 필수 약관 미동의 · 400 `TERMS001` 없는 약관 · 400 `TERMS002` 개정 전 약관 · 400 `AUTH005` 비밀번호 확인 불일치 · 409 `USER000` 이메일 중복
-
-### AUTH-03 예매자 로그인 — `POST /api/v1/auth/users/login` (공개, 구현됨)
-
-**요청**
-
-```json
-{ "email": "user@example.com", "password": "password1!" }
-```
-
-**응답 200** (`Set-Cookie: refreshToken=...; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=1209600`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "USER",
-    "role": null
-  }
-}
-```
-
-**에러**: 401 `AUTH001` 이메일·비밀번호 불일치 · 401 `AUTH003` 비활성 계정 · 429 `AUTH004` 같은 IP 에서 같은 이메일로 5번 틀려 5분 동안 잠김 (비밀번호가 맞아도) · 400 `COMMON000`
-
-### AUTH-04 로그아웃 — `POST /api/v1/auth/logout` (로그인, 미구현)
-
-Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프레시 토큰·쿠키를 지움.
-※ 현재 `/api/v1/auth/**`가 permitAll이라 로그아웃 경로는 `SecurityConfig` 조정이 필요합니다.
-
-**응답 200**
-
-```json
-{  "success": true,  "code": "0000",  "message": "",  "data": null}
-```
-
-### AUTH-05 토큰 재발급 — `POST /api/v1/auth/refresh` (공개, 구현됨)
-
-예매자·판매자·관리자 공통. Body 없음, 쿠키의 `refreshToken` 사용. **리프레시 토큰도 새로 발급**되어 `Set-Cookie`로 내려갑니다.
-
-**응답 200**
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.new-access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "USER",
-    "role": null
-  }
-}
-```
-
-**에러**: 401 `AUTH200` 쿠키 없음 · 401 `AUTH201` 토큰 무효 · 401 `AUTH202` 토큰 만료 (그 외 계정 상태 에러는 코드 미정)
 
 ### AUTH-06 내 정보 조회 — `GET /api/v1/users/me` (예매자, 구현됨)
 
@@ -344,7 +279,7 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
   - 기준은 회차 시작 시각(연기되면 바뀐 시각)입니다. 공연 당일은 취소 불가 구간이라 시작한 뒤에는 취소·환불로 돈이 오갈 일이 없어서, 공연 중이어도 탈퇴할 수 있습니다.
   - 만료(`EXPIRED`), 전체 취소(`CANCELED`), 제한 시각이 지난 결제 대기는 막지 않습니다.
 - 개인정보는 설계 1부 "탈퇴 시 처리" 표대로 지웁니다. (email `deleted-{id}@withdrawn.invalid`, 이름·닉네임 `탈퇴회원`, phone `-`, 사진 NULL, 비밀번호는 로그인할 수 없는 값) 같은 이메일·본인인증으로 다시 가입할 수 있습니다.
-- 탈퇴한 기기의 세션(SESSION 쿠키)은 지워져 이후 요청은 401입니다. **다른 기기의 세션과 v1 액세스 토큰은 지우지 못합니다.** (회원 번호로 세션을 찾는 설정이 없음) 남은 세션은 마지막 요청 후 30분, 액세스 토큰은 15분 뒤 사라지고, 그 사이 내 정보 조회·수정은 404 `USER002`, 재로그인·토큰 재발급은 막힙니다.
+- 탈퇴한 기기의 세션(SESSION 쿠키)은 지워져 이후 요청은 401입니다. **다른 기기의 세션은 지우지 못합니다.** (회원 번호로 세션을 찾는 설정이 없음) 남은 세션은 마지막 요청 후 30분 뒤 사라지고, 그 사이 내 정보 조회·수정은 404 `USER002`, 재로그인은 막힙니다.
 
 **응답 200**
 
@@ -404,78 +339,14 @@ Body 없음. 액세스 토큰 `jti`를 Redis 블랙리스트에 올리고 리프
 
 **에러**: 400 `AUTH307` 이메일 인증을 안 했거나 20분이 지남 · 400 `AUTH005` 비밀번호 확인 불일치 · 409 `SELLER000` 이메일 중복 · 409 `SELLER001` 사업자번호 중복(반려된 사업체의 번호도 포함, 재신청 불가) · 400 `COMMON000`
 
-### AUTH-10 판매자 로그인 — `POST /api/v1/auth/sellers/login` (공개, 구현됨)
+### AUTH-12~15 로그인·로그아웃 (세션, 공개, 구현됨)
 
-**요청**
-
-```json
-{ "email": "owner@company.com", "password": "password1!" }
-```
-
-**응답 200** (`Set-Cookie: refreshToken=...`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "SELLER",
-    "role": "OWNER"
-  }
-}
-```
-
-**에러**: 401 `AUTH001` 불일치 · 401 `AUTH003` 비활성 계정 · 403 `SELLER003` 승인 대기 · 403 `SELLER004` 반려 · 403 `SELLER005` 정지 · 429 `AUTH004` 같은 IP 에서 같은 이메일로 5번 틀려 5분 동안 잠김 (비밀번호가 맞아도)
-
-### AUTH-11 관리자 로그인 — `POST /api/v1/auth/admins/login` (공개, 구현됨)
-
-관리자는 가입과 비밀번호 변경이 없습니다. 로컬에서는 `db/seed/V19`의 시드 계정(`admin@tickting.local`)으로 로그인하고, **비밀번호는 저장소에 없어서 팀에서 따로 전달**합니다. 운영 관리자 계정은 배포 때 따로 만듭니다.
-
-**요청**
-
-```json
-{ "email": "admin@tickting.local", "password": "시드 계정의 비밀번호" }
-```
-
-**응답 200** (`Set-Cookie: refreshToken=...`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9.access.sample",
-    "tokenType": "Bearer",
-    "expiresIn": 900,
-    "accountType": "ADMIN",
-    "role": null
-  }
-}
-```
-
-**에러**: 401 `AUTH001` 불일치 · 401 `AUTH003` 비활성 계정 · 429 `AUTH004` 같은 IP 에서 같은 이메일로 5번 틀려 5분 동안 잠김 (비밀번호가 맞아도)
-
-> 로그인 계정 정보 조회(`GET /api/v1/me`)는 삭제했습니다. 계정 종류·역할은 로그인·재발급 응답에 이미 들어 있고, 사업체 번호는 프론트가 액세스 토큰(JWT payload)에서 읽습니다. 권한 판단은 항상 서버가 합니다.
-
-### AUTH-12~15 세션 로그인·로그아웃 (v2, 공개, 구현됨)
-
-JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인하면 `SESSION` 쿠키가 내려가고, 그 뒤에는 **경로를 바꾸지 않은 업무 API**(`/api/v1/users/me`, `/api/v1/admin/**` 등)를 쿠키만 보내서 호출합니다. 업무 API는 JWT와 세션을 모두 인정하며, 요청에 `Authorization: Bearer` 헤더가 있으면 JWT가 먼저 적용됩니다.
-
-| 항목 | v1 (JWT) | v2 (세션) |
-| --- | --- | --- |
-| 로그인 결과 | 액세스 토큰(본문) + 리프레시 쿠키 | `SESSION` 쿠키 (토큰 없음) |
-| 이후 요청 | `Authorization: Bearer {토큰}` 헤더 | 쿠키만 보냄 (브라우저가 자동으로) |
-| 로그아웃 | 없음 (토큰이 만료될 때까지 유효) | 서버가 세션을 지워서 **바로** 끊김 |
-| 만료 | 액세스 15분, 리프레시 14일 | 마지막 요청 후 **30분** (요청이 오면 연장) |
+**Redis 세션**으로 로그인합니다. 로그인하면 `SESSION` 쿠키가 내려가고, 그 뒤에는 **경로를 바꾸지 않은 업무 API**(`/api/v1/users/me`, `/api/v1/admin/**` 등)를 쿠키만 보내서 호출합니다. 로그아웃하면 서버가 세션을 지워서 **바로** 끊기고, 세션은 마지막 요청 후 **30분**(요청이 오면 연장) 뒤 만료됩니다. (JWT는 2026-11-26에 없앴습니다)
 
 - `SESSION` 쿠키는 `HttpOnly`, `SameSite=Lax`, `Path=/`이고 운영(https)에서는 `Secure`입니다. 스크립트로 읽을 수 없습니다.
-- 요청은 v1 로그인과 같고(`{ "email", "password" }`), 에러도 같습니다. 판매자는 사업체가 승인된 뒤에만 로그인되고(`SELLER003`~`SELLER005`), 로그인할 때 이미 세션이 있으면 세션 번호를 새로 바꿉니다.
-- 판매자 가입 신청(AUTH-09)은 인증이 없어서 v1의 API를 그대로 씁니다.
+- 요청은 `{ "email", "password" }`입니다. 판매자는 사업체가 승인된 뒤에만 로그인되고(`SELLER003`~`SELLER005`), 로그인할 때 이미 세션이 있으면 세션 번호를 새로 바꿉니다.
+- 판매자 가입 신청(AUTH-09)은 로그인(세션)을 만들지 않아서 경로가 `/api/v1/auth/sellers/signup` 그대로입니다.
+- 관리자는 가입과 비밀번호 변경이 없습니다. 로컬에서는 `db/seed/V19`의 시드 계정(`admin@tickting.local`)으로 로그인하고, **비밀번호는 저장소에 없어서 팀에서 따로 전달**합니다.
 - 로그아웃(`POST /api/v2/auth/logout`)은 본문이 없고 로그인 상태가 아니어도 200입니다.
 - **CSRF 토큰은 아직 없습니다.** 지금은 `SameSite=Lax` 쿠키에만 의존합니다. 운영 전에 다시 정합니다.
 
@@ -506,26 +377,6 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 ```json
 { "success": true, "code": "0000", "message": "", "data": null }
 ```
-
-### AUTH-16 예매자 가입 (v2 세션) — `POST /api/v2/auth/users/signup` (공개, 구현됨)
-
-요청과 검증, 에러는 AUTH-02와 같습니다. 다른 점은 **응답이 토큰 대신 `SESSION` 쿠키**라는 것입니다. 가입하면 바로 로그인되어, 받은 쿠키로 `GET /api/v1/users/me` 같은 업무 API를 호출할 수 있습니다.
-
-**응답 201** (`Set-Cookie: SESSION=...; Path=/; HttpOnly; SameSite=Lax`)
-
-```json
-{
-  "success": true,
-  "code": "0000",
-  "message": "",
-  "data": {
-    "accountType": "USER",
-    "role": null
-  }
-}
-```
-
-가입이 실패하면(이메일 중복 `USER000`, 필수 약관 미동의 등) 세션이 만들어지지 않고 회원도 저장되지 않습니다. 약관 확인, 회원 저장, 약관 동의 기록은 한 트랜잭션이고, 세션은 그 뒤에 만듭니다.
 
 ### 가입 전 이메일 인증 (AUTH-17·18)
 
@@ -833,6 +684,8 @@ JWT(v1) 대신 **Redis 세션**으로 로그인하는 방식입니다. 로그인
 
 Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, `keyword`, `page`, `size`
 
+- **응답은 몇 초 전 값일 수 있습니다.** Redis에 잠깐(지금 5초, 임시) 저장해 두고 같은 조건의 요청에 돌려줍니다. 판매자가 공연을 고치거나 판매 상태가 바뀌어도 그 시간이 지나야 반영됩니다. 예매 가능 여부는 점유·결제 단계에서 다시 확인하므로 낡은 화면이 잘못된 예매로 이어지지 않습니다. 검색어(`keyword`)가 있는 요청은 저장하지 않습니다. (설계: `doc/part3-performance-area.md` 3-10)
+
 - 모든 조건은 함께 쓸 수 있고, 비우면 그 조건으로 거르지 않습니다.
 - `genre`를 비우면 전체 장르, 주면 그 장르만 나옵니다.
 - `region`: 공연장 지역과 **정확히 같은** 공연만 (`서울`, `경기` …). 앞뒤 공백은 지웁니다. 사용 중지된 공연장의 공연도 나옵니다.
@@ -889,6 +742,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개, 구현됨)
 
+- 응답은 Redis에 잠깐(지금 5초, 임시) 저장되어 몇 초 전 값일 수 있습니다. (PFM-01과 같음) 404는 저장하지 않습니다.
 - 공개(`PUBLISHED`)된 공연만 볼 수 있습니다. 작성 중·취소된 공연은 없는 공연과 같은 404입니다.
 - `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
   - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
@@ -994,6 +848,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### PFM-03 구역 요약 — `GET /api/v1/schedules/{scheduleId}/zones` (공개, 구현됨)
 
+- 응답은 Redis에 잠깐(지금 2초, 임시) 저장되어 `remaining`이 몇 초 전 값일 수 있습니다. 잔여 좌석을 정확히 보려면 PFM-04(저장하지 않음)를 봅니다. 점유는 이 숫자가 아니라 DB의 좌석 상태로 결정합니다.
 - 공개(`PUBLISHED`)된 공연의 **취소되지 않은 회차**만 볼 수 있습니다. 공개되지 않은 공연의 회차, 취소된 회차, 없는 회차는 모두 같은 404입니다. (공연 상세의 회차 목록과 같은 기준) 일시 중지(`PAUSED`)·연기(`POSTPONED`) 회차는 볼 수 있습니다.
 - `zones`: 공연장의 모든 구역이 화면 순서(`sort_order`, 같으면 구역 번호순)로 나옵니다.
 - `remaining`: 지금 살 수 있는(`AVAILABLE`) 좌석 수입니다. 임시 점유(`HELD`)·판매 완료(`SOLD`)·판매자 보류(`RESERVED`)·판매 제외(`BLOCKED`)는 빠집니다.
@@ -1032,6 +887,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### PFM-04 구역 좌석 상세 — `GET /api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` (공개, 구현됨)
 
+- 좌석 상태는 **저장하지 않고 항상 DB에서 읽습니다.** (점유·판매가 바로 보여야 하므로 PFM-01~03과 달리 캐시 대상이 아닙니다)
 - 볼 수 있는 회차는 PFM-03과 같습니다. (공개 공연의 취소되지 않은 회차, 일시 중지·연기 회차 포함)
 - 구역은 **그 회차 공연장의 구역**이어야 합니다. 다른 공연장의 구역이나 없는 구역은 404입니다.
 - **판매 좌석을 아직 만들지 않은 회차**는 고를 좌석이 없어서 404입니다. (PFM-03은 같은 회차에서 잔여석 0으로 보여 줍니다)
@@ -1232,7 +1088,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 | 409 | `BOOKING007` | 결제 제한 시각이 지났거나 예매가 결제 대기가 아님. 토스를 부르지 않고 결제는 준비로 남음 |
 | 409 | `PAYMENT003` | 결제가 준비(`READY`) 상태가 아님. 이미 승인했거나 다른 승인 요청이 처리 중이거나 실패한 결제 |
 | 400 | `PAYMENT005` | 토스가 승인을 거절함. `message`에 토스가 준 사유(카드사 거절, 한도 초과 등)가 들어감. 결제는 `FAILED`, 예매·좌석은 점유 그대로 |
-| 502 | `PAYMENT006` | 승인 여부를 알 수 없음(통신 오류·시간 초과 등). 결제는 `PROCESSING`으로 남고 5분 보정 작업이 토스에 조회해 확정함. 같은 결제를 다시 승인하면 `PAYMENT003` |
+| 502 | `PAYMENT006` | 승인 여부를 알 수 없음(통신 오류·시간 초과 등). 결제는 `PROCESSING`으로 남고 보정 작업이 토스에 조회해 확정함(구현됨, 2026-11-25: 승인을 시작한 지 5분이 지난 결제를 5분마다 조회). 확정되면 예매가 `PAID`가 되고, 그 사이 예매가 만료돼 좌석을 줄 수 없으면 자동 환불되어 `CANCELED`가 됨. 같은 결제를 다시 승인하면 `PAYMENT003` |
 | 400 | `COMMON000` | `paymentKey`·`orderId` 비어 있음, `amount` 비어 있거나 0 이하 |
 | 409 | `COMMON004` | 같은 예매의 다른 결제 요청이 처리 중이라 락을 기다리는 시간(1초) 안에 못 잡음 |
 
@@ -1245,7 +1101,18 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 ### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자, 구현됨)
 
-Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
+Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), `from`, `to`, `page`, `size` — 검색 조건은 SLR-23·ADM-08과 같습니다. (아래 "예매 목록 검색 조건")
+
+**예매 목록 검색 조건 (BKG-04·SLR-23·ADM-08 공통)**
+
+| Query | 설명 |
+|---|---|
+| `title` | 공연 제목. 일부만 넣어도 찾고 대소문자는 가리지 않습니다. 넣은 `%`·`_`는 글자로 찾습니다. 100자 이하 |
+| `status` | 예매 상태. 여러 개를 고를 수 있습니다(`status=PAID&status=CANCELED`). 비우면 역할별 기본 상태(예매자: 만료 제외 전부, 판매자: `PAID`·`PARTIAL_CANCELED`, 관리자: 전부) |
+| `from`, `to` | **예매한 날짜** 구간(`2026-11-01`, 둘 다 포함). 하나만 줘도 됩니다. `from`이 `to`보다 늦으면 400 `COMMON000` |
+
+- 정렬은 최신 예매순 하나로 고정입니다. 정렬마다 인덱스가 필요해서 고르게 하지 않았습니다.
+- 누구의 예매까지 보이는지는 토큰으로만 정합니다. 요청으로 회원·사업체 번호를 받지 않습니다. 세 API는 주소와 응답 모양만 다르고 찾는 코드(`BookingQueryService`)를 함께 씁니다.
 
 - 로그인한 예매자 본인의 예매만 나옵니다. 회원 번호는 토큰에서 꺼냅니다. 판매자·관리자 토큰은 403, 토큰이 없으면 401입니다.
 - 시간 초과(`EXPIRED`)는 나오지 않고, `status`로 보내면 400입니다. 돈이 나가지 않은 무효 예매라 내역에서 뺍니다. 화면에서 거르면 한 페이지 개수와 전체 개수가 어긋나서 서버가 조회할 때 거릅니다.
@@ -1284,7 +1151,7 @@ Query: `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값 또는 `EXPIRED`
+**에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 예매자가 아님 · 400 `COMMON000` 없는 `status` 값, `EXPIRED`, `from`이 `to`보다 늦음
 
 ### BKG-05 내 예매 상세 — `GET /api/v1/bookings/{bookingId}` (예매자, 구현됨)
 
@@ -2092,10 +1959,12 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 | 12 | 같은 공연장의 다른 회차와 시간 겹침 | 409 `PERFORMANCE007` |
 | 13 | (즉시 생성) 복사할 공연장 좌석이 없음(깨진 데이터) | 409 `PERFORMANCE503` |
 
-- 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 공개(SLR-04)·공연 수정(SLR-03)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과 겹치면 하나씩 처리됩니다.
+- 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 회차 수정(SLR-13)·공개(SLR-04)·공연 수정(SLR-03)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과 겹치면 하나씩 처리됩니다.
 - 감사 로그는 아직 남기지 않습니다. 판매자 API의 감사 로그는 기능 구현 뒤에 한 번에 넣습니다.
 
-### SLR-13 회차 수정 — `PUT /api/v1/seller/schedules/{scheduleId}`
+### SLR-13 회차 수정 — `PUT /api/v1/seller/schedules/{scheduleId}` (구현됨)
+
+회차의 공연 일시를 바꿉니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 사업체 번호는 토큰에서 꺼내고, 다른 사업체의 회차는 상태와 상관없이 없는 회차와 같은 404 `PERFORMANCE008`입니다.
 
 **요청**
 
@@ -2118,7 +1987,57 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
-**에러**(코드 미정): 409 예매가 생긴 회차(연기로 처리) · 409 시간 겹침
+`updatedAt`은 바뀐 시각입니다. 같은 일시를 보내 아무것도 바꾸지 않았으면 이전 값입니다.
+
+**바꿀 수 있는 회차**
+
+| 회차 | 수정 |
+|---|---|
+| 판매 중(`ON_SALE`)·일시 중지(`PAUSED`)이고 아직 시작하지 않음 | 가능 |
+| 이미 시작함(시작 시각이 지금 이전이거나 같음) | 불가 |
+| 연기(`POSTPONED`) | 불가 (새 일정은 연기 이력·상태와 함께 바뀌어야 함) |
+| 취소(`CANCELED`) 회차, 취소된 공연의 회차 | 불가 |
+
+- **예매**: 그 회차에 결제 대기·결제 완료·일부 취소·전체 취소 예매가 하나라도 있으면 바꿀 수 없습니다. 만료(`EXPIRED`)만 있으면 바꿀 수 있습니다. 결제 제한 시각이 지났어도 만료 처리 전인 결제 대기는 막습니다(만료 처리 주기 약 1분). 판매 중이든 판매 종료 뒤든 같습니다.
+- **사용이 중지된 공연장**, **판매가 끝난 공연**의 회차도 바꿀 수 있습니다. (회차 추가는 둘 다 막습니다)
+- 요청한 일시가 지금 일시와 같으면 예매가 있어도 200이고 아무것도 바꾸지 않습니다. (취소·연기·시작한 회차는 그 에러가 먼저입니다)
+
+**새 일시 조건**
+
+| 조건 | 작성 중(`DRAFT`) | 공개(`PUBLISHED`) |
+|---|---|---|
+| `startAt`은 지금보다 늦어야 함 | 적용 | 적용 |
+| 판매 오픈이 설정되어 있으면 오픈보다 늦어야 함(같으면 거절) | 적용 | 적용 |
+| 지금부터 3시간(임시)보다 뒤여야 함 | 적용 | - |
+| 바꾼 뒤에도 판매 종료가 마지막 회차 시작보다 늦지 않아야 함 | - | 적용 |
+
+마지막 회차는 취소되지 않은 회차 중 시작이 가장 늦은 것이고, 바꾸는 회차는 새 일시로 계산합니다. 걸리면 판매 종료를 먼저 공연 수정(SLR-03)에서 앞당긴 뒤 다시 요청합니다. 메시지에 기준이 되는 일시가 나옵니다.
+
+**같은 공연장의 시간 겹침**: 회차 추가(SLR-12)와 같은 기준·메시지이고, 바꾸는 회차 자신은 빼고 봅니다.
+
+**바뀌지 않는 것**: 회차 상태, 판매 좌석과 `seatsGeneratedAt`, 등급·가격·구역 잠금. 좌석을 새로 만들지 않습니다. 연기 이력과 감사 로그를 남기지 않아 **바꾸기 전 일시는 남지 않습니다.**
+
+에러는 한 번에 하나씩, 아래 순서로 먼저 걸린 것이 나옵니다. 예매가 있는 회차에 판매 오픈보다 이른 일시를 보내면 `PERFORMANCE407`이 먼저입니다. (DB 조회가 필요 없는 검사를 앞에 둠)
+
+| 순서 | 조건 | 코드 | 메시지 |
+|---|---|---|---|
+| 1 | `startAt`이 없거나 지금 이전·같음 | 400 `COMMON000` | 요청 검증 메시지(SLR-12와 같음) |
+| 2 | 없는 회차이거나 다른 사업체의 회차 | 404 `PERFORMANCE008` | 기본 |
+| 3 | 락을 1초 안에 잡지 못함 | 409 `COMMON004` | 기본(잠시 후 다시 시도) |
+| 4 | 취소된 공연 | 409 `PERFORMANCE002` | 기본 |
+| 5 | 취소된 회차 | 409 `PERFORMANCE501` | 취소된 회차는 일시를 바꿀 수 없습니다. |
+| 6 | 연기된 회차 | 409 `PERFORMANCE012` | 연기된 회차는 일시를 바꿀 수 없습니다. |
+| 7 | 이미 시작한 회차 | 400 `PERFORMANCE502` | 이미 시작한 회차는 일시를 바꿀 수 없습니다. |
+| - | 지금과 같은 일시면 여기서 200 | | |
+| 8 | 판매 오픈보다 늦지 않음 | 400 `PERFORMANCE407` | SLR-12와 같음(오픈 일시 포함) |
+| 9 | (작성 중) 3시간 이내 | 400 `PERFORMANCE009` | 작성 중인 공연의 회차는 지금부터 3시간 뒤의 일시로만 바꿀 수 있습니다. |
+| 10 | (공개) 만료가 아닌 예매가 있음 | 409 `PERFORMANCE011` | 결제 대기 중이거나 결제된 적 있는(취소 포함) 예매가 있어 일시를 바꿀 수 없습니다. |
+| 11 | (공개) 판매 종료가 마지막 회차 시작보다 늦어짐 | 400 `PERFORMANCE408` | 판매 종료 일시는 마지막 회차 시작보다 늦을 수 없습니다. 판매 종료 일시를 `yyyy-MM-dd HH:mm` 이전으로 먼저 앞당겨 주세요. |
+| 12 | 같은 공연장의 다른 회차와 시간 겹침 | 409 `PERFORMANCE007` | SLR-12와 같음 |
+| - | 저장하는 순간 회차 상태·일시가 다른 작업으로 바뀜(락이 듣지 않은 경우) | 409 `COMMON004` | 기본. 다시 요청하면 위의 정확한 에러가 나옵니다 |
+
+- 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 회차 추가(SLR-12)·공연 수정(SLR-03)·공개(SLR-04)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과 겹치면 하나씩 처리됩니다.
+- 좌석 점유(BKG-01)는 이 락을 잡지 않아, 예매를 확인한 직후 저장하기 전에 들어온 점유는 막지 못합니다. (알고 감수, `seller-progress.md` TODO)
 
 ### SLR-14 판매 좌석 생성 — `POST /api/v1/seller/schedules/{scheduleId}/seats/generate` (구현됨)
 
@@ -2126,9 +2045,17 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 
 **허용 상태**: 작성 중(`DRAFT`)과 공개(`PUBLISHED`) 공연. 작성 중 공연은 판매 오픈·종료 일시, 1인 최대 매수, 수령 방법, 예매 수수료가 모두 설정되어 있어야 합니다. 판매 중·일시 중지·연기 회차도 만들 수 있습니다.
 
-**만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없습니다.** (SLR-08 `locked`가 `true`) 판매자 버튼 외에 스케줄러(자동 생성, 공개된 공연만·판매 오픈 24시간 전부터)가 같은 생성 코드를 쓰도록 별도로 구현할 예정입니다.
+**만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없습니다.** (SLR-08 `locked`가 `true`)
 
-에러는 한 번에 하나씩, 아래 순서로 먼저 걸린 것이 나옵니다.
+**자동 생성**: 판매자 버튼과 별도로 서버가 같은 생성 코드로 판매 좌석을 만듭니다. (API는 없습니다)
+
+- 주기는 1시간(임시, 설정 `app.performance.seat-generation.interval`)이고 서버가 켜지면 바로 한 번 실행합니다. `enabled`를 `false`로 두고 재시작하면 꺼지며, 꺼도 이 API는 동작합니다.
+- 대상: **공개(`PUBLISHED`) 공연**의 취소되지 않고 아직 시작하지 않은 회차 중 판매 좌석이 없고 **판매 오픈 24시간(임시) 전**이 지난 것입니다. 일시 중지·연기 회차도 만들고, 판매 종료는 보지 않습니다. 작성 중 공연은 만들지 않습니다.
+- 판매 오픈이 빠른 회차부터 만들고 한 번에 만드는 개수 제한은 없습니다. 회차 1개 = 트랜잭션 1개라, 한 회차가 실패해도 나머지는 계속 만듭니다.
+- 만들기 직전에 공연 락 안에서 "공개 상태이고 판매 오픈 24시간 전이 지남"을 다시 확인합니다. 대상을 읽은 뒤 판매 오픈이 뒤로 바뀌었으면 만들지 않습니다.
+- 만들지 못하면(`UNSET` 구역 등) 서버 로그만 남기고 다음 실행에서 다시 시도합니다. 판매자에게 알리지 않으며, 설정 문제는 이 API("좌석 지금 생성")를 부르면 아래 에러로 이유를 알 수 있습니다.
+
+아래는 이 API의 에러이며, 한 번에 하나씩 아래 순서로 먼저 걸린 것이 나옵니다.
 
 | 순서 | 조건 | 코드 |
 |---|---|---|
@@ -2264,7 +2191,9 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 }
 ```
 
-### SLR-18 회차별 예매 목록 — `GET /api/v1/seller/schedules/{scheduleId}/bookings` (구현됨)
+### SLR-18 회차별 예매 목록 — `GET /api/v1/seller/schedules/{scheduleId}/bookings` (구현됨, 사용 중단 예정)
+
+> 2026-11-25 역할별 예매 조회를 한곳(`BookingQueryService`)으로 모으면서 사용 중단 예정(`@Deprecated`)으로 표시했습니다. 쓰는 화면이 있어서 동작은 그대로입니다. 새 화면은 SLR-23을 씁니다.
 
 Query: `status`, `receiveType`, `bookingNo`, `page`, `size`
 
@@ -2311,6 +2240,23 @@ Query: `status`, `receiveType`, `bookingNo`, `page`, `size`
 ```
 
 ---
+
+### SLR-23 내 사업체 예매 목록 — `GET /api/v1/seller/bookings` (구현됨)
+
+Query: `title`, `status`(여러 개), `from`, `to`, `page`, `size` — BKG-04의 "예매 목록 검색 조건"과 같습니다.
+
+- 내 사업체의 **모든 공연**에 들어온 예매를 최신 예매순으로 줍니다. 사업체 번호는 토큰에서 꺼냅니다. 대표·담당자 모두 씁니다.
+- `status`를 비우면 남은 표가 있는 예매(`PAID`, `PARTIAL_CANCELED`)만 나옵니다. (SLR-18과 같은 기준)
+- 항목은 SLR-18 항목에 공연(`performanceId`, `performanceTitle`)과 회차(`scheduleId`, `scheduleStartAt`)를 더한 모양입니다. 금액은 수수료 없는 표값입니다.
+- 예매에 복사해 둔 사업체 번호(`booking.business_id`)와 인덱스 `(business_id, created_at DESC, id DESC)`로 읽어서, 예매가 많은 판매자도 앞 페이지만 읽고 끝납니다.
+- `size` 기본 20, 최대 20.
+
+**에러**: 403 `AUTH100` 판매자가 아님 · 400 `COMMON000` 없는 `status` 값, `from`이 `to`보다 늦음
+
+### SLR-24 내 사업체 예매 상세 — `GET /api/v1/seller/bookings/{bookingId}` (구현됨)
+
+- 내 사업체 공연의 예매 하나를 상태와 상관없이 줍니다. 응답은 SLR-23 항목과 같은 모양입니다.
+- 다른 사업체 공연의 예매·없는 예매는 404 `BOOKING006`입니다. (번호가 있는지 알려주지 않으려고 같은 응답)
 
 ### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies` (구현됨)
 
@@ -2768,6 +2714,21 @@ Body 없음. 같은 `idempotency_key`로 토스 재요청(이중 환불 방지),
 판정 순서는 없음(404) → 처리 중 → 실패가 아님 → 15일 지남입니다.
 
 ---
+
+### ADM-08 전체 예매 목록 — `GET /api/v1/admin/bookings` (관리자, 구현됨)
+
+Query: `title`, `status`(여러 개), `from`, `to`, `page`, `size` — BKG-04의 "예매 목록 검색 조건"과 같습니다.
+
+- 모든 예매를 최신 예매순으로 줍니다. `status`를 비우면 만료(`EXPIRED`)를 포함한 모든 상태입니다.
+- 항목: `bookingId`, `bookingNo`, `status`, `userId`, `ordererName`, `businessId`, `performanceId`, `performanceTitle`, `scheduleStartAt`, `seatCount`(처음 좌석 수), `totalAmount`(처음 결제 금액), `createdAt`
+- 인덱스 `(created_at DESC, id DESC)`로 읽습니다. `size` 기본 20, 최대 20.
+
+**에러**: 403 `AUTH100` 관리자가 아님 · 400 `COMMON000` 없는 `status` 값, `from`이 `to`보다 늦음
+
+### ADM-09 예매 상세 — `GET /api/v1/admin/bookings/{bookingId}` (관리자, 구현됨)
+
+- 예매 하나를 상태와 상관없이 줍니다. 응답은 `{ userId, businessId, booking }`이고 `booking`은 BKG-05 응답과 같은 모양(결제·환불·취소 규정 포함)입니다. 같은 내용을 두 벌로 만들면 한쪽만 고쳐질 수 있어서 그대로 씁니다.
+- 없는 예매는 404 `BOOKING006`입니다.
 
 ## 6. 이미지 (`/api/v1/images/**`)
 

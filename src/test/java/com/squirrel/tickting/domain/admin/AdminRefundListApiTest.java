@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,8 +31,8 @@ class AdminRefundListApiTest extends IntegrationTestSupport {
 	private final List<Long> bookingIds = new ArrayList<>();
 
 	@SuppressWarnings("removal")
-	private String adminToken() {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
+	private Cookie adminToken() {
+		return sessionCookie(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
 	}
 
 	@BeforeEach
@@ -49,10 +50,10 @@ class AdminRefundListApiTest extends IntegrationTestSupport {
 	private String refund(String status, int retryCount, LocalDateTime requestedAt) {
 		String bookingNo = "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 14).toUpperCase();
 		Long bookingId = jdbc.queryForObject("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type,
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
 			                     orderer_name, orderer_phone, orderer_email, ticket_amount, booking_fee_amount,
 			                     total_amount, cancel_policy_snapshot, expires_at, created_at, updated_at)
-			VALUES (?, 1, 1, 1, 'CANCELED', 'ONSITE', '예매자', '01000000000', 'user@example.com', 154000, 2000,
+			VALUES (?, 1, 1, 1, 1, 'CANCELED', 'ONSITE', '예매자', '01000000000', 'user@example.com', 154000, 2000,
 			        156000, '[]'::jsonb, ?, ?, ?) RETURNING id
 			""", Long.class, bookingNo, requestedAt, requestedAt, requestedAt);
 		bookingIds.add(bookingId);
@@ -78,7 +79,7 @@ class AdminRefundListApiTest extends IntegrationTestSupport {
 		refund("DONE", 3, now.minusHours(4));
 		refund("PROCESSING", 3, now.minusHours(5));
 
-		mockMvc.perform(get(URL).header("Authorization", adminToken()))
+		mockMvc.perform(get(URL).cookie(adminToken()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.totalElements").value(2))
 			.andExpect(jsonPath("$.data.content[*].bookingNo").value(Matchers.contains(older, newer)))
@@ -86,7 +87,7 @@ class AdminRefundListApiTest extends IntegrationTestSupport {
 			.andExpect(jsonPath("$.data.content[0].retryCount").value(4))
 			.andExpect(jsonPath("$.data.content[0].failReason").value("환불 결과를 알 수 없음"));
 
-		mockMvc.perform(get(URL).param("exhaustedOnly", "false").header("Authorization", adminToken()))
+		mockMvc.perform(get(URL).param("exhaustedOnly", "false").cookie(adminToken()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.content[*].bookingNo").value(Matchers.contains(retrying, older, newer)));
 	}

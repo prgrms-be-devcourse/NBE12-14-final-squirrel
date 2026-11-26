@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.performance.controller;
 
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
+import com.squirrel.tickting.domain.performance.facade.SellerPerformanceFacade;
 import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.security.CustomUserDetails;
@@ -14,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class SellerScheduleController {
 
 	private final SellerPerformanceService sellerPerformanceService;
+	private final SellerPerformanceFacade sellerPerformanceFacade;
 
 	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 추가할 수 있다. */
 	@Operation(summary = "회차 추가",
@@ -44,6 +47,25 @@ public class SellerScheduleController {
 		SellerPerformanceResponse.ScheduleCreated response = sellerPerformanceService.addSchedule(account.getBusinessId(),
 			performanceId, request);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+	}
+
+	/** 예매 확인이 예매 도메인이라 파사드를 부른다. 대표·담당자 모두 바꿀 수 있다. */
+	@Operation(summary = "회차 수정",
+		description = "회차의 공연 일시를 바꾼다. 판매 중·일시 중지이고 아직 시작하지 않은 회차만 바꿀 수 있다. 취소된 공연·취소 회차·연기 회차는 409, "
+			+ "이미 시작한 회차는 400이다. 지금과 같은 일시를 보내면 아무것도 바꾸지 않고 200이다. "
+			+ "새 일시는 지금보다 늦어야 하고(400), 판매 오픈이 설정되어 있으면 그보다 늦어야 하며(400), 작성 중(DRAFT) 공연은 지금부터 3시간 뒤여야 한다(400). "
+			+ "공개(PUBLISHED) 공연은 만료가 아닌 예매(취소 포함)가 있으면 409, 바꾼 뒤 판매 종료가 마지막 회차 시작보다 늦어지면 400이다. "
+			+ "같은 공연장의 다른 회차와 시간이 겹치면 409다. 회차 상태와 판매 좌석은 바뀌지 않고 바꾸기 전 일시는 남지 않는다. "
+			+ "다른 사업체의 회차이거나 없는 회차는 404 다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PutMapping("/schedules/{scheduleId}")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleUpdated>> updateSchedule(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.ScheduleSave request
+	) {
+		SellerPerformanceResponse.ScheduleUpdated response = sellerPerformanceFacade.updateSchedule(account.getBusinessId(),
+			scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
 	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 만들 수 있다. */

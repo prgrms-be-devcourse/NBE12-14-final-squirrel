@@ -53,6 +53,16 @@ public class BookingService {
 	}
 
 	/**
+	 * 그 회차에 만료(EXPIRED)가 아닌 예매가 있는가. 판매자가 회차 일시를 바꿀 수 있는지 판단하는 데 쓴다.
+	 * 좌석을 돌려준 전체 취소도 세는 점이 existsOccupying 과 다르다. 취소한 예매의 내역에도 지금 일시가 보이기 때문이다.
+	 * 결제 제한 시각이 지났어도 만료 처리 전의 결제 대기 예매는 센다.
+	 */
+	@Transactional(readOnly = true)
+	public boolean existsNotExpired(Long scheduleId) {
+		return bookingRepository.existsByScheduleIdAndStatusNot(scheduleId, BookingStatus.EXPIRED);
+	}
+
+	/**
 	 * 결제할 수 있는 내 예매를 읽는다. 없거나 남의 예매면 같은 404, 결제 대기(PENDING)가 아니거나 결제 제한 시각이 지났으면 409 다.
 	 * 스케줄러가 아직 정리하지 않았더라도 시각이 지난 예매는 여기서 막는다. 호출한 쪽의 트랜잭션에 참여한다.
 	 */
@@ -127,6 +137,39 @@ public class BookingService {
 		List<Long> scheduleSeatIds = bookingSeatRepository.findActiveScheduleSeatIds(bookingIds);
 		bookingSeatRepository.deactivateByBookingIds(bookingIds);
 		return scheduleSeatIds;
+	}
+
+	/** 예매를 번호로 읽는다. 사용자와 상관없이 처리하는 작업(결제 보정)이 예매의 현재 상태를 보는 데 쓴다. 없으면 IllegalStateException 이다. */
+	@Transactional(readOnly = true)
+	public Booking getById(Long bookingId) {
+		return bookingRepository.findById(bookingId)
+			.orElseThrow(() -> new IllegalStateException("예매가 없다. 예매 번호: " + bookingId));
+	}
+
+	/**
+	 * 결제 대기 예매 하나를 제한 시각을 기다리지 않고 바로 만료(EXPIRED) 처리하고 좌석을 비활성(active=false)으로 바꾼다.
+	 * 결제가 되지 않았다고 토스에서 확인된 예매를 닫을 때 쓴다. 결제 대기가 아니면(이미 만료·결제·취소) 아무것도 하지 않는다.
+	 * 호출한 쪽의 트랜잭션에 참여하고, 좌석 도메인의 상태는 바꾸지 않고 되돌릴 판매 좌석 번호만 돌려준다.
+	 *
+	 * @return 되돌릴 판매 좌석 번호. 만료 처리하지 않았으면 빈 목록이다
+	 */
+	@Transactional
+	public List<Long> expire(Long bookingId, LocalDateTime now) {
+		if (bookingRepository.markExpired(List.of(bookingId), now) == 0) {
+			return List.of();
+		}
+		List<Long> scheduleSeatIds = bookingSeatRepository.findActiveScheduleSeatIds(List.of(bookingId));
+		bookingSeatRepository.deactivateByBookingIds(List.of(bookingId));
+		return scheduleSeatIds;
+	}
+
+	/**
+	 * 만료된 예매를 취소로 바꾼다. 만료된 뒤에 토스에서 결제된 것이 확인돼 환불할 때 쓴다. 만료(EXPIRED) 예매만 바꾸고 아니면 아무것도 하지 않는다.
+	 * 좌석은 만료될 때 이미 풀려서 여기서 다시 건드리지 않는다.
+	 */
+	@Transactional
+	public void cancelExpired(Long bookingId, LocalDateTime now) {
+		bookingRepository.markExpiredAsCanceled(bookingId, now);
 	}
 
 	/**
@@ -219,6 +262,7 @@ public class BookingService {
 			.userId(command.userId())
 			.scheduleId(command.scheduleId())
 			.performanceId(command.performanceId())
+			.businessId(command.businessId())
 			.status(BookingStatus.PENDING)
 			.receiveType(command.receiveMethod())
 			.ordererName(command.ordererName())

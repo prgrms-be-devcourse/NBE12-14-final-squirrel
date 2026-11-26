@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -37,13 +38,13 @@ class SellerScheduleBookingsApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM performance WHERE business_id IN (" + MY_BUSINESS + ", " + OTHER_BUSINESS + ")");
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	private ResultActions call(Long scheduleId, String query) throws Exception {
 		return mockMvc.perform(get(URL + query, scheduleId)
-			.header("Authorization", token(AccountType.SELLER, "OWNER", MY_BUSINESS)));
+			.cookie(token(AccountType.SELLER, "OWNER", MY_BUSINESS)));
 	}
 
 	private Long insertSchedule(long businessId, String performanceStatus, String scheduleStatus) {
@@ -73,13 +74,14 @@ class SellerScheduleBookingsApiTest extends IntegrationTestSupport {
 		Long performanceId = jdbc.queryForObject("SELECT performance_id FROM performance_schedule WHERE id = ?",
 			Long.class, scheduleId);
 		return jdbc.queryForObject("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type, orderer_name,
-			                     orderer_phone, orderer_email, recipient_name, recipient_phone, recipient_address,
-			                     ticket_amount, booking_fee_amount, total_amount, cancel_policy_snapshot, expires_at,
-			                     created_at, updated_at)
-			VALUES (?, 1, ?, ?, ?, ?, '홍길동', '010-1234-5678', 'hong@example.com', ?, ?, ?, 0, 0, 0, '[]'::jsonb, ?, ?, ?)
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
+			                     orderer_name, orderer_phone, orderer_email, recipient_name, recipient_phone,
+			                     recipient_address, ticket_amount, booking_fee_amount, total_amount,
+			                     cancel_policy_snapshot, expires_at, created_at, updated_at)
+			VALUES (?, 1, ?, ?, COALESCE((SELECT business_id FROM performance WHERE id = ?), 0), ?, ?, '홍길동',
+			        '010-1234-5678', 'hong@example.com', ?, ?, ?, 0, 0, 0, '[]'::jsonb, ?, ?, ?)
 			RETURNING id
-			""", Long.class, no, scheduleId, performanceId, status, receiveType,
+			""", Long.class, no, scheduleId, performanceId, performanceId, status, receiveType,
 			delivery ? "김받는" : null, delivery ? "010-9999-0000" : null, delivery ? "서울 가상구 1" : null,
 			Timestamp.valueOf(BASE), Timestamp.valueOf(BASE.plusMinutes(minutes)), Timestamp.valueOf(BASE));
 	}
@@ -204,7 +206,7 @@ class SellerScheduleBookingsApiTest extends IntegrationTestSupport {
 		insertBooking(scheduleId, "B-SHIP", "PAID", "DELIVERY", 2);
 		insertBooking(scheduleId, "B-SITE", "PAID", "ONSITE", 1);
 
-		mockMvc.perform(get(URL, scheduleId).header("Authorization", token(AccountType.SELLER, "STAFF", MY_BUSINESS)))
+		mockMvc.perform(get(URL, scheduleId).cookie(token(AccountType.SELLER, "STAFF", MY_BUSINESS)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.content[0].ordererName").value("홍길동"))
 			.andExpect(jsonPath("$.data.content[0].ordererPhone").value("010-1234-5678"))
@@ -247,7 +249,7 @@ class SellerScheduleBookingsApiTest extends IntegrationTestSupport {
 	void userForbiddenAndAnonymousUnauthorized() throws Exception {
 		Long scheduleId = insertSchedule();
 
-		mockMvc.perform(get(URL, scheduleId).header("Authorization", token(AccountType.USER, "USER", null)))
+		mockMvc.perform(get(URL, scheduleId).cookie(token(AccountType.USER, "USER", null)))
 			.andExpect(status().isForbidden());
 		mockMvc.perform(get(URL, scheduleId)).andExpect(status().isUnauthorized());
 	}

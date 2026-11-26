@@ -38,13 +38,14 @@ class BookingExpiryTest extends BookingTestSupport {
 	private Long insertBooking(Show show, int seatIndex, Long userId, LocalDateTime expiresAt, String bookingStatus) {
 		Long seatId = show.seatIds().get(seatIndex);
 		Long bookingId = jdbc.queryForObject("""
-			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, status, receive_type, orderer_name,
-			                     orderer_phone, orderer_email, ticket_amount, booking_fee_amount, total_amount,
+			INSERT INTO booking (booking_no, user_id, schedule_id, performance_id, business_id, status, receive_type,
+			                     orderer_name, orderer_phone, orderer_email, ticket_amount, booking_fee_amount, total_amount,
 			                     cancel_policy_snapshot, expires_at, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, 'ONSITE', '홍길동', '01012345678', 'a@example.com', 154000, 2000, 156000,
+			VALUES (?, ?, ?, ?, COALESCE((SELECT business_id FROM performance WHERE id = ?), 0), ?, 'ONSITE', '홍길동', '01012345678', 'a@example.com', 154000, 2000, 156000,
 			        '[]'::jsonb, ?, ?, ?)
 			RETURNING id
-			""", Long.class, "TEST" + (++bookingSequence), userId, show.scheduleId(), show.performanceId(), bookingStatus,
+			""", Long.class, "TEST" + (++bookingSequence), userId, show.scheduleId(), show.performanceId(), show.performanceId(),
+			bookingStatus,
 			expiresAt, now, now);
 		jdbc.update("""
 			INSERT INTO booking_seat (booking_id, schedule_seat_id, zone_name, row_label, seat_number, grade_name,

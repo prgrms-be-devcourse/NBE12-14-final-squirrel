@@ -1,7 +1,7 @@
 package com.squirrel.tickting.domain.performance.controller;
 
+import com.squirrel.tickting.domain.performance.cache.UserPerformanceCache;
 import com.squirrel.tickting.domain.performance.dto.UserPerformanceResponse;
-import com.squirrel.tickting.domain.performance.service.UserPerformanceService;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.UserPerformanceSortType;
 import com.squirrel.tickting.global.response.ApiResponse;
@@ -10,7 +10,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -31,8 +30,8 @@ public class UserPerformanceController {
 	private static final int DEFAULT_PAGE_SIZE = 20;
 	private static final int MAX_PAGE_SIZE = 20;
 
-	/** 공연장·판매자 사업체를 각 서비스에서 받아 붙여야 해서 파사드를 부른다. */
-	private final UserPerformanceService userPerformanceService;
+	/** 목록·상세는 몇 초 낡아도 되는 공개 조회라서 서비스 앞의 읽기 캐시를 거친다. */
+	private final UserPerformanceCache userPerformanceCache;
 
 	@Operation(summary = "공연 목록·검색",
 		description = "공개된 공연을 보여 준다. 장르를 주지 않으면 전체, 주면 그 장르만 나온다. "
@@ -54,8 +53,8 @@ public class UserPerformanceController {
 		Pageable pageRequest = PageRequest.of(pageable.getPageNumber(),
 			Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
 
-		Page<UserPerformanceResponse.Summary> page = userPerformanceService.getPublishedList(genre, region, keyword, sort, pageRequest);
-		PageResponse<UserPerformanceResponse.Summary> response = PageResponse.from(page);
+		PageResponse<UserPerformanceResponse.Summary> response = userPerformanceCache.getPublishedList(genre, region, keyword, sort,
+			pageRequest);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
@@ -67,7 +66,7 @@ public class UserPerformanceController {
 		@Parameter(description = "공연 번호")
 		@PathVariable Long performanceId
 	) {
-		UserPerformanceResponse.Detail response = userPerformanceService.getPublishedDetail(performanceId);
+		UserPerformanceResponse.Detail response = userPerformanceCache.getPublishedDetail(performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

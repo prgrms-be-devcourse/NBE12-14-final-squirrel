@@ -27,7 +27,7 @@ class SellerEmailVerificationApiTest extends IntegrationTestSupport {
 	private static final String SELLER_CONFIRM = SELLER_SEND + "/confirm";
 	private static final String USER_SEND = "/api/v1/auth/users/email-verification";
 	private static final String SELLER_SIGNUP = "/api/v1/auth/sellers/signup";
-	private static final String USER_SIGNUP = "/api/v1/auth/users/signup";
+	private static final String USER_SIGNUP = "/api/v2/auth/users/signup";
 	private static final String EMAIL = "owner@company.com";
 	private static final String BUSINESS_NUMBER = "1234567890";
 	private static final String SELLER_KEY_PREFIX = "tickting:email-verify:SELLER:";

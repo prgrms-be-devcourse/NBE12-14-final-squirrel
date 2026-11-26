@@ -1,8 +1,5 @@
 package com.squirrel.tickting.global.security;
 
-import com.squirrel.tickting.global.jwt.JwtAuthenticationFilter;
-import com.squirrel.tickting.global.jwt.JwtProperties;
-import com.squirrel.tickting.global.jwt.JwtProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -15,19 +12,16 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.annotation.web.configurers.RequestCacheConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * 시큐리티 설정. 인증은 두 방식을 모두 인정한다.
- *  - v2 Redis 세션 (권장): /api/v2/auth/** 로 로그인하면 SESSION 쿠키가 내려가고, 쿠키로 세션을 찾아 로그인 상태를 복원한다.
- *  - v1 JWT (@Deprecated): Authorization: Bearer 헤더의 액세스 토큰. 헤더가 있으면 이쪽이 먼저 적용된다.
- * 업무 API 는 경로를 바꾸지 않고 어느 방식으로 로그인했든 같은 규칙으로 접근을 판단한다.
+ * 시큐리티 설정. 인증은 Redis 세션 하나다.
+ * /api/v2/auth/** 로 로그인하면 SESSION 쿠키가 내려가고, 이후 요청에서 쿠키로 세션을 찾아 로그인 상태를 복원한다.
  *
- * 세션은 로그인 API 가 직접 만들 때만 생긴다. JWT 요청이나 로그인 안 한 요청이 세션을 만들지 않는다.
+ * 세션은 로그인 API 가 직접 만들 때만 생긴다. 로그인 안 한 요청이 세션을 만들지 않는다.
  *
  * 경로별 접근 규칙
- *  - /api/v1/auth/**, /api/v2/auth/**   누구나 (로그인, 가입, 로그아웃, v1 토큰 재발급)
+ *  - /api/v1/auth/**, /api/v2/auth/**   누구나 (로그인, 가입, 로그아웃, 이메일 인증, 비밀번호 재설정)
  *  - Swagger, health      누구나
  *  - 공개 조회 (GET)       누구나 (약관, 공연 목록·상세, 구역 요약·좌석 상세)
  *  - 예매자 전용           예매자만 (내 정보, 좌석 점유·예매, 결제, 내 예매)
@@ -37,27 +31,14 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  *
  * 새 API 를 만들면 어느 규칙에 들어가는지 확인한다.
  *  - 로그인 없이 볼 수 있는 조회 API  → PUBLIC_READ_PATHS 에 GET 경로 추가. GET 만 연다. 같은 경로의 쓰기 요청은 로그인이 필요하다.
- *  - 예매자만 쓰는 API               → USER_ONLY_PATHS 에 경로 추가. 빠뜨리면 판매자·관리자 토큰으로도 호출된다.
- * 공개 조회라도 Authorization 헤더에 잘못된 토큰을 보내면 401 이다. (토큰이 만료됐을 때 프론트가 재발급하게 하려는 것)
+ *  - 예매자만 쓰는 API               → USER_ONLY_PATHS 에 경로 추가. 빠뜨리면 판매자·관리자 계정으로도 호출된다.
  *
- * 여기서는 "어떤 계정 종류인가"만 본다. "이 데이터가 내 것인가"는 서비스에서 토큰의 번호로 조회해서 확인한다.
- *
- * TODO: Redis 세션(v2)이 충분히 자리 잡아 v1 JWT 를 더 쓰지 않게 되면 JWT 호환을 지운다.
- *  지우는 시점은 프론트가 v2 로그인으로 모두 옮겨 가고 운영에서 문제없이 쓰는 것을 확인한 뒤에 팀에서 정한다.
- *  이 파일에서 할 일
- *   1) addFilterBefore(JwtAuthenticationFilter ...) 와 JwtProvider 파라미터를 지운다.
- *   2) @EnableConfigurationProperties 에서 JwtProperties 를 빼고, 클래스의 @SuppressWarnings("removal") 도 지운다.
- *   3) JwtAuthenticationEntryPoint, JwtAccessDeniedHandler 는 세션 인증의 401·403 응답에도 쓰므로 지우지 않고 이름에서 Jwt 를 뺀다.
- *   4) 위 클래스 설명의 "두 방식을 모두 인정", "v1 JWT", 잘못된 토큰이면 401 이라는 줄을 고친다.
- *  나머지 JWT 전용 코드(JwtProvider, JwtProperties, JwtAuthenticationFilter, TokenService, 리프레시 쿠키, v1 로그인·재발급 API)는
- *  @Deprecated 가 붙은 것을 따라 지우고, 그 뒤 build.gradle 의 -Werror 도 필요 없으면 정리한다.
+ * 여기서는 "어떤 계정 종류인가"만 본다. "이 데이터가 내 것인가"는 서비스에서 세션의 번호로 조회해서 확인한다.
  */
-// v1(JWT) 인증을 계속 인정하므로 JWT 클래스(@Deprecated)를 쓰는 것을 허용한다.
-@SuppressWarnings("removal")
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtProperties.class, AuthCookieProperties.class})
+@EnableConfigurationProperties(AuthCookieProperties.class)
 public class SecurityConfig {
 
 	/** 로그인 없이 볼 수 있는 조회 API. 경로 변수는 * 로 적는다. */
@@ -85,21 +66,19 @@ public class SecurityConfig {
 	@Bean
 	public SecurityFilterChain securityFilterChain(
 		HttpSecurity http,
-		JwtProvider jwtProvider,
 		@Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver
 	) throws Exception {
 		http
 			.csrf(AbstractHttpConfigurer::disable)
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
-			// 시큐리티는 세션을 만들지 않고, 있으면 쓴다. 세션은 v2 로그인 API(SessionAuthenticator)만 직접 만든다.
-			// IF_REQUIRED 로 두면 JWT 로 인증된 요청도 세션에 저장되어 Redis 가 쌓이고, 아래 requestCache 를 끄지 않으면
-			// 로그인 안 한 요청마다 세션이 생긴다.
+			// 시큐리티는 세션을 만들지 않고, 있으면 쓴다. 세션은 로그인 API(SessionAuthenticator)만 직접 만든다.
+			// IF_REQUIRED 로 두면 로그인 안 한 요청마다 세션이 생겨 Redis 가 쌓이므로, 아래 requestCache 도 끈다.
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.NEVER))
 			.requestCache(RequestCacheConfigurer::disable)
 			.exceptionHandling(handling -> handling
-				.authenticationEntryPoint(new JwtAuthenticationEntryPoint(exceptionResolver))
-				.accessDeniedHandler(new JwtAccessDeniedHandler(exceptionResolver)))
+				.authenticationEntryPoint(new ApiAuthenticationEntryPoint(exceptionResolver))
+				.accessDeniedHandler(new ApiAccessDeniedHandler(exceptionResolver)))
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers("/api/v1/auth/**", "/api/v2/auth/**").permitAll()
 				.requestMatchers("/actuator/health", "/actuator/info").permitAll()
@@ -108,10 +87,7 @@ public class SecurityConfig {
 				.requestMatchers(USER_ONLY_PATHS).hasRole("USER")
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.requestMatchers("/api/v1/seller/**").hasRole("SELLER")
-				.anyRequest().authenticated())
-			// TODO: v1(JWT)을 지울 때 이 필터 등록도 지운다. (위 클래스 설명의 TODO 참고)
-			.addFilterBefore(new JwtAuthenticationFilter(jwtProvider, exceptionResolver),
-				UsernamePasswordAuthenticationFilter.class);
+				.anyRequest().authenticated());
 		return http.build();
 	}
 }

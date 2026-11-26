@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.domain.booking.BookingTestSupport;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
+import jakarta.servlet.http.Cookie;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,26 +48,26 @@ class UserInquiryApiTest extends BookingTestSupport {
 		return body;
 	}
 
-	private ResultActions create(String bearer, Map<String, Object> body) throws Exception {
+	private ResultActions create(Cookie session, Map<String, Object> body) throws Exception {
 		return mockMvc.perform(post(INQUIRIES)
-			.header("Authorization", bearer)
+			.cookie(session)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}
 
-	private ResultActions update(String bearer, Long inquiryId, Map<String, Object> body) throws Exception {
+	private ResultActions update(Cookie session, Long inquiryId, Map<String, Object> body) throws Exception {
 		return mockMvc.perform(put(INQUIRIES + "/" + inquiryId)
-			.header("Authorization", bearer)
+			.cookie(session)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}
 
-	private ResultActions remove(String bearer, Long inquiryId) throws Exception {
-		return mockMvc.perform(delete(INQUIRIES + "/" + inquiryId).header("Authorization", bearer));
+	private ResultActions remove(Cookie session, Long inquiryId) throws Exception {
+		return mockMvc.perform(delete(INQUIRIES + "/" + inquiryId).cookie(session));
 	}
 
 	private Long createdId(User user, Map<String, Object> body) throws Exception {
-		MvcResult created = create(user.bearer(), body).andExpect(status().isCreated()).andReturn();
+		MvcResult created = create(user.session(), body).andExpect(status().isCreated()).andReturn();
 		return Long.parseLong(read(created, "$.data.inquiryId"));
 	}
 
@@ -76,7 +77,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 	}
 
 	private Long bookingOf(User user, Show show, int seatIndex) throws Exception {
-		MvcResult booked = book(user.bearer(), show.scheduleId(), List.of(show.seatIds().get(seatIndex)))
+		MvcResult booked = book(user.session(), show.scheduleId(), List.of(show.seatIds().get(seatIndex)))
 			.andExpect(status().isCreated())
 			.andReturn();
 		return Long.parseLong(read(booked, "$.data.bookingId"));
@@ -90,7 +91,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 		Long bookingId = bookingOf(user, show, 0);
 		String second = "https://cdn.example.com/public/user_inquiry/user-1/b.png";
 
-		MvcResult created = create(user.bearer(), body("CANCEL_REFUND", bookingId, List.of(IMAGE, second)))
+		MvcResult created = create(user.session(), body("CANCEL_REFUND", bookingId, List.of(IMAGE, second)))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.data.status").value("WAITING"))
 			.andReturn();
@@ -114,7 +115,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 		assertThat(history.get("title")).isEqualTo("환불이 아직 들어오지 않았어요");
 		assertThat(history.get("image_urls").toString()).contains(IMAGE, second);
 
-		mockMvc.perform(get(INQUIRIES + "/" + inquiryId).header("Authorization", user.bearer()))
+		mockMvc.perform(get(INQUIRIES + "/" + inquiryId).cookie(user.session()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.category.code").value("CANCEL_REFUND"))
 			.andExpect(jsonPath("$.data.imageUrls[1]").value(second))
@@ -130,7 +131,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 		Long othersBooking = bookingOf(signup("owner"), show, 0);
 		User user = signup("first");
 
-		create(user.bearer(), body("BOOKING", othersBooking, List.of()))
+		create(user.session(), body("BOOKING", othersBooking, List.of()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("BOOKING006"));
 
@@ -143,12 +144,12 @@ class UserInquiryApiTest extends BookingTestSupport {
 	void rejectsSellerCategory() throws Exception {
 		User user = signup("first");
 
-		create(user.bearer(), body("SETTLEMENT", null, List.of()))
+		create(user.session(), body("SETTLEMENT", null, List.of()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INQUIRY000"));
 		assertThat(count("inquiry")).isZero();
 
-		MvcResult categories = mockMvc.perform(get(INQUIRIES + "/categories").header("Authorization", user.bearer()))
+		MvcResult categories = mockMvc.perform(get(INQUIRIES + "/categories").cookie(user.session()))
 			.andExpect(status().isOk())
 			.andReturn();
 		assertThat(categories.getResponse().getContentAsString())
@@ -160,17 +161,17 @@ class UserInquiryApiTest extends BookingTestSupport {
 	@DisplayName("남의 문의는 목록에 보이지 않고 상세는 404 다")
 	void hidesOthersInquiry() throws Exception {
 		User owner = signup("owner");
-		MvcResult created = create(owner.bearer(), body("ETC", null, List.of())).andExpect(status().isCreated()).andReturn();
+		MvcResult created = create(owner.session(), body("ETC", null, List.of())).andExpect(status().isCreated()).andReturn();
 		Long inquiryId = Long.parseLong(read(created, "$.data.inquiryId"));
 		User other = signup("other");
 
-		mockMvc.perform(get(INQUIRIES).header("Authorization", other.bearer()))
+		mockMvc.perform(get(INQUIRIES).cookie(other.session()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.totalElements").value(0));
-		mockMvc.perform(get(INQUIRIES + "/" + inquiryId).header("Authorization", other.bearer()))
+		mockMvc.perform(get(INQUIRIES + "/" + inquiryId).cookie(other.session()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("INQUIRY001"));
-		mockMvc.perform(get(INQUIRIES).header("Authorization", owner.bearer()))
+		mockMvc.perform(get(INQUIRIES).cookie(owner.session()))
 			.andExpect(jsonPath("$.data.content[0].inquiryId").value(inquiryId));
 	}
 
@@ -178,11 +179,11 @@ class UserInquiryApiTest extends BookingTestSupport {
 	@DisplayName("판매자 토큰으로는 예매자 문의 API 를 쓸 수 없다 (번호가 같은 예매자의 문의도 보이지 않는다)")
 	void rejectsSellerToken() throws Exception {
 		User user = signup("first");
-		create(user.bearer(), body("ETC", null, List.of())).andExpect(status().isCreated());
-		String seller = "Bearer " + jwtProvider.createAccessToken(
+		create(user.session(), body("ETC", null, List.of())).andExpect(status().isCreated());
+		Cookie seller = sessionCookie(
 			new CustomUserDetails(user.id(), AccountType.SELLER, "OWNER", 1L));
 
-		mockMvc.perform(get(INQUIRIES).header("Authorization", seller))
+		mockMvc.perform(get(INQUIRIES).cookie(seller))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("AUTH100"));
 	}
@@ -192,7 +193,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 	void rejectsExternalImage() throws Exception {
 		User user = signup("first");
 
-		create(user.bearer(), body("ETC", null, List.of("https://evil.example.com/a.jpg")))
+		create(user.session(), body("ETC", null, List.of("https://evil.example.com/a.jpg")))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("COMMON000"));
 		assertThat(count("inquiry")).isZero();
@@ -209,7 +210,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 		Map<String, Object> changed = body("PAYMENT", null, List.of(replaced));
 		changed.put("title", " 결제 문의로 바꿉니다 ");
 
-		update(user.bearer(), inquiryId, changed)
+		update(user.session(), inquiryId, changed)
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.title").value("결제 문의로 바꿉니다"))
 			.andExpect(jsonPath("$.data.category.code").value("PAYMENT"))
@@ -239,10 +240,10 @@ class UserInquiryApiTest extends BookingTestSupport {
 
 		Map<String, Object> changed = body("ETC", null, List.of());
 		changed.put("title", "답변 뒤에 바꾼 제목");
-		update(user.bearer(), inquiryId, changed)
+		update(user.session(), inquiryId, changed)
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("INQUIRY002"));
-		remove(user.bearer(), inquiryId)
+		remove(user.session(), inquiryId)
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("INQUIRY002"));
 
@@ -259,19 +260,19 @@ class UserInquiryApiTest extends BookingTestSupport {
 		Long inquiryId = createdId(owner, body("ETC", null, List.of(IMAGE)));
 		User other = signup("other");
 
-		update(other.bearer(), inquiryId, body("ETC", null, List.of()))
+		update(other.session(), inquiryId, body("ETC", null, List.of()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("INQUIRY001"));
-		remove(other.bearer(), inquiryId)
+		remove(other.session(), inquiryId)
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("INQUIRY001"));
 		assertThat(historyActions(inquiryId)).containsExactly("CREATED");
 
-		remove(owner.bearer(), inquiryId).andExpect(status().isOk());
+		remove(owner.session(), inquiryId).andExpect(status().isOk());
 
-		mockMvc.perform(get(INQUIRIES).header("Authorization", owner.bearer()))
+		mockMvc.perform(get(INQUIRIES).cookie(owner.session()))
 			.andExpect(jsonPath("$.data.totalElements").value(0));
-		mockMvc.perform(get(INQUIRIES + "/" + inquiryId).header("Authorization", owner.bearer()))
+		mockMvc.perform(get(INQUIRIES + "/" + inquiryId).cookie(owner.session()))
 			.andExpect(status().isNotFound());
 		// 행은 남고 deleted_at 만 찍힌다
 		assertThat(jdbc.queryForObject("SELECT deleted_at FROM inquiry WHERE id = ?", Object.class, inquiryId)).isNotNull();
@@ -288,7 +289,7 @@ class UserInquiryApiTest extends BookingTestSupport {
 		Long inquiryId = createdId(user, body("ETC", null, List.of()));
 
 		List<Integer> statuses = runConcurrently(5,
-			i -> () -> remove(user.bearer(), inquiryId).andReturn().getResponse().getStatus());
+			i -> () -> remove(user.session(), inquiryId).andReturn().getResponse().getStatus());
 
 		assertThat(statuses).containsOnlyOnce(200);
 		assertThat(statuses).allMatch(code -> code == 200 || code == 404 || code == 409);

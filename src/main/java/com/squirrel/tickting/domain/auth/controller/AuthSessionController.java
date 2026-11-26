@@ -19,9 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * v2 인증(Redis 세션). 로그인하면 SESSION 쿠키가 내려가고, 이후 업무 API 는 경로 변경 없이
- * 그 쿠키만 보내면 된다. (업무 API 는 JWT 와 세션을 모두 인정한다)
- * v1(JWT) 인증은 AuthController 에 그대로 있다.
+ * 인증(Redis 세션). 로그인하면 SESSION 쿠키가 내려가고, 이후 업무 API 는 그 쿠키만 보내면 된다.
  */
 @Tag(name = "Auth v2 (세션)", description = "Redis 세션 방식의 가입·로그인·로그아웃 API")
 @RestController

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -85,8 +86,8 @@ class SellerScheduleCreateApiTest extends IntegrationTestSupport {
 		return zoneId;
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 추가는 대표 전용이 아니라서 담당자 토큰으로 보낸다. */
@@ -96,7 +97,7 @@ class SellerScheduleCreateApiTest extends IntegrationTestSupport {
 
 	private ResultActions addBody(Long performanceId, String body) throws Exception {
 		return mockMvc.perform(post(URL, performanceId)
-			.header("Authorization", token(AccountType.SELLER, "STAFF", MY_BUSINESS))
+			.cookie(token(AccountType.SELLER, "STAFF", MY_BUSINESS))
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(body));
 	}
@@ -270,7 +271,7 @@ class SellerScheduleCreateApiTest extends IntegrationTestSupport {
 
 		Long mine = draft();
 		String body = "{\"startAt\":\"" + REQUEST_FORMAT.format(daysLater(30)) + "\"}";
-		mockMvc.perform(post(URL, mine).header("Authorization", token(AccountType.USER, null, null))
+		mockMvc.perform(post(URL, mine).cookie(token(AccountType.USER, null, null))
 				.contentType(MediaType.APPLICATION_JSON).content(body))
 			.andExpect(status().isForbidden());
 		mockMvc.perform(post(URL, mine).contentType(MediaType.APPLICATION_JSON).content(body))

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,18 +49,18 @@ class SellerCancelPolicyUpdateApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM cancel_policy WHERE business_id IN (?, ?)", MY_BUSINESS, OTHER_BUSINESS);
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
-	private String myStaffToken() {
+	private Cookie myStaffToken() {
 		return token(AccountType.SELLER, "STAFF", MY_BUSINESS);
 	}
 
 	/** 대표 전용 기능이 아니라서 담당자 토큰으로 보낸다. */
 	private ResultActions update(Object cancelPolicyId, Object body) throws Exception {
 		return mockMvc.perform(put(URL, cancelPolicyId)
-			.header("Authorization", myStaffToken())
+			.cookie(myStaffToken())
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}

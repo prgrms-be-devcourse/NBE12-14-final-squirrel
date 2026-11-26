@@ -10,6 +10,7 @@ import com.squirrel.tickting.domain.audit.service.AuditLogService;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -52,8 +53,8 @@ class AdminSellerBusinessReviewRollbackTest extends IntegrationTestSupport {
 			""", Long.class, time, time, time);
 	}
 
-	private String adminToken() {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(7L, AccountType.ADMIN, null, null));
+	private Cookie adminToken() {
+		return sessionCookie(new CustomUserDetails(7L, AccountType.ADMIN, null, null));
 	}
 
 	@Test
@@ -62,7 +63,7 @@ class AdminSellerBusinessReviewRollbackTest extends IntegrationTestSupport {
 		long businessId = insertPendingBusiness();
 
 		mockMvc.perform(post("/api/v1/admin/seller-businesses/{id}/approve", businessId)
-				.header("Authorization", adminToken()))
+				.cookie(adminToken()))
 			.andExpect(status().isInternalServerError());
 
 		Map<String, Object> business = jdbc.queryForMap(
@@ -78,7 +79,7 @@ class AdminSellerBusinessReviewRollbackTest extends IntegrationTestSupport {
 		long businessId = insertPendingBusiness();
 
 		mockMvc.perform(post("/api/v1/admin/seller-businesses/{id}/reject", businessId)
-				.header("Authorization", adminToken())
+				.cookie(adminToken())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"reason\":\"사업자등록번호 확인이 필요합니다.\"}"))
 			.andExpect(status().isInternalServerError());

@@ -1,13 +1,10 @@
 package com.squirrel.tickting.domain.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.support.IntegrationTestSupport;
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -17,8 +14,7 @@ import org.springframework.test.web.servlet.MvcResult;
 class SellerAuthApiTest extends IntegrationTestSupport {
 
 	private static final String SIGNUP = "/api/v1/auth/sellers/signup";
-	private static final String LOGIN = "/api/v1/auth/sellers/login";
-	private static final String REFRESH = "/api/v1/auth/refresh";
+	private static final String LOGIN = "/api/v2/auth/sellers/login";
 
 	private static final String EMAIL = "owner@company.com";
 	private static final String BUSINESS_NUMBER = "1234567890";
@@ -42,16 +38,10 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 			""", status, status, businessNumber);
 	}
 
-	private MvcResult signupAndApprove() throws Exception {
-		signup(EMAIL, BUSINESS_NUMBER);
-		setBusinessStatus(BUSINESS_NUMBER, "APPROVED");
-		return postJson(LOGIN, loginBody(EMAIL, PASSWORD)).andExpect(status().isOk()).andReturn();
-	}
-
 	// ---------------------------------------------------------------- 가입 신청
 
 	@Test
-	@DisplayName("가입 신청하면 사업체(승인 대기)와 대표자 계정이 함께 만들어지고, 토큰은 주지 않는다")
+	@DisplayName("가입 신청하면 사업체(승인 대기)와 대표자 계정이 함께 만들어지고, 로그인(세션)은 만들지 않는다")
 	void signupCreatesPendingBusinessAndOwner() throws Exception {
 		MvcResult result = postJson(SIGNUP, sellerSignupBody("Owner@Company.com", BUSINESS_NUMBER))
 			.andExpect(status().isCreated())
@@ -60,7 +50,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 			.andReturn();
 
 		assertThat(result.getResponse().getContentAsString()).doesNotContain("accessToken");
-		assertThat(refreshCookie(result)).isNull();
+		assertThat(sessionCookie(result)).isNull();
 
 		Map<String, Object> business = jdbc.queryForMap("SELECT * FROM seller_business");
 		assertThat(business.get("status")).isEqualTo("PENDING");
@@ -103,7 +93,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 		assertThat(count("seller_member")).isEqualTo(1);
 	}
 
-	// ---------------------------------------------------------------- 로그인과 토큰
+	// ---------------------------------------------------------------- 로그인
 
 	@Test
 	@DisplayName("승인 전에는 비밀번호가 맞아도 403 SELLER003 이다")
@@ -114,7 +104,7 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 
 		assertThat(result.getResponse().getStatus()).isEqualTo(403);
 		assertThat(read(result, "$.code")).isEqualTo("SELLER003");
-		assertThat(refreshCookie(result)).isNull();
+		assertThat(sessionCookie(result)).isNull();
 	}
 
 	@Test
@@ -136,25 +126,6 @@ class SellerAuthApiTest extends IntegrationTestSupport {
 
 		jdbc.update("UPDATE seller_member SET status = 'ACTIVE'");
 		assertThat(login(EMAIL, PASSWORD).getResponse().getStatus()).isEqualTo(200);
-	}
-
-	// ---------------------------------------------------------------- 재발급
-
-	@Test
-	@DisplayName("사업체가 정지되거나 계정이 비활성화되면 이미 받은 리프레시 토큰으로도 재발급받을 수 없다")
-	void refreshBlockedWhenBusinessOrAccountDisabled() throws Exception {
-		String refresh = refreshCookie(signupAndApprove());
-
-		setBusinessStatus(BUSINESS_NUMBER, "SUSPENDED");
-		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", refresh)))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code").value("SELLER005"));
-
-		setBusinessStatus(BUSINESS_NUMBER, "APPROVED");
-		jdbc.update("UPDATE seller_member SET status = 'INACTIVE'");
-		mockMvc.perform(post(REFRESH).cookie(new Cookie("refreshToken", refresh)))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code").value("AUTH003"));
 	}
 
 	// ---------------------------------------------------------------- 동시성
