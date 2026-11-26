@@ -2,6 +2,7 @@
 
 import { Pencil, Plus } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
@@ -25,11 +26,13 @@ type ModalState =
   | { kind: "grade"; grade?: Grade }
   | { kind: "cancel-performance" }
   | { kind: "cancel-schedule"; scheduleId: number }
+  | { kind: "delete-performance" }
   | null;
 
 export default function SellerPerformanceDetailPage() {
   const { id } = useRouteParams<{ id: string }>("/seller/performances/[id]");
   const base = `/api/v1/seller/performances/${id}`;
+  const router = useRouter();
   const detail = useApi<SellerPerformanceDetail>(base);
   const grades = useApi<GradesResponse>(`${base}/grades`);
   const sales = useApi<{ schedules: SalesSchedule[] }>(`${base}/sales`);
@@ -60,6 +63,20 @@ export default function SellerPerformanceDetailPage() {
     } catch (error) {
       setMessage({ text: error instanceof ApiError ? error.message : "처리하지 못했습니다", error: true });
     } finally {
+      setBusy(false);
+    }
+  }
+
+  // 지운 공연은 다시 읽을 수 없어 run 을 쓰지 않고 목록으로 보낸다
+  async function remove() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api(base, { method: "DELETE" });
+      router.replace("/seller/performances");
+    } catch (error) {
+      setMessage({ text: error instanceof ApiError ? error.message : "처리하지 못했습니다", error: true });
+      setModal(null);
       setBusy(false);
     }
   }
@@ -118,9 +135,14 @@ export default function SellerPerformanceDetailPage() {
                 공개하기
               </button>
             )}
-            {!canceled && (
+            {p.status === "PUBLISHED" && (
               <button type="button" className="btn" onClick={() => setModal({ kind: "cancel-performance" })}>
                 공연 취소
+              </button>
+            )}
+            {draft && (
+              <button type="button" className="btn" onClick={() => setModal({ kind: "delete-performance" })}>
+                삭제
               </button>
             )}
           </>
@@ -358,7 +380,11 @@ export default function SellerPerformanceDetailPage() {
       {(modal?.kind === "cancel-performance" || modal?.kind === "cancel-schedule") && (
         <ReasonModal
           title={modal.kind === "cancel-performance" ? "공연 취소" : "회차 취소"}
-          description="취소하면 판매 좌석의 예매는 수수료 없이 환불됩니다. 되돌릴 수 없습니다"
+          description={
+            modal.kind === "cancel-performance"
+              ? "시작 전이거나 연기된 회차를 취소하고, 그 예매는 수수료 없이 차례로 환불됩니다. 이미 시작한 회차는 그대로입니다. 되돌릴 수 없습니다"
+              : "취소하면 판매 좌석의 예매는 수수료 없이 환불됩니다. 되돌릴 수 없습니다"
+          }
           busy={busy}
           onClose={() => setModal(null)}
           onSubmit={(reason) =>
@@ -371,6 +397,21 @@ export default function SellerPerformanceDetailPage() {
             )
           }
         />
+      )}
+      {modal?.kind === "delete-performance" && (
+        <Modal title="공연 삭제" onClose={() => setModal(null)}>
+          <div className="space-y-5">
+            <p className="text-sm text-secondary">작성 중인 공연을 회차·등급·구역 설정·판매 좌석과 함께 지웁니다. 되돌릴 수 없습니다</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn" onClick={() => setModal(null)}>
+                닫기
+              </button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={remove}>
+                삭제하기
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );
