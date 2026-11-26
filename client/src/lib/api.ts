@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { clearAccount } from "@/lib/auth";
+import { ROUTE_PLACEHOLDER } from "@/lib/route-params";
 import type { ApiEnvelope } from "@/lib/types";
 
 // 브라우저는 Spring 이 아니라 Next 서버(BFF)의 /api/* 만 부른다.
@@ -40,10 +41,6 @@ function trace(method: string, path: string, status: number, request: unknown, r
   else console.warn(line, detail);
 }
 
-// Next 는 미리 그려 둔 껍데기에서 경로 값(useParams)을 %%drp:id:해시%% 같은 자리표시로 채운다.
-// 이 값으로 요청하면 주소가 깨져서 연결이 끊기므로(ERR_HTTP2_PROTOCOL_ERROR) 진짜 값으로 바뀔 때까지 보내지 않는다.
-const ROUTE_PLACEHOLDER = "%%drp:";
-
 type Query = Record<string, string | number | null | undefined>;
 
 type Options = {
@@ -65,8 +62,13 @@ function toQueryString(query?: Query): string {
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
   const { method = "GET", body, query, headers } = options;
-  // 끝나지 않는 약속을 돌려준다. 호출한 쪽은 경로가 진짜 값으로 바뀌면 효과를 다시 돌리면서 이 약속을 버린다.
-  if (path.includes(ROUTE_PLACEHOLDER)) return new Promise<T>(() => {});
+  // Next 가 경로 값 자리에 채워 둔 자리표시(%%drp:id:해시%%)가 그대로 들어온 경우다. 이 주소로 보내면 연결이 끊긴다
+  // (ERR_HTTP2_PROTOCOL_ERROR). 기다리지 않고 오류로 돌려서 화면이 "불러오는 중"에서 멈추지 않게 한다.
+  // 경로 값은 useRouteParams 로 읽어서 진짜 값을 쓰므로 정상이라면 여기에 오지 않는다.
+  if (path.includes(ROUTE_PLACEHOLDER)) {
+    console.error(`[API] 경로에 자리표시 값이 들어 있어 요청하지 않았습니다: ${method} ${path}`);
+    throw new ApiError(0, "CLIENT", "주소를 읽지 못했습니다. 새로고침해 주세요");
+  }
   const response = await fetch(`${path}${toQueryString(query)}`, {
     method,
     headers: {

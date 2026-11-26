@@ -2,8 +2,9 @@
 
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, useApi } from "@/lib/api";
 import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingDetail, CancelResult } from "@/lib/types";
@@ -11,7 +12,7 @@ import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
 
 export default function BookingDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/bookings/[id]");
   const router = useRouter();
   const { data: b, error, loading, reload } = useApi<BookingDetail>(`/api/v1/bookings/${id}`);
 
