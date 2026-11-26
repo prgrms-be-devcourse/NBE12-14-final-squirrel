@@ -4,7 +4,7 @@ import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, useApi } from "@/lib/api";
+import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
 import { getVenueLayout } from "@/lib/venue-layouts";
 import { saveBooking } from "@/lib/booking-cache";
@@ -121,7 +121,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
         onNotAdmitted();
         return;
       }
-      setMessage(error instanceof ApiError ? error.message : "예매에 실패했습니다");
+      setMessage(errorText(error, "예매에 실패했습니다"));
       if (error instanceof ApiError && error.code === "BOOKING000") {
         // 그사이 다른 사람이 가져간 좌석이 있다. 선택을 비우고 최신 상태를 다시 읽는다
         setPicked([]);
