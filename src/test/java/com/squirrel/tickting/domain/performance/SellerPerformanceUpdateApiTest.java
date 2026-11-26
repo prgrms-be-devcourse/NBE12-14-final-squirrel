@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -71,18 +72,18 @@ class SellerPerformanceUpdateApiTest extends IntegrationTestSupport {
 
 	// ---- 데이터 준비 ----
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 수정은 대표 전용이 아니라서 담당자 토큰으로 보낸다. */
-	private String staffToken() {
+	private Cookie staffToken() {
 		return token(AccountType.SELLER, "STAFF", MY_BUSINESS);
 	}
 
 	private ResultActions update(Long performanceId, Map<String, Object> body) throws Exception {
 		return mockMvc.perform(put(URL, performanceId)
-			.header("Authorization", staffToken())
+			.cookie(staffToken())
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}
@@ -527,7 +528,7 @@ class SellerPerformanceUpdateApiTest extends IntegrationTestSupport {
 		assertThat(titleOf(others)).isEqualTo("수정 테스트 공연");
 
 		String body = objectMapper.writeValueAsString(othersBody);
-		mockMvc.perform(put(URL, canceled).header("Authorization", token(AccountType.USER, null, null))
+		mockMvc.perform(put(URL, canceled).cookie(token(AccountType.USER, null, null))
 			.contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
 		mockMvc.perform(put(URL, canceled).contentType(MediaType.APPLICATION_JSON).content(body))
 			.andExpect(status().isUnauthorized());

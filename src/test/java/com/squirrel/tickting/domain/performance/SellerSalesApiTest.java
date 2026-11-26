@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -34,12 +35,12 @@ class SellerSalesApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM performance WHERE business_id IN (" + MY_BUSINESS + ", " + OTHER_BUSINESS + ")");
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	private MockHttpServletRequestBuilder request(Long performanceId) {
-		return get(URL, performanceId).header("Authorization", token(AccountType.SELLER, "OWNER", MY_BUSINESS));
+		return get(URL, performanceId).cookie(token(AccountType.SELLER, "OWNER", MY_BUSINESS));
 	}
 
 	private Long arenaVenueId() {
@@ -155,9 +156,9 @@ class SellerSalesApiTest extends IntegrationTestSupport {
 	void staffAllowedAndUserForbidden() throws Exception {
 		Long performanceId = insertPerformance(MY_BUSINESS, "PUBLISHED");
 
-		mockMvc.perform(get(URL, performanceId).header("Authorization", token(AccountType.SELLER, "STAFF", MY_BUSINESS)))
+		mockMvc.perform(get(URL, performanceId).cookie(token(AccountType.SELLER, "STAFF", MY_BUSINESS)))
 			.andExpect(status().isOk());
-		mockMvc.perform(get(URL, performanceId).header("Authorization", token(AccountType.USER, "USER", null)))
+		mockMvc.perform(get(URL, performanceId).cookie(token(AccountType.USER, "USER", null)))
 			.andExpect(status().isForbidden());
 	}
 }

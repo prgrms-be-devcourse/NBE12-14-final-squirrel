@@ -154,16 +154,16 @@ class QueueApiTest extends BookingTestSupport {
 		enter(admitted, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
 
 		for (String path : List.of("/zones", "/zones/" + zoneId + "/seats")) {
-			mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + path).header("Authorization", outsider.bearer()))
+			mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + path).cookie(outsider.session()))
 				.andExpect(status().isForbidden())
 				.andExpect(jsonPath("$.code").value("QUEUE000"));
-			mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + path).header("Authorization", admitted.bearer()))
+			mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + path).cookie(admitted.session()))
 				.andExpect(status().isOk());
 		}
-		book(outsider.bearer(), show.scheduleId(), List.of(show.seatIds().get(0)))
+		book(outsider.session(), show.scheduleId(), List.of(show.seatIds().get(0)))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("QUEUE000"));
-		book(admitted.bearer(), show.scheduleId(), List.of(show.seatIds().get(0))).andExpect(status().isCreated());
+		book(admitted.session(), show.scheduleId(), List.of(show.seatIds().get(0))).andExpect(status().isCreated());
 	}
 
 	@Test
@@ -175,7 +175,7 @@ class QueueApiTest extends BookingTestSupport {
 		enter(user, show);
 
 		mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + "/zones")).andExpect(status().isUnauthorized());
-		mockMvc.perform(get("/api/v1/schedules/" + other.scheduleId() + "/zones").header("Authorization", user.bearer()))
+		mockMvc.perform(get("/api/v1/schedules/" + other.scheduleId() + "/zones").cookie(user.session()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("QUEUE000"));
 	}
@@ -187,17 +187,17 @@ class QueueApiTest extends BookingTestSupport {
 		User user = signup("user");
 		enter(user, show);
 		String zonesUrl = "/api/v1/schedules/" + show.scheduleId() + "/zones";
-		mockMvc.perform(get(zonesUrl).header("Authorization", user.bearer())).andExpect(status().isOk());
+		mockMvc.perform(get(zonesUrl).cookie(user.session())).andExpect(status().isOk());
 
 		// 만료 시각을 과거로 돌린다
 		redis.opsForZSet().add("tickting:queue:{" + show.scheduleId() + "}:active", "USER:" + user.id(),
 			System.currentTimeMillis() - 1000);
 
-		mockMvc.perform(get(zonesUrl).header("Authorization", user.bearer()))
+		mockMvc.perform(get(zonesUrl).cookie(user.session()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("QUEUE000"));
 		enter(user, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
-		mockMvc.perform(get(zonesUrl).header("Authorization", user.bearer())).andExpect(status().isOk());
+		mockMvc.perform(get(zonesUrl).cookie(user.session())).andExpect(status().isOk());
 	}
 
 	// ---------------------------------------------------------------- 들어갈 수 있는 회차
@@ -209,7 +209,7 @@ class QueueApiTest extends BookingTestSupport {
 		User user = signup("user");
 
 		enter(user, beforeOpen).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BOOKING002"));
-		mockMvc.perform(post("/api/v1/schedules/999999/queue").header("Authorization", user.bearer())
+		mockMvc.perform(post("/api/v1/schedules/999999/queue").cookie(user.session())
 				.header(CaptchaInterceptor.TOKEN_HEADER, "pass"))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("BOOKING004"));
@@ -221,17 +221,17 @@ class QueueApiTest extends BookingTestSupport {
 
 	private ResultActions enter(User user, Show show) throws Exception {
 		return mockMvc.perform(post("/api/v1/schedules/" + show.scheduleId() + "/queue")
-			.header("Authorization", user.bearer())
+			.cookie(user.session())
 			.header(CaptchaInterceptor.TOKEN_HEADER, "pass"));
 	}
 
 	private ResultActions queueStatus(User user, Show show) throws Exception {
 		return mockMvc.perform(get("/api/v1/schedules/" + show.scheduleId() + "/queue")
-			.header("Authorization", user.bearer()));
+			.cookie(user.session()));
 	}
 
 	private ResultActions leave(User user, Show show) throws Exception {
 		return mockMvc.perform(delete("/api/v1/schedules/" + show.scheduleId() + "/queue")
-			.header("Authorization", user.bearer()));
+			.cookie(user.session()));
 	}
 }

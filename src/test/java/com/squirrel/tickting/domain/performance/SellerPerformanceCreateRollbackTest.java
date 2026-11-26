@@ -13,6 +13,7 @@ import com.squirrel.tickting.domain.performance.service.GradeService;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -86,10 +87,10 @@ class SellerPerformanceCreateRollbackTest extends IntegrationTestSupport {
 		body.put("posterUrl", "https://cdn.example.com/posters/rollback.jpg");
 		body.put("images", List.of(Map.of("url", "https://cdn.example.com/details/rollback.jpg", "sortOrder", 1)));
 
-		String token = "Bearer " + jwtProvider.createAccessToken(
+		Cookie token = sessionCookie(
 			new CustomUserDetails(1L, AccountType.SELLER, "OWNER", MY_BUSINESS));
 		mockMvc.perform(post("/api/v1/seller/performances")
-				.header("Authorization", token)
+				.cookie(token)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(body)))
 			.andExpect(status().isInternalServerError());

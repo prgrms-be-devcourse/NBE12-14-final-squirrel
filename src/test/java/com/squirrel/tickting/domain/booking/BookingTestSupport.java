@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +22,7 @@ import org.springframework.test.web.servlet.ResultActions;
  */
 public abstract class BookingTestSupport extends IntegrationTestSupport {
 
-	protected static final String SIGNUP = "/api/v1/auth/users/signup";
+	protected static final String SIGNUP = "/api/v2/auth/users/signup";
 	protected static final int MAX_PER_PERSON = 4;
 
 	protected final LocalDateTime now = LocalDateTime.now().withNano(0);
@@ -108,29 +109,29 @@ public abstract class BookingTestSupport extends IntegrationTestSupport {
 			""", Long.class, scheduleId, venueSeatId, zoneId, gradeId, status, now);
 	}
 
-	protected record User(Long id, String bearer) {
+	protected record User(Long id, Cookie session) {
 	}
 
-	/** 실제 가입 API 로 예매자를 만들고 액세스 토큰을 받는다. 이름은 본인인증 값(홍길동)으로 들어간다. */
+	/** 실제 가입 API 로 예매자를 만들고 SESSION 쿠키를 받는다. 이름은 본인인증 값(홍길동)으로 들어간다. */
 	protected User signup(String name) throws Exception {
 		String email = name + "@example.com";
 		MvcResult result = postJson(SIGNUP, userSignupBody(email))
 			.andExpect(status().isCreated())
 			.andReturn();
 		Long id = jdbc.queryForObject("SELECT id FROM user_member WHERE email = ?", Long.class, email);
-		return new User(id, "Bearer " + accessToken(result));
+		return new User(id, sessionCookie(result));
 	}
 
-	protected ResultActions book(String bearer, Long scheduleId, List<Long> seatIds) throws Exception {
+	protected ResultActions book(Cookie session, Long scheduleId, List<Long> seatIds) throws Exception {
 		return mockMvc.perform(post("/api/v1/schedules/" + scheduleId + "/bookings")
-			.header("Authorization", bearer)
+			.cookie(session)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(Map.of("seatIds", seatIds))));
 	}
 
 	/** 성공하면 "OK", 실패하면 에러 코드. 동시성 테스트에서 결과를 모아 세는 데 쓴다. */
-	protected String bookForResult(String bearer, Long scheduleId, List<Long> seatIds) throws Exception {
-		MvcResult result = book(bearer, scheduleId, seatIds).andReturn();
+	protected String bookForResult(Cookie session, Long scheduleId, List<Long> seatIds) throws Exception {
+		MvcResult result = book(session, scheduleId, seatIds).andReturn();
 		return result.getResponse().getStatus() == 201 ? "OK" : read(result, "$.code");
 	}
 

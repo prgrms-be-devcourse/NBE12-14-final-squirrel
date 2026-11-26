@@ -10,6 +10,7 @@ import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway.CancelCal
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,12 +57,12 @@ class AdminRefundRetryApiTest extends IntegrationTestSupport {
 	}
 
 	@SuppressWarnings("removal")
-	private String adminToken() {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
+	private Cookie adminToken() {
+		return sessionCookie(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
 	}
 
 	private ResultActions retry(Long refundId) throws Exception {
-		return mockMvc.perform(post(URL, refundId).header("Authorization", adminToken()));
+		return mockMvc.perform(post(URL, refundId).cookie(adminToken()));
 	}
 
 	/** 결제 한 건과 그 결제의 환불 한 건을 넣고 환불 번호를 돌려준다. 멱등키는 "key-" + 결제 키다. */

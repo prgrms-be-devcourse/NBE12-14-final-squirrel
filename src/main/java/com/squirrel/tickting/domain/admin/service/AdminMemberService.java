@@ -39,15 +39,6 @@ public class AdminMemberService {
 		return toAccount(admin);
 	}
 
-	/** 토큰 재발급용. 토큰이 아니라 DB 를 기준으로 계정이 아직 쓸 수 있는 상태인지 확인한다. */
-	@Transactional(readOnly = true)
-	public CustomUserDetails getLoginAccount(Long adminId) {
-		AdminMember admin = adminMemberRepository.findByIdAndDeletedAtIsNull(adminId)
-			.orElseThrow(() -> new BusinessException(AuthExceptionCode.TOKEN_INVALID));
-		requireActive(admin);
-		return toAccount(admin);
-	}
-
 	public CustomUserDetails toAccount(AdminMember admin) {
 		return new CustomUserDetails(admin.getId(), AccountType.ADMIN, null, null);
 	}

@@ -48,18 +48,6 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 		return keys == null ? 0 : (int) keys.stream().filter(key -> !key.contains(":expires:")).count();
 	}
 
-	/** 응답의 Set-Cookie 에서 SESSION 쿠키를 꺼낸다. 없으면 null */
-	private Cookie sessionCookie(MvcResult result) {
-		List<String> headers = result.getResponse().getHeaders("Set-Cookie");
-		return headers.stream()
-			.filter(header -> header.startsWith("SESSION="))
-			.map(header -> header.substring("SESSION=".length(), header.indexOf(';') < 0 ? header.length() : header.indexOf(';')))
-			.filter(value -> !value.isEmpty())
-			.findFirst()
-			.map(value -> new Cookie("SESSION", value))
-			.orElse(null);
-	}
-
 	private String setCookieHeader(MvcResult result) {
 		return result.getResponse().getHeaders("Set-Cookie").stream()
 			.filter(header -> header.startsWith("SESSION="))
@@ -90,7 +78,7 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("로그인하면 SESSION 쿠키가 내려가고 세션이 Redis 에 저장되며, 토큰은 내려가지 않는다")
 	void loginCreatesSession() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com"))
+		postJson("/api/v2/auth/users/signup", userSignupBody("user@example.com"))
 			.andExpect(status().isCreated());
 		clearSessions();
 
@@ -111,7 +99,7 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("로그인한 뒤 SESSION 쿠키만으로 경로를 바꾸지 않은 업무 API(내 정보)를 쓸 수 있고, 쿠키가 없으면 401 이다")
 	void cookieAuthenticatesBusinessApi() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com"))
+		postJson("/api/v2/auth/users/signup", userSignupBody("user@example.com"))
 			.andExpect(status().isCreated());
 
 		Cookie session = sessionCookie(userLogin("user@example.com", PASSWORD));
@@ -130,7 +118,7 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 	@DisplayName("관리자는 세션으로 관리자 API 를 쓰고, 예매자 세션은 관리자 API 에서 403 이다")
 	void adminSessionAndUserSession() throws Exception {
 		insertAdmin("admin@example.com");
-		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com"))
+		postJson("/api/v2/auth/users/signup", userSignupBody("user@example.com"))
 			.andExpect(status().isCreated());
 
 		MvcResult adminLogin = postJson(V2 + "/admins/login", loginBody("admin@example.com", PASSWORD))
@@ -151,9 +139,9 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("로그아웃하면 Redis 에서 세션이 지워져서 같은 쿠키로는 더 이상 로그인되지 않는다")
 	void logoutDeletesSession() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com"))
-			.andExpect(status().isCreated());
-		Cookie session = sessionCookie(userLogin("user@example.com", PASSWORD));
+		// 가입하면 바로 로그인되어 세션이 하나 생긴다. 그 세션으로 로그아웃을 확인한다.
+		Cookie session = sessionCookie(postJson("/api/v2/auth/users/signup", userSignupBody("user@example.com"))
+			.andExpect(status().isCreated()).andReturn());
 		assertThat(sessionCount()).isEqualTo(1);
 		callMe(session).andExpect(status().isOk());
 
@@ -166,7 +154,7 @@ class SessionAuthApiTest extends IntegrationTestSupport {
 	@Test
 	@DisplayName("이미 세션이 있는 상태로 다시 로그인하면 세션 번호가 바뀌고 이전 번호는 쓸 수 없다")
 	void sessionIdChangesOnLogin() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody("user@example.com"))
+		postJson("/api/v2/auth/users/signup", userSignupBody("user@example.com"))
 			.andExpect(status().isCreated());
 		Cookie before = sessionCookie(userLogin("user@example.com", PASSWORD));
 

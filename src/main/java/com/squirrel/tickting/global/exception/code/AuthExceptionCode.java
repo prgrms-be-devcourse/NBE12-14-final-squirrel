@@ -7,7 +7,7 @@ import org.springframework.http.HttpStatus;
 
 /**
  * 인증·인가·토큰 관련 에러 코드.
- * 로그인 실패, 권한 부족, JWT 누락/위조/만료에 사용한다.
+ * 로그인 실패, 권한 부족, 로그인 필요에 사용한다.
  */
 @Getter
 @RequiredArgsConstructor
@@ -46,12 +46,8 @@ public enum AuthExceptionCode implements ExceptionCode {
 	/** 로그인은 됐으나 권한 부족 (예: 예매자가 관리자 API 호출, 403) */
 	ACCESS_DENIED("AUTH100", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 
-	/** Authorization 헤더에 토큰이 없음 */
-	TOKEN_MISSING("AUTH200", HttpStatus.UNAUTHORIZED, "인증 토큰이 필요합니다."),
-	/** 서명 불일치, 형식 오류, access/refresh 종류가 다른 토큰 등 */
-	TOKEN_INVALID("AUTH201", HttpStatus.UNAUTHORIZED, "유효하지 않은 토큰입니다."),
-	/** access 또는 refresh 토큰 만료 */
-	TOKEN_EXPIRED("AUTH202", HttpStatus.UNAUTHORIZED, "토큰이 만료되었습니다.");
+	/** 로그인하지 않았거나 세션이 만료됨 (SESSION 쿠키가 없거나 세션을 찾을 수 없음) */
+	TOKEN_MISSING("AUTH200", HttpStatus.UNAUTHORIZED, "로그인이 필요합니다.");
 
 	private final String code;
 	private final HttpStatus status;

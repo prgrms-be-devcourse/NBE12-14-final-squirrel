@@ -26,7 +26,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 컨트롤러 예외를 ApiResponse 형식으로 통일해 응답한다.
- * 필터에서 난 예외(JWT 검증 실패 등)도 HandlerExceptionResolver 를 거쳐 이곳으로 들어온다.
+ * 필터에서 난 예외(인증·권한 실패 등)도 HandlerExceptionResolver 를 거쳐 이곳으로 들어온다.
  */
 @Slf4j
 @RestControllerAdvice

@@ -31,7 +31,7 @@ class LoginFailureLimitApiTest extends IntegrationTestSupport {
 
 	@BeforeEach
 	void signup() throws Exception {
-		postJson("/api/v1/auth/users/signup", userSignupBody(EMAIL)).andExpect(status().isCreated());
+		postJson("/api/v2/auth/users/signup", userSignupBody(EMAIL)).andExpect(status().isCreated());
 	}
 
 	private ResultActions login(String url, String password, String ip) throws Exception {
@@ -85,16 +85,6 @@ class LoginFailureLimitApiTest extends IntegrationTestSupport {
 		failTimes(5, IP);
 
 		v2Login(PASSWORD, "198.51.100.20").andExpect(status().isOk());
-	}
-
-	@Test
-	@DisplayName("v2(세션)에서 잠기면 v1(JWT) 로그인도 막힌다. 다른 버전 API 로 제한을 피해 갈 수 없다")
-	void v1IsAlsoLocked() throws Exception {
-		failTimes(5, IP);
-
-		login("/api/v1/auth/users/login", PASSWORD, IP)
-			.andExpect(status().isTooManyRequests())
-			.andExpect(jsonPath("$.code").value("AUTH004"));
 	}
 
 	@Test

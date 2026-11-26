@@ -22,15 +22,6 @@ public interface SellerMemberRepository extends JpaRepository<SellerMember, Long
 		""")
 	Optional<SellerMember> findForLoginByEmail(@Param("email") String email);
 
-	@Query("""
-		SELECT m
-		FROM SellerMember m
-		JOIN FETCH m.business
-		WHERE m.id = :id
-		  AND m.deletedAt IS NULL
-		""")
-	Optional<SellerMember> findForLoginById(@Param("id") Long id);
-
 	boolean existsByEmailAndDeletedAtIsNull(String email);
 
 	/** 비밀번호 재설정용. 사업체 상태와 무관하게 계정만 본다. (승인 대기·반려·정지 사업체의 대표도 비밀번호는 바꿀 수 있다) */

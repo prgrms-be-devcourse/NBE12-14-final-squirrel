@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.domain.booking.BookingTestSupport;
 import com.squirrel.tickting.domain.booking.facade.BookingExpiryFacade;
 import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway;
+import jakarta.servlet.http.Cookie;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -51,12 +52,12 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 
 	/** 좌석을 점유하고 결제를 준비한다. */
 	private Order prepareOrder(User user, Show show, int fromIndex, int seatCount) throws Exception {
-		MvcResult booked = book(user.bearer(), show.scheduleId(), show.seatIds().subList(fromIndex, fromIndex + seatCount))
+		MvcResult booked = book(user.session(), show.scheduleId(), show.seatIds().subList(fromIndex, fromIndex + seatCount))
 			.andExpect(status().isCreated())
 			.andReturn();
 		Long bookingId = Long.parseLong(read(booked, "$.data.bookingId"));
 		MvcResult prepared = mockMvc.perform(post("/api/v1/bookings/" + bookingId + "/payments")
-				.header("Authorization", user.bearer())
+				.cookie(user.session())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(Map.of("receiveType", "ONSITE"))))
 			.andExpect(status().isOk())
@@ -69,13 +70,13 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		return prepareOrder(user, show, 0, seatCount);
 	}
 
-	private ResultActions confirm(String bearer, String paymentKey, String orderId, Object amount) throws Exception {
+	private ResultActions confirm(Cookie session, String paymentKey, String orderId, Object amount) throws Exception {
 		Map<String, Object> body = new HashMap<>();
 		body.put("paymentKey", paymentKey);
 		body.put("orderId", orderId);
 		body.put("amount", amount);
 		return mockMvc.perform(post("/api/v1/payments/confirm")
-			.header("Authorization", bearer)
+			.cookie(session)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}
@@ -101,7 +102,7 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		User user = signup("first");
 		Order order = prepareOrder(user, show, 2);
 
-		confirm(user.bearer(), "pay_key_ok", order.orderId(), order.amount())
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount())
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.data.bookingId").value(order.bookingId()))
@@ -140,7 +141,7 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		jdbc.update("UPDATE booking SET expires_at = ? WHERE id = ?", LocalDateTime.now().plusSeconds(30), order.bookingId());
 		jdbc.update("UPDATE schedule_seat SET held_until = ? WHERE id = ?", LocalDateTime.now().plusSeconds(30), show.seatIds().get(0));
 
-		confirm(user.bearer(), "unavailable_1", order.orderId(), order.amount()).andExpect(status().isBadGateway());
+		confirm(user.session(), "unavailable_1", order.orderId(), order.amount()).andExpect(status().isBadGateway());
 		// 1분 뒤에 정리 작업이 돈다고 치면, 늘리지 않았다면 이미 만료됐을 시각이다
 		int released = bookingExpiryFacade.expireOverdue(LocalDateTime.now().plusSeconds(60), 100);
 
@@ -158,7 +159,7 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		User user = signup("first");
 		Order order = prepareOrder(user, show, 1);
 
-		confirm(user.bearer(), "pay_key_ok", order.orderId(), order.amount() - 1)
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount() - 1)
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("PAYMENT004"));
 
@@ -175,7 +176,7 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		Order order = prepareOrder(user, show, 1);
 		jdbc.update("UPDATE booking SET expires_at = ? WHERE id = ?", LocalDateTime.now().minusSeconds(1), order.bookingId());
 
-		confirm(user.bearer(), "pay_key_ok", order.orderId(), order.amount())
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount())
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("BOOKING007"));
 
@@ -189,9 +190,9 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		Show show = show(1);
 		User user = signup("first");
 		Order order = prepareOrder(user, show, 1);
-		confirm(user.bearer(), "pay_key_ok", order.orderId(), order.amount()).andExpect(status().isOk());
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount()).andExpect(status().isOk());
 
-		confirm(user.bearer(), "pay_key_ok", order.orderId(), order.amount())
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount())
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("PAYMENT003"));
 
@@ -207,10 +208,10 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		User other = signup("other");
 		Order order = prepareOrder(owner, show, 1);
 
-		confirm(other.bearer(), "pay_key_ok", order.orderId(), order.amount())
+		confirm(other.session(), "pay_key_ok", order.orderId(), order.amount())
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("PAYMENT002"));
-		confirm(other.bearer(), "pay_key_ok", "BK-NO-SUCH-ORDER", 1000)
+		confirm(other.session(), "pay_key_ok", "BK-NO-SUCH-ORDER", 1000)
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("PAYMENT002"));
 
@@ -227,7 +228,7 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		User user = signup("first");
 		Order order = prepareOrder(user, show, 1);
 
-		confirm(user.bearer(), "reject_card", order.orderId(), order.amount())
+		confirm(user.session(), "reject_card", order.orderId(), order.amount())
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("PAYMENT005"))
 			.andExpect(jsonPath("$.message").value("카드사에서 결제를 거절했습니다."));
@@ -241,13 +242,13 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 
 		// 다시 준비하면 새 주문 ID(-02)가 나오고, 그 결제는 승인된다
 		MvcResult again = mockMvc.perform(post("/api/v1/bookings/" + order.bookingId() + "/payments")
-				.header("Authorization", user.bearer())
+				.cookie(user.session())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(Map.of("receiveType", "ONSITE"))))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.orderId").value("BK" + order.bookingNo() + "-02"))
 			.andReturn();
-		confirm(user.bearer(), "pay_key_ok", read(again, "$.data.orderId"), order.amount()).andExpect(status().isOk());
+		confirm(user.session(), "pay_key_ok", read(again, "$.data.orderId"), order.amount()).andExpect(status().isOk());
 		assertThat(bookingStatus(order.bookingId())).isEqualTo("PAID");
 	}
 
@@ -258,7 +259,7 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		User user = signup("first");
 		Order order = prepareOrder(user, show, 1);
 
-		confirm(user.bearer(), "unavailable_1", order.orderId(), order.amount())
+		confirm(user.session(), "unavailable_1", order.orderId(), order.amount())
 			.andExpect(status().isBadGateway())
 			.andExpect(jsonPath("$.code").value("PAYMENT006"));
 
@@ -266,7 +267,7 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		assertThat(paymentStatus(order.orderId())).isEqualTo("PROCESSING");
 		assertThat(bookingStatus(order.bookingId())).isEqualTo("PENDING");
 		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("HELD");
-		confirm(user.bearer(), "pay_key_ok", order.orderId(), order.amount())
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount())
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("PAYMENT003"));
 		assertThat(gateway.confirmedOrderIds()).hasSize(1);
@@ -285,12 +286,12 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		Order order = prepareOrder(user, show, 0, 1);
 		Order warmOrder = prepareOrder(warm, show, 1, 1);
 		// 첫 요청은 클래스 로딩 때문에 느려서 락 대기 시간(1초)을 넘기지 않도록 다른 결제로 한 번 미리 실행해 둔다
-		confirm(warm.bearer(), "pay_key_warm", warmOrder.orderId(), warmOrder.amount()).andExpect(status().isOk());
+		confirm(warm.session(), "pay_key_warm", warmOrder.orderId(), warmOrder.amount()).andExpect(status().isOk());
 		gateway.reset();
 
 		// slow_ 는 성공하지만 느리게 응답해서, 첫 요청이 토스를 기다리는 동안 나머지 요청이 겹친다
 		List<String> results = runConcurrently(5, i -> () -> {
-			MvcResult result = confirm(user.bearer(), "slow_pay_key", order.orderId(), order.amount()).andReturn();
+			MvcResult result = confirm(user.session(), "slow_pay_key", order.orderId(), order.amount()).andReturn();
 			return result.getResponse().getStatus() == 200 ? "OK" : read(result, "$.code");
 		});
 

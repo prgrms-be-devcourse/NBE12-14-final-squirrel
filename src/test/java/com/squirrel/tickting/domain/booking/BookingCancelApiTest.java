@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway;
+import jakarta.servlet.http.Cookie;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -49,18 +50,18 @@ class BookingCancelApiTest extends BookingTestSupport {
 	}
 
 	private Paid pay(User user, Show show, int seatCount, String paymentKey) throws Exception {
-		MvcResult booked = book(user.bearer(), show.scheduleId(), show.seatIds().subList(0, seatCount))
+		MvcResult booked = book(user.session(), show.scheduleId(), show.seatIds().subList(0, seatCount))
 			.andExpect(status().isCreated())
 			.andReturn();
 		Long bookingId = Long.parseLong(read(booked, "$.data.bookingId"));
 		MvcResult prepared = mockMvc.perform(post("/api/v1/bookings/" + bookingId + "/payments")
-				.header("Authorization", user.bearer())
+				.cookie(user.session())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(Map.of("receiveType", "ONSITE"))))
 			.andExpect(status().isOk())
 			.andReturn();
 		mockMvc.perform(post("/api/v1/payments/confirm")
-				.header("Authorization", user.bearer())
+				.cookie(user.session())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(Map.of(
 					"paymentKey", paymentKey,
@@ -72,15 +73,15 @@ class BookingCancelApiTest extends BookingTestSupport {
 		return new Paid(bookingId, bookingSeatIds);
 	}
 
-	private ResultActions cancel(String bearer, Long bookingId, Object body) throws Exception {
+	private ResultActions cancel(Cookie session, Long bookingId, Object body) throws Exception {
 		return mockMvc.perform(post("/api/v1/bookings/" + bookingId + "/cancel")
-			.header("Authorization", bearer)
+			.cookie(session)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}
 
-	private String cancelForResult(String bearer, Long bookingId, Object body) throws Exception {
-		MvcResult result = cancel(bearer, bookingId, body).andReturn();
+	private String cancelForResult(Cookie session, Long bookingId, Object body) throws Exception {
+		MvcResult result = cancel(session, bookingId, body).andReturn();
 		return result.getResponse().getStatus() == 200 ? "OK" : read(result, "$.code");
 	}
 
@@ -110,7 +111,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 		moveScheduleTo(show.scheduleId(), LocalDate.now().plusDays(3).atTime(0, 30));
 
 		// 상세 화면의 취소 가능 여부·수수료율은 실제 취소와 같은 계산이다
-		mockMvc.perform(get("/api/v1/bookings/" + paid.bookingId()).header("Authorization", user.bearer()))
+		mockMvc.perform(get("/api/v1/bookings/" + paid.bookingId()).cookie(user.session()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.cancelable").value(true))
 			.andExpect(jsonPath("$.data.currentFeeRate").value(10))
@@ -119,7 +120,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 		Long canceledSeatId = paid.bookingSeatIds().get(1);
 		int fee = PRICE / 10;
 		int refundAmount = PRICE - fee + BOOKING_FEE;
-		cancel(user.bearer(), paid.bookingId(), Map.of("bookingSeatIds", List.of(canceledSeatId)))
+		cancel(user.session(), paid.bookingId(), Map.of("bookingSeatIds", List.of(canceledSeatId)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.bookingId").value(paid.bookingId()))
 			.andExpect(jsonPath("$.data.bookingStatus").value("PARTIAL_CANCELED"))
@@ -149,7 +150,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 		// 취소한 좌석만 다시 판매 가능이고, 다른 사람이 바로 예매할 수 있다
 		assertThat(seatStatus(show.seatIds().get(1))).isEqualTo("AVAILABLE");
 		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("SOLD");
-		book(signup("second").bearer(), show.scheduleId(), List.of(show.seatIds().get(1)))
+		book(signup("second").session(), show.scheduleId(), List.of(show.seatIds().get(1)))
 			.andExpect(status().isCreated());
 	}
 
@@ -160,10 +161,10 @@ class BookingCancelApiTest extends BookingTestSupport {
 		User user = signup("first");
 		Paid paid = pay(user, show, 2, "pay_key_ok");
 
-		cancel(user.bearer(), paid.bookingId(), Map.of("bookingSeatIds", List.of(paid.bookingSeatIds().get(0))))
+		cancel(user.session(), paid.bookingId(), Map.of("bookingSeatIds", List.of(paid.bookingSeatIds().get(0))))
 			.andExpect(status().isOk());
 		// 본문을 비우면 남은 좌석 전부를 취소한다. 7일 넘게 남아 수수료가 없다
-		cancel(user.bearer(), paid.bookingId(), Map.of())
+		cancel(user.session(), paid.bookingId(), Map.of())
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.bookingStatus").value("CANCELED"))
 			.andExpect(jsonPath("$.data.canceledSeatIds.length()").value(1))
@@ -179,12 +180,12 @@ class BookingCancelApiTest extends BookingTestSupport {
 		show.seatIds().forEach(seatId -> assertThat(seatStatus(seatId)).isEqualTo("AVAILABLE"));
 
 		// 상세는 돌려준 금액 합계를 보이고, 더는 취소할 수 없다
-		mockMvc.perform(get("/api/v1/bookings/" + paid.bookingId()).header("Authorization", user.bearer()))
+		mockMvc.perform(get("/api/v1/bookings/" + paid.bookingId()).cookie(user.session()))
 			.andExpect(jsonPath("$.data.refundedAmount").value(2 * (PRICE + BOOKING_FEE)))
 			.andExpect(jsonPath("$.data.cancelable").value(false))
 			.andExpect(jsonPath("$.data.currentFeeRate").doesNotExist());
 		// 전체 취소된 예매를 다시 취소하면 409
-		cancel(user.bearer(), paid.bookingId(), Map.of())
+		cancel(user.session(), paid.bookingId(), Map.of())
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("BOOKING008"));
 	}
@@ -203,7 +204,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 			VALUES (?, ?, NULL, '출연자 사정', ?, 1, ?)
 			""", show.scheduleId(), now.plusDays(10), LocalDateTime.now().plusDays(14), LocalDateTime.now().plusSeconds(1));
 
-		cancel(user.bearer(), paid.bookingId(), Map.of())
+		cancel(user.session(), paid.bookingId(), Map.of())
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.cancelFeeTotal").value(0))
 			.andExpect(jsonPath("$.data.refund.amount").value(PRICE + BOOKING_FEE));
@@ -219,7 +220,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 		Paid paid = pay(user, show, 1, "pay_key_ok");
 		moveScheduleTo(show.scheduleId(), LocalDate.now().atTime(23, 59, 59));
 
-		cancel(user.bearer(), paid.bookingId(), Map.of())
+		cancel(user.session(), paid.bookingId(), Map.of())
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("BOOKING009"));
 
@@ -236,15 +237,15 @@ class BookingCancelApiTest extends BookingTestSupport {
 		Paid paid = pay(owner, show, 1, "pay_key_ok");
 		User other = signup("other");
 
-		cancel(other.bearer(), paid.bookingId(), Map.of())
+		cancel(other.session(), paid.bookingId(), Map.of())
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("BOOKING006"));
 		assertThat(bookingStatus(paid.bookingId())).isEqualTo("PAID");
 
-		MvcResult pending = book(other.bearer(), show.scheduleId(), List.of(show.seatIds().get(1)))
+		MvcResult pending = book(other.session(), show.scheduleId(), List.of(show.seatIds().get(1)))
 			.andExpect(status().isCreated())
 			.andReturn();
-		cancel(other.bearer(), Long.parseLong(read(pending, "$.data.bookingId")), Map.of())
+		cancel(other.session(), Long.parseLong(read(pending, "$.data.bookingId")), Map.of())
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("BOOKING008"));
 		assertThat(count("refund")).isZero();
@@ -259,7 +260,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 		User user = signup("first");
 		Paid paid = pay(user, show, 1, "refund_reject_key");
 
-		cancel(user.bearer(), paid.bookingId(), Map.of())
+		cancel(user.session(), paid.bookingId(), Map.of())
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.bookingStatus").value("CANCELED"))
 			.andExpect(jsonPath("$.data.refund.status").value("FAILED"));
@@ -271,7 +272,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 		assertThat(bookingStatus(paid.bookingId())).isEqualTo("CANCELED");
 		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
 		// 돌려주지 못한 금액은 환불 금액에 들어가지 않는다
-		mockMvc.perform(get("/api/v1/bookings/" + paid.bookingId()).header("Authorization", user.bearer()))
+		mockMvc.perform(get("/api/v1/bookings/" + paid.bookingId()).cookie(user.session()))
 			.andExpect(jsonPath("$.data.refundedAmount").value(0));
 	}
 
@@ -285,7 +286,7 @@ class BookingCancelApiTest extends BookingTestSupport {
 		Paid paid = pay(user, show, 2, "pay_key_ok");
 		Map<String, Object> body = Map.of("bookingSeatIds", List.of(paid.bookingSeatIds().get(0)));
 
-		List<String> results = runConcurrently(5, i -> () -> cancelForResult(user.bearer(), paid.bookingId(), body));
+		List<String> results = runConcurrently(5, i -> () -> cancelForResult(user.session(), paid.bookingId(), body));
 
 		assertThat(countOf("OK", results)).isEqualTo(1);
 		// 나머지는 이미 취소된 좌석(BOOKING010)이거나 락을 기다리다 포기(COMMON004)한다

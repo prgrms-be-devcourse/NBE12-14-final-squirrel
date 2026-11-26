@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -21,12 +22,12 @@ class AdminSellerBusinessApproveApiTest extends IntegrationTestSupport {
 	private static final String URL = "/api/v1/admin/seller-businesses/{id}/approve";
 	private static final Long ADMIN_ID = 7L;
 
-	private String adminToken() {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
+	private Cookie adminToken() {
+		return sessionCookie(new CustomUserDetails(ADMIN_ID, AccountType.ADMIN, null, null));
 	}
 
 	private ResultActions approve(long businessId) throws Exception {
-		return mockMvc.perform(post(URL, businessId).header("Authorization", adminToken()));
+		return mockMvc.perform(post(URL, businessId).cookie(adminToken()));
 	}
 
 	private long insertBusiness(String status) {

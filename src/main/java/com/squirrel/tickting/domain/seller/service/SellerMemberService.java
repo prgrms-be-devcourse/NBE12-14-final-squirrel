@@ -101,15 +101,6 @@ public class SellerMemberService {
 		return toAccount(member);
 	}
 
-	/** 토큰 재발급용. 토큰이 아니라 DB 를 기준으로 계정과 사업체가 아직 쓸 수 있는 상태인지 확인한다. */
-	@Transactional(readOnly = true)
-	public CustomUserDetails getLoginAccount(Long memberId) {
-		SellerMember member = sellerMemberRepository.findForLoginById(memberId)
-			.orElseThrow(() -> new BusinessException(AuthExceptionCode.TOKEN_INVALID));
-		requireLoginable(member);
-		return toAccount(member);
-	}
-
 	private void requireLoginable(SellerMember member) {
 		if (member.getStatus() != SellerMemberStatus.ACTIVE) {
 			throw new BusinessException(AuthExceptionCode.ACCOUNT_DISABLED);

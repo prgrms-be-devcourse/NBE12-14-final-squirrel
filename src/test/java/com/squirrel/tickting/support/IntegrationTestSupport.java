@@ -9,14 +9,16 @@ import com.squirrel.tickting.domain.auth.service.EmailVerificationCodeService;
 import com.squirrel.tickting.domain.terms.infra.entity.Terms;
 import com.squirrel.tickting.domain.terms.infra.repository.TermsRepository;
 import com.squirrel.tickting.domain.terms.type.TermsType;
-import com.squirrel.tickting.global.jwt.JwtProperties;
-import com.squirrel.tickting.global.jwt.JwtProvider;
+import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.util.EmailUtil;
 import com.squirrel.tickting.support.EmailTestConfiguration.ControllableClock;
 import com.squirrel.tickting.support.EmailTestConfiguration.ControllableEmailSendExecutor;
 import com.squirrel.tickting.support.EmailTestConfiguration.FakeEmailSender;
+import jakarta.servlet.http.Cookie;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +28,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.IntFunction;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +35,12 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextImpl;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.session.Session;
+import org.springframework.session.SessionRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -58,10 +64,9 @@ public abstract class IntegrationTestSupport {
 
 	protected static final String PASSWORD = "password1!";
 
-	/** 서명 키는 코드에 적지 않고 실행할 때 만든다. (DB 는 Testcontainers 가 연결 정보를 덮어쓴다) */
+	/** 테스트용 설정 값. (DB 는 Testcontainers 가 연결 정보를 덮어쓴다) */
 	@DynamicPropertySource
-	static void jwtSecret(DynamicPropertyRegistry registry) {
-		registry.add("jwt.secret", TestSecrets::randomJwtSecret);
+	static void testProperties(DynamicPropertyRegistry registry) {
 		// 앱 시드(db/seed)에는 개발용 공연장이 없다. 여러 테스트가 이름으로 찾아 쓰는 가상 아레나·소극장은 테스트 전용 시드에서 넣는다.
 		// 시연 시드(db/seed-demo)는 운영에는 없지만 로컬과 같게 더한다. 좌석 점유 테스트(ScheduleSeatServiceTest)가 시연 공연의 판매 좌석·등급을 쓴다.
 		registry.add("spring.flyway.locations",
@@ -91,8 +96,6 @@ public abstract class IntegrationTestSupport {
 		registry.add("app.auth.password-reset.frontend-base-url", () -> "http://localhost:3000");
 	}
 
-	private static final Pattern REFRESH_COOKIE = Pattern.compile("refreshToken=([^;]*)");
-
 	@Autowired
 	protected MockMvc mockMvc;
 
@@ -103,10 +106,7 @@ public abstract class IntegrationTestSupport {
 	protected TermsRepository termsRepository;
 
 	@Autowired
-	protected JwtProvider jwtProvider;
-
-	@Autowired
-	protected JwtProperties jwtProperties;
+	private SessionRepository<?> sessionRepository;
 
 	@Autowired
 	protected ObjectMapper objectMapper;
@@ -249,18 +249,33 @@ public abstract class IntegrationTestSupport {
 		return String.valueOf(value);
 	}
 
-	protected static String accessToken(MvcResult result) throws Exception {
-		return read(result, "$.data.accessToken");
+	/** 가입·로그인 응답의 Set-Cookie 에서 SESSION 쿠키를 꺼낸다. 없으면 null */
+	protected static Cookie sessionCookie(MvcResult result) {
+		return result.getResponse().getHeaders("Set-Cookie").stream()
+			.filter(header -> header.startsWith("SESSION="))
+			.map(header -> header.substring("SESSION=".length(), header.indexOf(';') < 0 ? header.length() : header.indexOf(';')))
+			.filter(value -> !value.isEmpty())
+			.findFirst()
+			.map(value -> new Cookie("SESSION", value))
+			.orElse(null);
 	}
 
-	/** Set-Cookie 헤더에서 리프레시 토큰 값을 꺼낸다. 쿠키가 없으면 null */
-	protected static String refreshCookie(MvcResult result) {
-		String header = result.getResponse().getHeader("Set-Cookie");
-		if (header == null) {
-			return null;
-		}
-		Matcher matcher = REFRESH_COOKIE.matcher(header);
-		return matcher.find() ? matcher.group(1) : null;
+	/**
+	 * 로그인한 것처럼 Redis 에 세션을 직접 만들고 그 SESSION 쿠키를 돌려준다. (계정을 DB 에 만들지 않고 번호·종류·역할만 쓰는 테스트용)
+	 * 가입·로그인 API 자체는 확인하지 않으므로, 그 흐름을 보려는 테스트는 실제 로그인 API 를 부르고 sessionCookie(MvcResult)로 꺼낸다.
+	 */
+	protected Cookie sessionCookie(CustomUserDetails account) {
+		return newSessionCookie(sessionRepository, account);
+	}
+
+	private <S extends Session> Cookie newSessionCookie(SessionRepository<S> repository, CustomUserDetails account) {
+		S session = repository.createSession();
+		SecurityContext context = new SecurityContextImpl(
+			UsernamePasswordAuthenticationToken.authenticated(account, null, account.getAuthorities()));
+		session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+		repository.save(session);
+		// SESSION 쿠키 값은 세션 번호를 Base64 로 인코딩한 것이다. (Spring Session 의 기본 쿠키 형식)
+		return new Cookie("SESSION", Base64.getEncoder().encodeToString(session.getId().getBytes(StandardCharsets.UTF_8)));
 	}
 
 	protected long count(String table) {

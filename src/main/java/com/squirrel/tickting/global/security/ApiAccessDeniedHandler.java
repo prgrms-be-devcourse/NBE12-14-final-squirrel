@@ -9,11 +9,11 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /** 로그인은 했지만 권한이 부족한 경로(예: /api/v1/admin/**)를 호출했을 때 403 을 ApiResponse 형식으로 내린다. */
-public class JwtAccessDeniedHandler implements AccessDeniedHandler {
+public class ApiAccessDeniedHandler implements AccessDeniedHandler {
 
 	private final HandlerExceptionResolver exceptionResolver;
 
-	public JwtAccessDeniedHandler(HandlerExceptionResolver exceptionResolver) {
+	public ApiAccessDeniedHandler(HandlerExceptionResolver exceptionResolver) {
 		this.exceptionResolver = exceptionResolver;
 	}
 

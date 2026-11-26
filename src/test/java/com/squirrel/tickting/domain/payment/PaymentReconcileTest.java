@@ -65,7 +65,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 
 	/** 좌석을 점유하고 결제를 준비한다. 좌석은 fromIndex 번째부터 seatCount 개다. */
 	private Order prepareOrder(User user, Show show, int fromIndex, int seatCount) throws Exception {
-		MvcResult booked = book(user.bearer(), show.scheduleId(), show.seatIds().subList(fromIndex, fromIndex + seatCount))
+		MvcResult booked = book(user.session(), show.scheduleId(), show.seatIds().subList(fromIndex, fromIndex + seatCount))
 			.andExpect(status().isCreated()).andReturn();
 		Long bookingId = Long.parseLong(read(booked, "$.data.bookingId"));
 		String orderId = prepareAgain(user, bookingId);
@@ -79,7 +79,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 	/** 결제를 준비한다. 이전 결제가 승인 중이어도 새 주문 ID 가 만들어진다. */
 	private String prepareAgain(User user, Long bookingId) throws Exception {
 		MvcResult prepared = mockMvc.perform(post("/api/v1/bookings/" + bookingId + "/payments")
-				.header("Authorization", user.bearer())
+				.cookie(user.session())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(Map.of("receiveType", "ONSITE"))))
 			.andExpect(status().isOk()).andReturn();
@@ -96,7 +96,7 @@ class PaymentReconcileTest extends BookingTestSupport {
 		body.put("orderId", orderId);
 		body.put("amount", amount);
 		return mockMvc.perform(post("/api/v1/payments/confirm")
-			.header("Authorization", user.bearer())
+			.cookie(user.session())
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(objectMapper.writeValueAsString(body)));
 	}

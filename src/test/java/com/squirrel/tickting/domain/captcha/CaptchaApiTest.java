@@ -49,15 +49,15 @@ class CaptchaApiTest extends BookingTestSupport {
 		User user = signup("captcha");
 		String path = "/api/v1/schedules/" + show.scheduleId() + "/queue";
 
-		mockMvc.perform(post(path).header("Authorization", user.bearer()))
+		mockMvc.perform(post(path).cookie(user.session()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("CAPTCHA000"));
-		mockMvc.perform(post(path).header("Authorization", user.bearer()).header(TOKEN_HEADER, "fail"))
+		mockMvc.perform(post(path).cookie(user.session()).header(TOKEN_HEADER, "fail"))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("CAPTCHA000"));
 		assertThat(redis.keys("tickting:queue:*")).isEmpty();
 
-		mockMvc.perform(post(path).header("Authorization", user.bearer()).header(TOKEN_HEADER, "pass"))
+		mockMvc.perform(post(path).cookie(user.session()).header(TOKEN_HEADER, "pass"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.status").value("ADMITTED"));
 	}
@@ -69,13 +69,13 @@ class CaptchaApiTest extends BookingTestSupport {
 		User user = signup("polling");
 		String path = "/api/v1/schedules/" + show.scheduleId() + "/queue";
 
-		mockMvc.perform(post(path).header("Authorization", user.bearer()).header(TOKEN_HEADER, "pass"))
+		mockMvc.perform(post(path).cookie(user.session()).header(TOKEN_HEADER, "pass"))
 			.andExpect(status().isOk());
 
-		mockMvc.perform(get(path).header("Authorization", user.bearer()))
+		mockMvc.perform(get(path).cookie(user.session()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.status").value("ADMITTED"));
-		mockMvc.perform(delete(path).header("Authorization", user.bearer()))
+		mockMvc.perform(delete(path).cookie(user.session()))
 			.andExpect(status().isOk());
 	}
 }

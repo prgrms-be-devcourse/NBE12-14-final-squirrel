@@ -8,6 +8,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,13 +35,13 @@ class SellerGradeListApiTest extends IntegrationTestSupport {
 		jdbc.update("DELETE FROM performance WHERE business_id IN (" + MY_BUSINESS + ", " + OTHER_BUSINESS + ")");
 	}
 
-	private String token(AccountType type, String role, Long businessId) {
-		return "Bearer " + jwtProvider.createAccessToken(new CustomUserDetails(1L, type, role, businessId));
+	private Cookie token(AccountType type, String role, Long businessId) {
+		return sessionCookie(new CustomUserDetails(1L, type, role, businessId));
 	}
 
 	/** 내 사업체 대표 토큰으로 보내는 조회 요청 */
 	private MockHttpServletRequestBuilder request(Long performanceId) {
-		return get(URL, performanceId).header("Authorization", token(AccountType.SELLER, "OWNER", MY_BUSINESS));
+		return get(URL, performanceId).cookie(token(AccountType.SELLER, "OWNER", MY_BUSINESS));
 	}
 
 	private Long arenaVenueId() {

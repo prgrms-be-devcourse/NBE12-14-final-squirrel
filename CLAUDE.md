@@ -72,7 +72,7 @@ com.squirrel.tickting
 - **`.env`에 있어야 할 값(비밀번호, 키, 접속 정보)은 코드·yaml·테스트에 적지 않는다.** `${KEY:기본값}`처럼 대체값을 두지 않는다. (키가 없으면 앱이 뜨지 않는 게 맞다. 저장소에 값이 남으면 유출이다)
 - 비밀 값이 필요한 테스트는 값을 코드에 쓰지 말고 **실행할 때 무작위로 만든다.** (`TestSecrets` 참고)
 - `.env`와 `docker-compose.yml`은 git에 올리지 않는다. 필요한 키 이름은 `application-local.yaml` 주석에 적는다.
-- 로그에 개인정보·토큰·키를 남기지 않는다. 비밀번호는 BCrypt, 본인인증 CI는 해시만 저장한다. 운영의 JWT 키는 로컬과 다른 값을 쓴다.
+- 로그에 개인정보·토큰·키를 남기지 않는다. 비밀번호는 BCrypt, 본인인증 CI는 해시만 저장한다. 세션 쿠키 설정(`secure` 등)은 운영과 로컬이 다르다.
 
 ## 서버가 여러 대로 늘어난다 (로컬과 운영 모두 Nginx + 앱 여러 개)
 
@@ -116,8 +116,7 @@ com.squirrel.tickting
 
 ## 인증 방식
 
-- 로그인은 **v2 Redis 세션**(`/api/v2/auth/**`)이 기본이다. 로그인하면 `SESSION` 쿠키가 내려가고, 컨트롤러에서는 JWT 때와 같이 `@AuthenticationPrincipal CustomUserDetails`로 받는다. 업무 API는 JWT(v1)와 세션을 **모두 인정**하므로 경로를 나누지 않는다.
-- **v1 JWT는 `@Deprecated(forRemoval = true)`다.** `JwtProvider`, `JwtProperties`, `JwtAuthenticationFilter`, `TokenService`를 새 코드에서 쓰면 `compileJava`가 실패한다. (`build.gradle`의 `-Werror`) 기존 v1 코드에는 `@SuppressWarnings("removal")`로 허용한 표시가 있다. v1을 새로 확장하지 않는다. 테스트 코드는 경고만 난다.
+- 인증은 **Redis 세션**(`/api/v2/auth/**`) 하나다. 로그인하면 `SESSION` 쿠키가 내려가고, 컨트롤러에서는 `@AuthenticationPrincipal CustomUserDetails`로 받는다. (JWT는 2026-11-26에 지웠다. `Authorization` 헤더로 보내는 방식은 없다)
 - 시큐리티는 세션을 만들지 않는다. (`SessionCreationPolicy.NEVER`) 세션은 로그인 API(`SessionAuthenticator`)만 만든다.
 - `CustomUserDetails`는 직렬화되어 Redis 세션에 저장된다. 필드를 바꾸면 `serialVersionUID`를 올린다. (저장된 세션은 읽지 못해 다시 로그인한다)
 - 쿠키 인증이라 CSRF에 주의한다. 지금은 CSRF 토큰이 없고 `SameSite=Lax` 쿠키에만 의존한다. (알려진 빈틈, `doc/project-log.md` 참고)

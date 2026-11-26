@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.squirrel.tickting.global.security.AccountType;
 import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,10 +42,10 @@ class SellerCancelPolicyCreateApiTest extends IntegrationTestSupport {
 		rule.put("feeRate", 0);
 		rule.put("cancelable", true);
 		Map<String, Object> body = Map.of("name", name, "rules", List.of(rule));
-		String token = "Bearer " + jwtProvider.createAccessToken(
+		Cookie token = sessionCookie(
 			new CustomUserDetails(1L, AccountType.SELLER, "STAFF", MY_BUSINESS));
 		return mockMvc.perform(post(URL)
-				.header("Authorization", token)
+				.cookie(token)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsString(body)))
 			.andReturn();
