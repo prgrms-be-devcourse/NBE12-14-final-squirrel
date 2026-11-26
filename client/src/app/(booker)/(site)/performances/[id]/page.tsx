@@ -2,8 +2,9 @@
 
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+
 import { useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { useApi } from "@/lib/api";
 import { GENRE_LABEL, SALE_LABEL, dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { CancelRule, PerformanceDetail } from "@/lib/types";
@@ -18,7 +19,7 @@ function ruleLabel(rule: CancelRule): string {
 }
 
 export default function PerformanceDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/performances/[id]");
   const { data: p, error, loading, reload } = useApi<PerformanceDetail>(`/api/v1/performances/${id}`);
   const [chosen, setChosen] = useState<number | null>(null);
 

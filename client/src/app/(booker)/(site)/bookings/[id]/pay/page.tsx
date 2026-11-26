@@ -1,8 +1,9 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useRef, useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
 import { dateTimeText, gradeLabel, won } from "@/lib/format";
@@ -78,7 +79,7 @@ function useNow(intervalMs: number): number {
 type Step = "review" | "pay";
 
 export default function PayPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/bookings/[id]/pay");
   const router = useRouter();
 
   // 예매 정보는 예매를 만들 때 받아 둔 값을 먼저 쓴다. 없을 때(다른 탭, 새 창)만 예매 상세를 부른다.

@@ -1,7 +1,8 @@
 "use client";
 
-import { useParams } from "next/navigation";
+
 import { useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, useApi } from "@/lib/api";
 import { dateTimeText } from "@/lib/format";
 import { BUSINESS_BADGE, BUSINESS_LABEL } from "@/lib/console";
@@ -10,7 +11,7 @@ import { ConsoleTitle, Field, Modal, Panel } from "@/components/console";
 import { ErrorBox, Loading } from "@/components/ui";
 
 export default function BusinessDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/admin/businesses/[id]");
   const { data: b, error, loading, reload } = useApi<BusinessDetail>(`/api/v1/admin/seller-businesses/${id}`);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");

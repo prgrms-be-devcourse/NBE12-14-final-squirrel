@@ -2,8 +2,9 @@
 
 import { Pencil, Plus } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+
 import { useState } from "react";
+import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, useApi } from "@/lib/api";
 import { GENRE_LABEL, GRADE_CODES, dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import {
@@ -27,7 +28,7 @@ type ModalState =
   | null;
 
 export default function SellerPerformanceDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useRouteParams<{ id: string }>("/seller/performances/[id]");
   const base = `/api/v1/seller/performances/${id}`;
   const detail = useApi<SellerPerformanceDetail>(base);
   const grades = useApi<GradesResponse>(`${base}/grades`);
