@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useRef, useState } from "react";
-import { ApiError, api, useApi } from "@/lib/api";
+import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
 import { dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
@@ -237,7 +237,7 @@ export default function PayPage() {
       clearBooking(b.bookingId);
       router.push("/bookings");
     } catch (error) {
-      if (error instanceof ApiError) setMessage(error.message);
+      if (error instanceof ApiError) setMessage(errorText(error, "결제에 실패했습니다"));
       else if (isTossError(error)) {
         // 구매자가 결제창을 닫은 경우도 여기로 온다. 실패가 아니라 취소라서 안내만 한다.
         setMessage(error.code.includes("CANCEL") ? "결제를 취소했습니다" : error.message);

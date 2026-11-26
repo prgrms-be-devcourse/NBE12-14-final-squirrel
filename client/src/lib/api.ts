@@ -9,10 +9,40 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    // 서버가 준 응답 본문 전체. 화면에는 message 만 보여 주고, 원인을 찾을 때 콘솔에서 본다.
+    public payload?: unknown,
   ) {
     super(message);
   }
 }
+
+// 오류를 화면에 보여 줄 문장으로 만든다. 서버 메시지 뒤에 코드를 붙여서 같은 메시지의 다른 오류를 구분한다.
+export function errorText(error: unknown, fallback: string): string {
+  return error instanceof ApiError && error.code !== "COMMON999" ? `${error.message} (${error.code})` : fallback;
+}
+
+// 콘솔에 남길 때 가릴 값의 이름. 비밀번호·토큰·키는 요청 본문에도 응답에도 그대로 남기지 않는다.
+const SENSITIVE_KEY = /pass(word)?|token|secret|authorization|cookie|paymentKey/i;
+
+function masked(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value !== "object" || depth > 6) return value;
+  if (Array.isArray(value)) return value.map((item) => masked(item, depth + 1));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, SENSITIVE_KEY.test(key) ? "***" : masked(item, depth + 1)]),
+  );
+}
+
+// 모든 API 호출의 요청 본문과 응답을 콘솔에 남긴다. 개발자 도구의 네트워크 탭을 열지 않아도 원인을 볼 수 있게 하려는 것이다.
+function trace(method: string, path: string, status: number, request: unknown, response: unknown) {
+  const line = `[API] ${method} ${path} → ${status}`;
+  const detail = { 요청: request === undefined ? "(본문 없음)" : masked(request), 응답: masked(response) };
+  if (status >= 200 && status < 300) console.info(line, detail);
+  else console.warn(line, detail);
+}
+
+// Next 는 미리 그려 둔 껍데기에서 경로 값(useParams)을 %%drp:id:해시%% 같은 자리표시로 채운다.
+// 이 값으로 요청하면 주소가 깨져서 연결이 끊기므로(ERR_HTTP2_PROTOCOL_ERROR) 진짜 값으로 바뀔 때까지 보내지 않는다.
+const ROUTE_PLACEHOLDER = "%%drp:";
 
 type Query = Record<string, string | number | null | undefined>;
 
@@ -35,6 +65,8 @@ function toQueryString(query?: Query): string {
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
   const { method = "GET", body, query, headers } = options;
+  // 끝나지 않는 약속을 돌려준다. 호출한 쪽은 경로가 진짜 값으로 바뀌면 효과를 다시 돌리면서 이 약속을 버린다.
+  if (path.includes(ROUTE_PLACEHOLDER)) return new Promise<T>(() => {});
   const response = await fetch(`${path}${toQueryString(query)}`, {
     method,
     headers: {
@@ -52,12 +84,15 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     envelope = null;
   }
 
+  trace(method, `${path}${toQueryString(query)}`, response.status, body, envelope ?? "(JSON 이 아닌 응답)");
+
   if (!response.ok || !envelope?.success) {
     if (response.status === 401) clearAccount({ expired: true });
     throw new ApiError(
       response.status,
       envelope?.code ?? "COMMON999",
       envelope?.message || "요청을 처리하지 못했습니다.",
+      envelope,
     );
   }
   return envelope.data;
@@ -138,9 +173,10 @@ export async function uploadImage(file: File, purpose: ImagePurpose): Promise<st
   } catch {
     envelope = null;
   }
+  trace("POST", "/api/v1/images", response.status, { purpose, file: `${file.name} (${file.size}바이트, ${file.type})` }, envelope ?? "(JSON 이 아닌 응답)");
   if (!response.ok || !envelope?.success) {
     if (response.status === 401) clearAccount({ expired: true });
-    throw new ApiError(response.status, envelope?.code ?? "COMMON999", envelope?.message || "사진을 올리지 못했습니다");
+    throw new ApiError(response.status, envelope?.code ?? "COMMON999", envelope?.message || "사진을 올리지 못했습니다", envelope);
   }
   return envelope.data.imageUrl;
 }
