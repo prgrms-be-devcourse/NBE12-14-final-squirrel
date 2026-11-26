@@ -3,6 +3,11 @@ package com.squirrel.tickting.domain.payment;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.squirrel.tickting.domain.payment.facade.RefundRetryFacade;
+import com.squirrel.tickting.domain.payment.infra.entity.Payment;
+import com.squirrel.tickting.domain.payment.infra.entity.Refund;
+import com.squirrel.tickting.domain.payment.infra.repository.PaymentRepository;
+import com.squirrel.tickting.domain.payment.service.RefundService;
+import com.squirrel.tickting.domain.payment.type.RefundReasonType;
 import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway;
 import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway.CancelCall;
 import com.squirrel.tickting.support.IntegrationTestSupport;
@@ -36,6 +41,12 @@ class RefundRetryTest extends IntegrationTestSupport {
 
 	@Autowired
 	MockPaymentGateway gateway;
+
+	@Autowired
+	RefundService refundService;
+
+	@Autowired
+	PaymentRepository paymentRepository;
 
 	private final LocalDateTime now = LocalDateTime.now().withNano(0);
 	private final LocalDateTime sixMinutesAgo = now.minusMinutes(6);
@@ -160,5 +171,74 @@ class RefundRetryTest extends IntegrationTestSupport {
 		}
 		assertThat(gateway.cancelCalls()).hasSize(1);
 		assertThat(row(refundId)).containsEntry("status", "DONE").containsEntry("retry_count", 1);
+	}
+
+	// ---------------------------------------------------------------- 쌓아 둔 환불 보내기 (회차·공연 취소의 일괄 환불)
+
+	@Test
+	@DisplayName("쌓아 둔 환불(REQUESTED)은 만들 때 정한 멱등키·금액·사유로 토스에 보내고 완료로 기록하며, 첫 전송이라 재시도 횟수는 0이다")
+	void sendsRequestedRefund() {
+		Long paymentId = jdbc.queryForObject("""
+			INSERT INTO payment (booking_id, order_id, payment_key, method, amount, status, approved_at, created_at)
+			VALUES (1, 'BK-REQ-01', 'pay_requested', '카드', ?, 'CANCELED', ?, ?) RETURNING id
+			""", Long.class, AMOUNT, sixMinutesAgo, sixMinutesAgo);
+		Payment payment = paymentRepository.findById(paymentId).orElseThrow();
+		Refund requested = refundService.request(payment, 1L, AMOUNT, RefundReasonType.PERFORMANCE_CANCEL, "출연자 사정으로 회차 취소", now);
+		assertThat(row(requested.getId())).containsEntry("status", "REQUESTED");
+		assertThat(gateway.cancelCalls()).isEmpty();
+
+		int sent = refundRetryFacade.sendRequested(now);
+
+		assertThat(sent).isEqualTo(1);
+		assertThat(gateway.cancelCalls())
+			.containsExactly(new CancelCall("pay_requested", AMOUNT, requested.getIdempotencyKey()));
+		Map<String, Object> row = row(requested.getId());
+		assertThat(row.get("status")).isEqualTo("DONE");
+		assertThat(row.get("retry_count")).isEqualTo(0);
+		assertThat(row.get("completed_at")).isNotNull();
+	}
+
+	@Test
+	@DisplayName("쌓아 둔 환불을 보내다 실패하면 재시도 횟수 0인 실패로 남고, 5분 뒤 다시 보내기가 같은 멱등키로 이어서 보낸다")
+	void failedRequestedRefundIsRetried() {
+		Long refundId = refund("refund_unavailable_req", "REQUESTED", 0, now);
+
+		refundRetryFacade.sendRequested(now);
+
+		assertThat(row(refundId)).containsEntry("status", "FAILED").containsEntry("retry_count", 0);
+		assertThat(refundRetryFacade.retryDue(now.plusMinutes(6))).isEqualTo(1);
+		assertThat(gateway.cancelCalls()).extracting(CancelCall::idempotencyKey)
+			.containsExactly("key-refund_unavailable_req", "key-refund_unavailable_req");
+		assertThat(row(refundId)).containsEntry("retry_count", 1);
+	}
+
+	@Test
+	@DisplayName("보내기는 쌓아 둔 환불만, 다시 보내기는 실패·요청 중 환불만 보낸다 (서로의 대상을 건드리지 않는다)")
+	void sendAndRetryKeepTheirOwnTargets() {
+		Long requested = refund("pay_req", "REQUESTED", 0, sixMinutesAgo);
+		Long failed = refund("pay_failed", "FAILED", 0, sixMinutesAgo);
+
+		assertThat(refundRetryFacade.retryDue(now)).isEqualTo(1);
+		assertThat(row(requested)).containsEntry("status", "REQUESTED");
+
+		assertThat(refundRetryFacade.sendRequested(now)).isEqualTo(1);
+		assertThat(row(failed)).containsEntry("status", "DONE");
+		assertThat(row(requested)).containsEntry("status", "DONE");
+		assertThat(gateway.cancelCalls()).extracting(CancelCall::paymentKey).containsExactly("pay_failed", "pay_req");
+	}
+
+	@Test
+	@DisplayName("서버 여러 대가 동시에 쌓아 둔 환불을 보내도 환불마다 토스에 한 번만 보낸다")
+	void sendsRequestedOnceConcurrently() throws Exception {
+		for (int i = 0; i < 3; i++) {
+			refund("pay_bulk_" + i, "REQUESTED", 0, now);
+		}
+
+		List<Integer> results = runConcurrently(5, i -> () -> refundRetryFacade.sendRequested(now));
+
+		assertThat(results.stream().mapToInt(Integer::intValue).sum()).isEqualTo(3);
+		assertThat(gateway.cancelCalls()).extracting(CancelCall::paymentKey)
+			.containsExactlyInAnyOrder("pay_bulk_0", "pay_bulk_1", "pay_bulk_2");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM refund WHERE status = 'DONE'", Long.class)).isEqualTo(3);
 	}
 }

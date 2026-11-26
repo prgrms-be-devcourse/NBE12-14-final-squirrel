@@ -46,6 +46,44 @@ public class RefundService {
 	}
 
 	/**
+	 * 바로 보내지 않고 쌓아 둘 환불 한 건을 만든다. (REQUESTED) 회차·공연 취소처럼 한 번에 여러 건을 환불할 때 쓴다.
+	 * 요청 안에서 수백 건을 토스에 차례로 보내면 응답이 몇 분씩 걸려서, 쌓아 두면 환불 스케줄러(RefundRetryFacade.sendRequested)가
+	 * 하나씩 보낸다. 커밋된 뒤에만 보이므로 호출한 쪽의 다른 변경(예매 취소 등)과 같은 트랜잭션에서 만들면 함께 반영된다.
+	 * 멱등키는 여기서 한 번 정하고 바꾸지 않는다. (UNIQUE 인덱스 uq_refund_idempotency_key)
+	 *
+	 * @param reasonDetail 사용자에게 보일 자세한 사유. 없으면 null
+	 */
+	@Transactional
+	public Refund request(Payment payment, Long bookingId, int amount, RefundReasonType reasonType, String reasonDetail,
+		LocalDateTime now) {
+		return refundRepository.save(Refund.builder()
+			.payment(payment)
+			.bookingId(bookingId)
+			.amount(amount)
+			.reasonType(reasonType)
+			.reasonDetail(reasonDetail)
+			.idempotencyKey(UUID.randomUUID().toString())
+			.status(RefundStatus.REQUESTED)
+			.requestedAt(now)
+			.lastAttemptedAt(now)
+			.build());
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> findRequested(int limit) {
+		return refundRepository.findRequestedIds(limit);
+	}
+
+	/** 보내지 않은 환불을 요청 중으로 바꾸고 결제와 함께 가져간다. 다른 서버가 먼저 가져갔으면 비어 있다. */
+	@Transactional
+	public Optional<Refund> claimRequested(Long refundId, LocalDateTime now) {
+		if (refundRepository.claimRequested(refundId, now) == 0) {
+			return Optional.empty();
+		}
+		return refundRepository.findWithPaymentById(refundId);
+	}
+
+	/**
 	 * 관리자 환불 목록. exhaustedOnly 면 자동 재시도를 다 쓴 것만 준다. 기준 횟수는 재시도 스케줄러 설정을 그대로 읽어서,
 	 * 설정을 바꿔도 "스케줄러가 포기한 환불"과 목록이 어긋나지 않는다. 예매번호를 붙이려고 예매를 함께 읽는다.
 	 */

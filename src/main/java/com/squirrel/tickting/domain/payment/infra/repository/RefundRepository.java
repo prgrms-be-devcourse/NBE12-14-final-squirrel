@@ -14,6 +14,29 @@ import org.springframework.data.repository.query.Param;
 
 public interface RefundRepository extends JpaRepository<Refund, Long> {
 
+	/** 아직 토스에 한 번도 보내지 않은 환불(REQUESTED). 먼저 요청된 것부터. (인덱스 idx_refund_status) */
+	@Query(value = """
+		SELECT id FROM refund
+		WHERE status = 'REQUESTED'
+		ORDER BY requested_at, id
+		LIMIT :limit
+		""", nativeQuery = true)
+	List<Long> findRequestedIds(@Param("limit") int limit);
+
+	/**
+	 * 보내지 않은 환불을 요청 중으로 바꾸며 가져간다. 여러 서버가 동시에 가져가려 해도 상태 조건 때문에 한 서버만 1행을 얻는다.
+	 * 첫 전송이라 재시도 횟수는 올리지 않는다. (횟수는 실패한 뒤 자동으로 다시 보낸 횟수다)
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Refund r
+		   SET r.status = com.squirrel.tickting.domain.payment.type.RefundStatus.PROCESSING,
+		       r.lastAttemptedAt = :now
+		 WHERE r.id = :id
+		   AND r.status = com.squirrel.tickting.domain.payment.type.RefundStatus.REQUESTED
+		""")
+	int claimRequested(@Param("id") Long id, @Param("now") LocalDateTime now);
+
 	/** 다시 보낼 때가 된 환불. 오래 기다린 것부터. (부분 인덱스 idx_refund_retry) */
 	@Query(value = """
 		SELECT id FROM refund
