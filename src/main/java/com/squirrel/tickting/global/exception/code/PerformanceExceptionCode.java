@@ -17,7 +17,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	/**
 	 * 취소(CANCELED)된 공연을 고치려 함. 공연 취소는 모든 회차를 취소해 locked 가 false 가 되므로 따로 막는다.
 	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다.
-	 * 회차 추가(SLR-12)·수정(SLR-13)·취소(SLR-15)와 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다
+	 * 회차 추가(SLR-12)·수정(SLR-13)·취소(SLR-15)와 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다.
+	 * 이미 취소한 공연을 다시 취소할 때(SLR-16)는 메시지를 바꿔 쓴다
 	 */
 	PERFORMANCE_CANCELED("PERFORMANCE002", HttpStatus.CONFLICT, "취소된 공연은 수정할 수 없습니다."),
 	/**
@@ -53,7 +54,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	DRAFT_SCHEDULE_TOO_SOON("PERFORMANCE009", HttpStatus.BAD_REQUEST, "작성 중인 공연에는 지금부터 3시간 뒤의 회차부터 추가할 수 있습니다."),
 	/**
 	 * 공개된 공연의 취소되지 않은 회차가 모두 시작한 뒤 회차를 추가하려 함. 끝난 공연에 회차를 덧붙이면 1인 최대 매수와 잠긴 가격이
-	 * 그대로 이어지고 판매 기간도 늘릴 수 없어서, 새 공연을 등록하게 한다
+	 * 그대로 이어지고 판매 기간도 늘릴 수 없어서, 새 공연을 등록하게 한다.
+	 * 공연 취소(SLR-16)에서 취소할 회차 없이 모두 시작한 공연을 막을 때는 메시지를 바꿔 쓴다
 	 */
 	ALL_SCHEDULES_STARTED("PERFORMANCE010", HttpStatus.CONFLICT, "회차가 모두 시작된 공연에는 회차를 추가할 수 없습니다. 새 공연을 등록해 주세요."),
 	/**
@@ -63,6 +65,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SCHEDULE_HAS_BOOKING("PERFORMANCE011", HttpStatus.CONFLICT, "결제 대기 중이거나 결제된 적 있는(취소 포함) 예매가 있어 일시를 바꿀 수 없습니다."),
 	/** 연기(POSTPONED)된 회차의 일시를 바꾸려 함. 새 일정은 연기 이력·상태와 함께 바뀌어야 해서 연기 기능이 맡는다 */
 	SCHEDULE_POSTPONED("PERFORMANCE012", HttpStatus.CONFLICT, "연기된 회차는 일시를 바꿀 수 없습니다."),
+	/** 작성 중(DRAFT) 공연을 취소하려 함(SLR-16). 예매자에게 보인 적이 없어 취소 이력을 남기지 않고 삭제하게 한다 */
+	DRAFT_CANCEL_NOT_ALLOWED("PERFORMANCE013", HttpStatus.CONFLICT, "작성 중인 공연은 취소할 수 없습니다. 삭제해 주세요."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */

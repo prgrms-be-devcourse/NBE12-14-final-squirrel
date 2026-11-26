@@ -79,7 +79,7 @@ public class SellerScheduleController {
 	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleCanceled>> cancelSchedule(
 		@AuthenticationPrincipal CustomUserDetails account,
 		@PathVariable Long scheduleId,
-		@Valid @RequestBody SellerPerformanceRequest.ScheduleCancel request
+		@Valid @RequestBody SellerPerformanceRequest.Cancel request
 	) {
 		SellerPerformanceResponse.ScheduleCanceled response = sellerPerformanceFacade.cancelSchedule(account.getBusinessId(),
 			account.getId(), scheduleId, request);

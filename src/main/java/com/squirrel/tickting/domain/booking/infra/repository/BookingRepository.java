@@ -178,8 +178,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		""")
 	int lockPaid(@Param("id") Long id, @Param("now") LocalDateTime now);
 
-	/** 그 회차에서 주어진 상태인 예매 수. */
-	long countByScheduleIdAndStatusIn(Long scheduleId, Collection<BookingStatus> statuses);
+	/** 주어진 회차들에서 주어진 상태인 예매 수. */
+	long countByScheduleIdInAndStatusIn(Collection<Long> scheduleIds, Collection<BookingStatus> statuses);
 
 	/**
 	 * 회차 취소 환불을 만들 예매 번호. 취소 회차의 결제 완료·일부 취소 예매 중 회차 취소 환불이 아직 없는 것이다.

@@ -14,6 +14,7 @@ import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -267,10 +268,10 @@ public class BookingService {
 		return scheduleSeatIds;
 	}
 
-	/** 그 회차에서 환불 대상인 예매(결제 완료·일부 취소) 수. */
+	/** 주어진 회차들에서 환불 대상인 예매(결제 완료·일부 취소) 수. */
 	@Transactional(readOnly = true)
-	public long countRefundTargets(Long scheduleId) {
-		return bookingRepository.countByScheduleIdAndStatusIn(scheduleId, PAID_STATUSES);
+	public long countRefundTargets(Collection<Long> scheduleIds) {
+		return bookingRepository.countByScheduleIdInAndStatusIn(scheduleIds, PAID_STATUSES);
 	}
 
 	/** 회차 취소 환불을 만들 예매 번호를 afterId 뒤부터 limit 건까지. */

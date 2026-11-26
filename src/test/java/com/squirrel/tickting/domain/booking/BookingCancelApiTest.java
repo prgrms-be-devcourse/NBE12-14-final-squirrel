@@ -468,6 +468,29 @@ class BookingCancelApiTest extends BookingTestSupport {
 	}
 
 	@Test
+	@DisplayName("판매자가 공연을 취소하면 취소한 회차의 예매에 수수료 없는 환불을 만들고, 환불이 끝난 뒤 예매를 취소한다")
+	void refundsBookingsOfCanceledPerformance() throws Exception {
+		Show show = show(1);
+		Paid paid = pay(signup("first"), show, 1, "pay_key_ok");
+		mockMvc.perform(post("/api/v1/seller/performances/" + jdbc.queryForObject(
+				"SELECT performance_id FROM booking WHERE id = ?", Long.class, paid.bookingId()) + "/cancel")
+				.cookie(sessionCookie(new CustomUserDetails(1L, AccountType.SELLER, "STAFF", 1L)))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("reason", "제작사 사정"))))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.refundRequestedCount").value(1));
+
+		assertThat(bookingCancelFacade.requestScheduleRefunds(LocalDateTime.now())).isEqualTo(1);
+		refundRetryFacade.sendRequested(LocalDateTime.now());
+		assertThat(bookingCancelFacade.applyScheduleCancels(LocalDateTime.now())).isEqualTo(1);
+
+		assertThat(scheduleRefund(paid.bookingId())).containsEntry("status", "DONE")
+			.containsEntry("amount", PRICE + BOOKING_FEE).containsEntry("reason_detail", "제작사 사정");
+		assertThat(bookingStatus(paid.bookingId())).isEqualTo("CANCELED");
+		assertThat(seatStatus(show.seatIds().get(0))).isEqualTo("AVAILABLE");
+	}
+
+	@Test
 	@DisplayName("취소 뒤에 늦게 결제 완료가 된 예매도 환불을 만들고, 한 예매의 처리가 실패해도 다음 예매는 처리한다")
 	void picksUpLatePaidBookingAndSkipsBrokenOne() throws Exception {
 		Show show = show(2);

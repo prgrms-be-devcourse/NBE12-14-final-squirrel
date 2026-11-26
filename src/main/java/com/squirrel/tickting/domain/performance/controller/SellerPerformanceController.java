@@ -150,6 +150,25 @@ public class SellerPerformanceController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	/** 감사 로그와 환불 대상 건수가 다른 도메인이라 파사드를 부른다. 대표·담당자 모두 취소할 수 있다. */
+	@Operation(summary = "공연 취소",
+		description = "공개(PUBLISHED)된 공연을 취소한다. 되돌릴 수 없다. 아직 시작하지 않은 회차와 연기된 회차를 취소하고, 이미 시작한 회차와 그 예매는 그대로 둔다. "
+			+ "취소 사유(500자 이하)가 필요하다(400). 이미 취소한 공연, 작성 중 공연(삭제를 쓴다), 취소되지 않은 회차가 모두 시작한 공연은 409 다. "
+			+ "회차가 없거나 모두 따로 취소한 공연은 취소할 수 있다. "
+			+ "응답의 refundRequestedCount 는 이번에 취소한 회차의 결제 완료·일부 취소 예매 수다. 환불은 수수료 없이 이 요청 뒤에 차례로 처리하고, "
+			+ "예매는 환불에 성공한 뒤에 취소로 바뀐다. "
+			+ "다른 사업체의 공연이거나 없는 공연은 404 다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/{performanceId}/cancel")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.Canceled>> cancel(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId,
+		@Valid @RequestBody SellerPerformanceRequest.Cancel request
+	) {
+		SellerPerformanceResponse.Canceled response = sellerPerformanceFacade.cancel(account.getBusinessId(),
+			account.getId(), performanceId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 등급은 공연의 하위 자원이라 공연 컨트롤러에 둔다. 대표·담당자 모두 조회할 수 있다. */
 	@Operation(summary = "등급·구역 조회",
 		description = "공연의 등급과 구역별 상태·등급이다. locked 가 true 면 취소되지 않은 회차 중 하나라도 판매 좌석이 만들어져 "

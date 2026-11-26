@@ -29,7 +29,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 판매자의 공연 등록·수정과 회차 수정·취소. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매·감사 로그 서비스를 엮고,
+ * 판매자의 공연 등록·수정·취소와 회차 수정·취소. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매·감사 로그 서비스를 엮고,
  * 쓰기는 TransactionTemplate 으로 한 트랜잭션에 묶는다. (조회는 공연의 읽기 전용 연관으로 서비스가 직접 응답을 만든다)
  */
 @Component
@@ -131,6 +131,48 @@ public class SellerPerformanceFacade {
 	}
 
 	/**
+	 * 공개 공연을 취소한다. 감사 로그와 환불 대상 건수가 다른 도메인이라 파사드가 맡는다. 락은 공연 수정과 같은 공연 단위다.
+	 * 환불은 회차 취소와 같게 예매 도메인의 스케줄러가 취소 회차를 보고 만든다. 좌석 점유는 공연 락을 잡지 않아 취소 순간의 점유는
+	 * 막지 못하지만, 그 예매는 결제가 막혀 만료된다.
+	 * 검사 순서: 요청 형식(DB 전) → 공연 조회 404(락 밖) → 락 → 재조회 → 공연 상태 → 회차 → 조건부 UPDATE → 감사 로그 → 건수.
+	 */
+	public SellerPerformanceResponse.Canceled cancel(Long businessId, Long sellerId, Long performanceId,
+		SellerPerformanceRequest.Cancel request) {
+		// 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
+		sellerPerformanceService.getMinePerformance(businessId, performanceId);
+
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(
+				status -> cancelInTransaction(businessId, sellerId, performanceId, request.reason())));
+	}
+
+	/** 감사 로그 저장이 실패하면 취소도 함께 되돌린다. 누가 취소했는지 남지 않은 채 환불이 나가면 안 된다. */
+	private SellerPerformanceResponse.Canceled cancelInTransaction(Long businessId, Long sellerId, Long performanceId,
+		String reason) {
+		LocalDateTime now = LocalDateTime.now();
+		Performance performance = sellerPerformanceService.getMinePerformance(businessId, performanceId);
+		// 일괄 UPDATE 는 엔티티에 반영되지 않아, 이 값은 취소하기 전 상태다.
+		PerformanceStatus beforeStatus = performance.getStatus();
+		List<Long> scheduleIds = sellerPerformanceService.cancel(performance, reason, now);
+		auditLogService.saveHistory(AuditLogCommand.builder()
+			.actorType(ActorType.SELLER)
+			.actorId(sellerId)
+			.businessId(businessId)
+			.targetType("PERFORMANCE")
+			.targetId(performanceId)
+			.action("CANCEL")
+			.before(Map.of("status", beforeStatus))
+			.after(Map.of("status", PerformanceStatus.CANCELED, "reason", reason, "canceledScheduleIds", scheduleIds))
+			.build());
+		return SellerPerformanceResponse.Canceled.builder()
+			.performanceId(performanceId)
+			.status(PerformanceStatus.CANCELED)
+			.canceledScheduleCount(scheduleIds.size())
+			.refundRequestedCount(bookingService.countRefundTargets(scheduleIds))
+			.build();
+	}
+
+	/**
 	 * 회차의 공연 일시를 바꾼다. 예매 확인이 예매 도메인이라 파사드가 맡는다.
 	 * 락은 공연 단위(performance:{번호})라 같은 공연의 회차 추가·공연 수정·공개·판매 좌석 생성과 겹치지 않는다.
 	 * 좌석 점유는 이 락을 잡지 않아, 예매를 확인한 직후 저장하기 전에 들어온 점유는 막지 못한다. (알고 감수, doc/seller-progress.md TODO)
@@ -174,7 +216,7 @@ public class SellerPerformanceFacade {
 	 * 검사 순서: 요청 형식(DB 전) → 회차 조회 404(락 밖) → 락 → 재조회 → 공연·회차 상태 → 조건부 UPDATE → 감사 로그 → 건수.
 	 */
 	public SellerPerformanceResponse.ScheduleCanceled cancelSchedule(Long businessId, Long sellerId, Long scheduleId,
-		SellerPerformanceRequest.ScheduleCancel request) {
+		SellerPerformanceRequest.Cancel request) {
 		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
 		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
 
@@ -204,7 +246,7 @@ public class SellerPerformanceFacade {
 		return SellerPerformanceResponse.ScheduleCanceled.builder()
 			.scheduleId(scheduleId)
 			.status(ScheduleStatus.CANCELED)
-			.refundRequestedCount(bookingService.countRefundTargets(scheduleId))
+			.refundRequestedCount(bookingService.countRefundTargets(List.of(scheduleId)))
 			.build();
 	}
 }

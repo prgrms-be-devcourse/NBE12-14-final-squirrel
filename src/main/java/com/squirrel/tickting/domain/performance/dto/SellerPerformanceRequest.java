@@ -143,17 +143,17 @@ public class SellerPerformanceRequest {
 	) {
 	}
 
-	/** 회차 취소 본문. 사유는 예매자의 환불 내역(관리자 환불 목록)에 남는 값이라 비울 수 없다. */
-	@Schema(name = "SellerScheduleCancelRequest", description = "회차 취소 요청")
-	public record ScheduleCancel(
+	/** 회차·공연 취소 본문. 사유는 예매자의 환불 내역(관리자 환불 목록)에 남는 값이라 비울 수 없다. */
+	@Schema(name = "SellerCancelRequest", description = "회차·공연 취소 요청")
+	public record Cancel(
 
 		@NotBlank(message = "취소 사유를 입력해 주세요.")
 		@Size(max = 500, message = "취소 사유는 500자 이하로 입력해 주세요.")
-		@Schema(description = "취소 사유", example = "출연자 사정으로 회차 취소")
+		@Schema(description = "취소 사유", example = "출연자 사정으로 취소")
 		String reason
 	) {
 
-		public ScheduleCancel {
+		public Cancel {
 			reason = trim(reason);
 		}
 	}

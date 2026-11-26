@@ -97,4 +97,15 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.DRAFT
 		""")
 	int publishIfDraft(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/** 공개 중일 때만 취소로 바꾸고 바뀐 행 수를 돌려준다. 락이 듣지 않아도 두 번 취소되지 않게 하는 상태 조건부 UPDATE 다. */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE Performance p
+		SET p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.CANCELED,
+		    p.updatedAt = :now
+		WHERE p.id = :id
+		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
+		""")
+	int cancelIfPublished(@Param("id") Long id, @Param("now") LocalDateTime now);
 }

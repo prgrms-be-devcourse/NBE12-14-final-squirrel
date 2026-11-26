@@ -102,6 +102,24 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 	int cancel(@Param("scheduleId") Long scheduleId, @Param("reason") String reason, @Param("now") LocalDateTime now);
 
 	/**
+	 * 공연 취소에서 주어진 회차 중 취소되지 않았고 시작 전이거나 연기된 것만 취소하고 바뀐 행 수를 돌려준다.
+	 * 조건은 대상을 고른 서비스와 같아야 한다. 영속성 컨텍스트는 비우지 않는다.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE PerformanceSchedule s
+		   SET s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED,
+		       s.pauseReason = NULL,
+		       s.cancelReason = :reason,
+		       s.updatedAt = :now
+		 WHERE s.id IN :scheduleIds
+		   AND s.status <> com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED
+		   AND (s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.POSTPONED OR s.startAt > :now)
+		""")
+	int cancelAll(@Param("scheduleIds") Collection<Long> scheduleIds, @Param("reason") String reason,
+		@Param("now") LocalDateTime now);
+
+	/**
 	 * 이 공연의 회차 중, 주어진 공연장의 다른 회차와 시간이 겹치는 회차의 시작 일시. 빠른 순이다.
 	 * 회차가 차지하는 시간은 시작부터 러닝타임 + bufferMinutes 까지이고, 끝나는 시각과 다음 시작이 같으면 겹치지 않는다.
 	 * 이 공연의 회차는 새 러닝타임(runningTime)으로, 다른 공연의 회차는 그 공연의 러닝타임으로 계산한다.
