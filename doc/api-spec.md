@@ -116,10 +116,10 @@
 | SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
 | SLR-26 | 회차 판매 일시 중지 | POST `/api/v1/seller/performances/{performanceId}/schedules/pause` | 구현됨 |
 | SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
-| SLR-28 | 문의 유형 목록 (판매자) | GET `/api/v1/seller/inquiries/categories` | 구현됨 |
-| SLR-29 | 문의 작성 (판매자) | POST `/api/v1/seller/inquiries` | 구현됨 |
-| SLR-30 | 사업체 문의 목록 | GET `/api/v1/seller/inquiries` | 구현됨 |
-| SLR-31 | 사업체 문의 상세 | GET `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
+| SLR-34 | 문의 유형 목록 (판매자) | GET `/api/v1/seller/inquiries/categories` | 구현됨 |
+| SLR-35 | 문의 작성 (판매자) | POST `/api/v1/seller/inquiries` | 구현됨 |
+| SLR-36 | 사업체 문의 목록 | GET `/api/v1/seller/inquiries` | 구현됨 |
+| SLR-37 | 사업체 문의 상세 | GET `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -3202,7 +3202,7 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 
 ## 7. 문의 (`/api/v1/inquiries/**`, 예매자)
 
-설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-14~16), 판매자 문의는 7-1장(SLR-28~31)입니다.
+설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-14~16), 판매자 문의는 7-1장(SLR-34~37)입니다.
 
 ### INQ-01 문의 유형 목록 — `GET /api/v1/inquiries/categories` (예매자, 구현됨)
 
@@ -3370,7 +3370,7 @@ Query: `page`, `size` (기본·최대 20). 최신 작성순 고정이고 삭제�
 
 판매자(대표·담당자)만 쓸 수 있습니다. (예매자·관리자 토큰은 403 `AUTH100`) 사업체 번호와 작성자는 세션에서 꺼내고 요청으로 받지 않습니다. **같은 사업체의 문의는 대표·담당자 누가 썼든 함께 봅니다.** 다른 사업체의 문의는 없는 문의와 같은 404입니다. 수정·삭제(작성자 본인만)는 다음 PR입니다.
 
-### SLR-28 문의 유형 목록 — `GET /api/v1/seller/inquiries/categories` (판매자, 구현됨)
+### SLR-34 문의 유형 목록 — `GET /api/v1/seller/inquiries/categories` (판매자, 구현됨)
 
 판매자가 고를 수 있는 유형만 줍니다. 응답 모양은 INQ-01과 같습니다. **값은 임시**입니다.
 
@@ -3383,7 +3383,7 @@ Query: `page`, `size` (기본·최대 20). 최신 작성순 고정이고 삭제�
 ]
 ```
 
-### SLR-29 문의 작성 — `POST /api/v1/seller/inquiries` (판매자, 구현됨)
+### SLR-35 문의 작성 — `POST /api/v1/seller/inquiries` (판매자, 구현됨)
 
 **요청**
 
@@ -3400,7 +3400,7 @@ Query: `page`, `size` (기본·최대 20). 최신 작성순 고정이고 삭제�
 
 | 필드 | 규칙 |
 | --- | --- |
-| `category` | 필수. SLR-28의 값만 (예매자 유형이면 400 `INQUIRY000`) |
+| `category` | 필수. SLR-34의 값만 (예매자 유형이면 400 `INQUIRY000`) |
 | `title` | 필수, 100자 이하, 앞뒤 공백 제거 (임시) |
 | `content` | 필수, 2,000자 이하, 앞뒤 공백 제거 (임시) |
 | `images` | 선택, 최대 3장(임시). `url`은 이미지 업로드(IMG-01, `purpose=SELLER_INQUIRY`)의 `imageUrl` 값만 (우리 저장소 주소가 아니면 400 `COMMON000`). 보낸 순서대로 저장 |
@@ -3412,7 +3412,7 @@ Query: `page`, `size` (기본·최대 20). 최신 작성순 고정이고 삭제�
 
 **에러**: 400 `COMMON000` 형식 오류 · 400 `INQUIRY000` 고를 수 없는 유형 · 401 `AUTH200` · 403 `AUTH100` 판매자가 아님 · 404 `SELLER009` 삭제된 계정
 
-### SLR-30 사업체 문의 목록 — `GET /api/v1/seller/inquiries` (판매자, 구현됨)
+### SLR-36 사업체 문의 목록 — `GET /api/v1/seller/inquiries` (판매자, 구현됨)
 
 Query: `page`, `size` (기본·최대 20). 우리 사업체의 문의를 최신 작성순으로 줍니다. 삭제한 문의는 나오지 않습니다.
 
@@ -3433,7 +3433,7 @@ Query: `page`, `size` (기본·최대 20). 우리 사업체의 문의를 최신 
 
 - `authorName`은 작성 때 복사한 이름입니다. 항목은 문의 행의 값만 써서 목록·개수 쿼리 두 번으로 끝납니다.
 
-### SLR-31 사업체 문의 상세 — `GET /api/v1/seller/inquiries/{inquiryId}` (판매자, 구현됨)
+### SLR-37 사업체 문의 상세 — `GET /api/v1/seller/inquiries/{inquiryId}` (판매자, 구현됨)
 
 ```json
 "data": {
