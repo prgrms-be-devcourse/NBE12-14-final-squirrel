@@ -1341,6 +1341,10 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
 
 ## 4. 판매자 (`/api/v1/seller/**`, 자기 사업체 리소스만 — 남의 것은 404)
 
+### 판매자 감사 로그 (공통)
+
+SLR-03·04·09·10·11·12·13은 변경할 때 `audit_log`에 한 줄을 남깁니다. 행위자는 `SELLER`, `actor_id`는 계정 번호, `business_id`는 사업체 번호입니다. 변경과 **한 트랜잭션**이라 로그를 남기지 못하면 변경도 취소됩니다(500). 거절된 요청과 **값이 그대로인 요청은 남기지 않습니다.** 대상·행동·전후 값은 각 API에 적습니다.
+
 ### SLR-01 공연장 목록 — `GET /api/v1/seller/venues` (구현됨)
 
 Query: `keyword`, `region`, `page`, `size`
@@ -1511,6 +1515,8 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 
 `updatedAt`은 공연 행이 바뀐 시각입니다. 값이 그대로여서 저장하지 않았으면 이전 값입니다.
 
+**감사 로그**: `PERFORMANCE` / `UPDATE`. 전후 값에는 바뀐 항목만 요청 필드 이름으로 담습니다(이미지는 `images`). 작성 중 공연의 공연장을 바꾸면 구역 설정과 판매 좌석이 지워지므로 `zonesAndSeatsReset`(전 `false`, 후 `true`)을 더합니다.
+
 **에러**
 
 | 상태 | 코드 | 경우 |
@@ -1574,6 +1580,8 @@ Body 없음. `DRAFT` → `PUBLISHED`. 판매자(대표·담당자) 토큰만 쓸
   }
 }
 ```
+
+**감사 로그**: `PERFORMANCE` / `PUBLISH`. 변경 전 `{"status":"DRAFT"}`, 변경 후 `{"status":"PUBLISHED"}`입니다.
 
 **에러**
 
@@ -1782,6 +1790,8 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 }
 ```
 
+**감사 로그**: `SEAT_GRADE` / `CREATE`, `target_id`는 등급 번호. 변경 전 값은 없고 변경 후 `performanceId`·`name`·`price`입니다.
+
 **에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 같은 등급이 이미 있음 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가
 
 ### SLR-10 등급 수정 — `PUT /api/v1/seller/performances/{performanceId}/grades/{gradeId}` (구현됨)
@@ -1810,6 +1820,8 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
   }
 }
 ```
+
+**감사 로그**: `SEAT_GRADE` / `UPDATE`, `target_id`는 등급 번호. 전후 모두 `performanceId`·`name`·`price`입니다.
 
 **에러**: 400 `COMMON000` 입력 형식 오류 · 404 `PERFORMANCE000` 없는 공연·다른 사업체의 공연 · 404 `PERFORMANCE300` 없는 등급·이 공연의 등급이 아님 · 409 `PERFORMANCE002` 취소된 공연 · 409 `PERFORMANCE302` 같은 등급이 이미 있음 · 409 `PERFORMANCE303` 전석과 다른 등급이 함께 지정됨 · 409 `PERFORMANCE301` 좌석 생성 후라 수정 불가 · 409 `COMMON004` 락 대기 초과
 
@@ -1879,6 +1891,8 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 - 공연이 `PUBLISHED`여도 판매 좌석 생성 전이면 설정할 수 있습니다. 대표·담당자 모두 가능합니다.
 - 판매 좌석 생성과 겹치면 잠시 기다리고, 1초 안에 끝나지 않으면 409 `COMMON004`(잠시 후 다시 시도)입니다.
 - 검사 순서: 요청 형식 400 → 상태·`gradeId` 조합 400 → 공연 404 → 취소된 공연 409 → 공연장에 없는 구역 400 → 공연에 없는 등급 400 → 전석 섞임 409 → 좌석 생성 후 409. 좌석이 생성된 공연에 없는 구역을 보내면 400이 먼저입니다.
+
+**감사 로그**: `PERFORMANCE` / `ZONE_ASSIGN`. 요청 한 번에 한 줄이고, 전후 `zones`에 바뀐 구역만 `zoneId`·`zoneName`·`assignmentStatus`·`gradeName`으로 담습니다.
 
 **에러**
 
@@ -1960,7 +1974,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 | 13 | (즉시 생성) 복사할 공연장 좌석이 없음(깨진 데이터) | 409 `PERFORMANCE503` |
 
 - 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 회차 수정(SLR-13)·공개(SLR-04)·공연 수정(SLR-03)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과 겹치면 하나씩 처리됩니다.
-- 감사 로그는 아직 남기지 않습니다. 판매자 API의 감사 로그는 기능 구현 뒤에 한 번에 넣습니다.
+- 감사 로그: `SCHEDULE` / `CREATE`, `target_id`는 회차 번호. 변경 전 값은 없고 변경 후 `performanceId`·`startAt`·`seatsGenerated`(판매 좌석을 바로 만들었는지)입니다.
 
 ### SLR-13 회차 수정 — `PUT /api/v1/seller/schedules/{scheduleId}` (구현됨)
 
@@ -2015,7 +2029,9 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **같은 공연장의 시간 겹침**: 회차 추가(SLR-12)와 같은 기준·메시지이고, 바꾸는 회차 자신은 빼고 봅니다.
 
-**바뀌지 않는 것**: 회차 상태, 판매 좌석과 `seatsGeneratedAt`, 등급·가격·구역 잠금. 좌석을 새로 만들지 않습니다. 연기 이력과 감사 로그를 남기지 않아 **바꾸기 전 일시는 남지 않습니다.**
+**바뀌지 않는 것**: 회차 상태, 판매 좌석과 `seatsGeneratedAt`, 등급·가격·구역 잠금. 좌석을 새로 만들지 않습니다. 연기 이력은 남기지 않습니다.
+
+**감사 로그**: `SCHEDULE` / `UPDATE`, `target_id`는 회차 번호. 전후 모두 `performanceId`·`startAt`이라 바꾸기 전 일시가 남습니다.
 
 에러는 한 번에 하나씩, 아래 순서로 먼저 걸린 것이 나옵니다. 예매가 있는 회차에 판매 오픈보다 이른 일시를 보내면 `PERFORMANCE407`이 먼저입니다. (DB 조회가 필요 없는 검사를 앞에 둠)
 

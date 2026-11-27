@@ -16,15 +16,14 @@ import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.CommonExceptionCode;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
-import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -35,9 +34,6 @@ public class GradeService {
 	private final ZoneGradeRepository zoneGradeRepository;
 	private final PerformanceRepository performanceRepository;
 	private final PerformanceScheduleRepository performanceScheduleRepository;
-	private final DistributedLockExecutor lockExecutor;
-	private final TransactionTemplate transactionTemplate;
-	private final PerformanceProperties properties;
 
 	/**
 	 * 내 공연의 등급과 구역 설정.
@@ -56,8 +52,6 @@ public class GradeService {
 
 	/**
 	 * 내 공연에 등급을 추가한다. 남의 공연인지 먼저 보고 404 로 끝내서 남의 공연 상태(취소·locked)를 드러내지 않는다.
-	 * 락은 쓰지 않는다. 새 등급은 아직 어느 구역에도 지정되지 않아 판매 좌석 생성이 그 가격을 복사할 일이 없고,
-	 * 같은 등급의 동시 추가는 나중에 만들 UNIQUE (performance_id, name) 가 마지막 방어선이다. (취소 규정 이름과 같은 방식)
 	 * 전석도 다른 등급과 함께 만들 수 있다. 구역에 지정되기 전에는 예매자 화면에 보이지 않기 때문이다.
 	 */
 	@Transactional
@@ -81,21 +75,18 @@ public class GradeService {
 		return SellerGradeResponse.Grade.from(grade);
 	}
 
-	/**
-	 * 내 공연의 등급을 전체 교체로 고친다. 다른 도메인을 엮지 않아 파사드 없이 이 서비스가 락과 트랜잭션을 직접 연다.
-	 * 락은 판매 좌석 생성이 고치기 전 가격을 복사하는 것을 막으려는 것이다. 좌석 생성도 같은 이름의 락을 잡아야 효과가 있다.
-	 * 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
-	 * 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태(취소·locked)를 드러내지 않는다.
-	 */
-	public SellerGradeResponse.Grade update(Long businessId, Long performanceId, Long gradeId,
-		SellerGradeRequest.Save request) {
-		getMine(businessId, performanceId);
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
-			() -> transactionTemplate.execute(status -> updateInTransaction(businessId, performanceId, gradeId, request)));
+	/** 이 공연의 등급 한 건. 감사 로그에 고치기 전 값을 남길 때 쓴다. 내 공연인지는 호출한 쪽이 먼저 확인한다. */
+	@Transactional(readOnly = true)
+	public Optional<SellerGradeResponse.Grade> findGrade(Long performanceId, Long gradeId) {
+		return seatGradeRepository.findByIdAndPerformanceId(gradeId, performanceId).map(SellerGradeResponse.Grade::from);
 	}
 
-	/** 락을 기다리는 사이에 공연이 취소되거나 좌석이 만들어졌을 수 있어서 락 밖의 판단은 믿지 않고 다시 읽는다. */
-	private SellerGradeResponse.Grade updateInTransaction(Long businessId, Long performanceId, Long gradeId,
+	/**
+	 * 내 공연의 등급을 전체 교체로 고친다. 호출한 쪽(파사드)이 공연 락을 잡고 트랜잭션을 연 상태에서 부른다.
+	 * 락을 기다리는 사이에 공연이 취소되거나 좌석이 만들어졌을 수 있어서 락 밖의 판단은 믿지 않고 다시 읽는다.
+	 */
+	@Transactional
+	public SellerGradeResponse.Grade update(Long businessId, Long performanceId, Long gradeId,
 		SellerGradeRequest.Save request) {
 		Performance performance = getMine(businessId, performanceId);
 		if (performance.getStatus() == PerformanceStatus.CANCELED) {
@@ -118,25 +109,10 @@ public class GradeService {
 	}
 
 	/**
-	 * 내 공연의 구역 상태와 등급을 요청에 있는 구역만 바꾼다. 하나라도 틀리면 아무것도 바꾸지 않는다(전체 적용 또는 전체 거절).
-	 * 일부만 적용되면 판매자가 어느 구역이 바뀌었는지 알기 어렵기 때문이다.
-	 * 락은 판매 좌석 생성이 고치기 전 구역 지정(그리고 가격)을 복사하는 것을 막으려는 것이다. 판매자의 수정이 반드시 반영되게 하는 것이 아니라
-	 * 어긋남을 막는 것이어서, 좌석 생성이 먼저 끝나면 수정은 locked 409 로 거절되어 판매자가 사실대로 안다.
-	 * 좌석 생성도 같은 이름의 락을 잡아야 효과가 있다. 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
-	 * 요청만 보고 판단하는 검사(같은 구역 중복, 상태·등급 조합)는 DB 조회 전에 하고, 남의 공연은 락을 잡기 전에 404 로 끝낸다.
-	 */
-	public SellerGradeResponse.Overview updateZoneGrades(Long businessId, Long performanceId, SellerGradeRequest.ZoneAssign request) {
-		validateAssignments(request.assignments());
-		getMine(businessId, performanceId);
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
-			() -> transactionTemplate.execute(status -> updateZonesInTransaction(businessId, performanceId, request)));
-	}
-
-	/**
 	 * 같은 구역이 두 번 오면 어느 값이 맞는지 서버가 추측하지 않고 400 으로 돌려보낸다. (프론트 버그를 드러낸다)
 	 * 요청 안에서만 판단해서 남의 공연에 보내도 남의 공연 정보가 드러나지 않는다.
 	 */
-	private void validateAssignments(List<SellerGradeRequest.Item> assignments) {
+	public void validateAssignments(List<SellerGradeRequest.Item> assignments) {
 		Set<Long> zoneIds = new HashSet<>();
 		for (SellerGradeRequest.Item item : assignments) {
 			if (!zoneIds.add(item.zoneId())) {
@@ -151,8 +127,14 @@ public class GradeService {
 		}
 	}
 
-	/** 락을 기다리는 사이에 공연이 취소되거나 좌석이 만들어졌을 수 있어서 락 밖의 판단은 믿지 않고 다시 읽는다. */
-	private SellerGradeResponse.Overview updateZonesInTransaction(Long businessId, Long performanceId,
+	/**
+	 * 내 공연의 구역 상태와 등급을 요청에 있는 구역만 바꾼다. 하나라도 틀리면 아무것도 바꾸지 않는다(전체 적용 또는 전체 거절).
+	 * 일부만 적용되면 판매자가 어느 구역이 바뀌었는지 알기 어렵기 때문이다.
+	 * 호출한 쪽(파사드)이 요청 검사(validateAssignments)를 먼저 하고, 공연 락을 잡고 트랜잭션을 연 상태에서 부른다.
+	 * 좌석 생성이 먼저 끝나면 수정은 locked 409 로 거절되어 판매자가 사실대로 안다.
+	 */
+	@Transactional
+	public SellerGradeResponse.Overview updateZoneGrades(Long businessId, Long performanceId,
 		SellerGradeRequest.ZoneAssign request) {
 		Performance performance = getMine(businessId, performanceId);
 		if (performance.getStatus() == PerformanceStatus.CANCELED) {

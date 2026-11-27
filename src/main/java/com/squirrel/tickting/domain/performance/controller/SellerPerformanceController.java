@@ -127,11 +127,11 @@ public class SellerPerformanceController {
 		@Valid @RequestBody SellerPerformanceRequest.Save request
 	) {
 		SellerPerformanceResponse.Updated response = sellerPerformanceFacade.update(account.getBusinessId(),
-			performanceId, request);
+			account.getId(), performanceId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
-	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 공개할 수 있다. */
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 공개할 수 있다. */
 	@Operation(summary = "공연 공개",
 		description = "작성 중(DRAFT) 공연을 공개(PUBLISHED)한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없다. "
 			+ "판매 오픈·종료·1인 최대 매수·수령 방법·예매 수수료가 모두 설정되어 있고, 판매 종료가 지나지 않았고, "
@@ -145,8 +145,8 @@ public class SellerPerformanceController {
 		@AuthenticationPrincipal CustomUserDetails account,
 		@PathVariable Long performanceId
 	) {
-		SellerPerformanceResponse.Published response = sellerPerformanceService.publish(account.getBusinessId(),
-			performanceId);
+		SellerPerformanceResponse.Published response = sellerPerformanceFacade.publish(account.getBusinessId(),
+			account.getId(), performanceId);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
@@ -165,7 +165,7 @@ public class SellerPerformanceController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
-	/** 등급만 다루고 다른 도메인을 엮지 않아 파사드 없이 등급 서비스를 바로 부른다. 대표·담당자 모두 추가할 수 있다. */
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 추가할 수 있다. */
 	@Operation(summary = "등급 추가",
 		description = "공연에 좌석 등급을 추가한다. 등급은 정해진 코드(VIP, R, S ...) 중 하나이고 가격은 0원 이상 10,000,000원 이하다. "
 			+ "같은 공연에 같은 등급이 있거나, 판매 좌석이 생성되었거나(locked), 취소된 공연이면 409 다. "
@@ -176,11 +176,12 @@ public class SellerPerformanceController {
 		@PathVariable Long performanceId,
 		@Valid @RequestBody SellerGradeRequest.Save request
 	) {
-		SellerGradeResponse.Grade response = gradeService.add(account.getBusinessId(), performanceId, request);
+		SellerGradeResponse.Grade response = sellerPerformanceFacade.addGrade(account.getBusinessId(),
+			account.getId(), performanceId, request);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 
-	/** 등급만 다루고 다른 도메인을 엮지 않아 파사드 없이 등급 서비스를 바로 부른다. 대표·담당자 모두 수정할 수 있다. */
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 수정할 수 있다. */
 	@Operation(summary = "등급 수정",
 		description = "등급과 가격을 전체 교체한다. 입력 규칙은 등급 추가와 같고 자기 등급은 그대로 써도 된다. "
 			+ "이 공연의 등급이 아니면 404, 취소된 공연이거나 같은 등급이 이미 있거나 전석과 다른 등급이 함께 구역에 지정되거나 "
@@ -193,12 +194,12 @@ public class SellerPerformanceController {
 		@PathVariable Long gradeId,
 		@Valid @RequestBody SellerGradeRequest.Save request
 	) {
-		SellerGradeResponse.Grade response = gradeService.update(account.getBusinessId(), performanceId, gradeId,
-			request);
+		SellerGradeResponse.Grade response = sellerPerformanceFacade.updateGrade(account.getBusinessId(),
+			account.getId(), performanceId, gradeId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
-	/** 구역 이름은 공연의 읽기 전용 연관(공연장 구역)에서 꺼내 서비스가 응답을 만든다. 대표·담당자 모두 설정할 수 있다. */
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 설정할 수 있다. */
 	@Operation(summary = "구역 상태·등급 설정",
 		description = "요청에 포함된 구역의 상태와 등급만 바꾸고 빠진 구역은 그대로 둔다. 하나라도 틀리면 아무것도 바꾸지 않는다. "
 			+ "ASSIGNED 는 gradeId 가 필요하고 UNSET·INTENTIONALLY_UNSOLD 는 gradeId 를 null 로 보낸다. "
@@ -212,8 +213,8 @@ public class SellerPerformanceController {
 		@PathVariable Long performanceId,
 		@Valid @RequestBody SellerGradeRequest.ZoneAssign request
 	) {
-		SellerGradeResponse.Overview response = gradeService.updateZoneGrades(account.getBusinessId(),
-			performanceId, request);
+		SellerGradeResponse.Overview response = sellerPerformanceFacade.updateZoneGrades(account.getBusinessId(),
+			account.getId(), performanceId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

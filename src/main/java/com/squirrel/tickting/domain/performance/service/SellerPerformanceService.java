@@ -28,7 +28,6 @@ import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
@@ -109,6 +108,14 @@ public class SellerPerformanceService {
 		return performanceRepository.search(businessId, statuses, pageable).map(SellerPerformanceResponse.Summary::from);
 	}
 
+	/** 공연의 상세 이미지(순서대로). 감사 로그에 바뀌기 전후 값을 남길 때 쓴다. */
+	@Transactional(readOnly = true)
+	public List<SellerPerformanceRequest.Image> getImages(Long performanceId) {
+		return performanceImageRepository.findByPerformanceIdOrderBySortOrder(performanceId).stream()
+			.map(image -> new SellerPerformanceRequest.Image(image.getUrl(), image.getSortOrder()))
+			.toList();
+	}
+
 	/** 내 사업체의 공연 상세. 남의 공연은 없는 공연과 같은 404로 답한다. */
 	@Transactional(readOnly = true)
 	public SellerPerformanceResponse.Detail getMine(Long businessId, Long performanceId) {
@@ -141,32 +148,23 @@ public class SellerPerformanceService {
 	}
 
 	/**
-	 * 작성 중인 내 공연을 공개(PUBLISHED)한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없어서 조건을 모두 만족해야 한다.
-	 * 락은 공개 직후 구역·등급(SLR-10·11)이나 취소 규정(SLR-22)이 바뀌어 공개 조건이 깨지는 것을 막으려는 것이다.
-	 * 공연 락과, 기본 규정이 아니면 그 공연의 규정 락을 함께 잡고(실행기가 이름순으로 잡아 데드락이 없다)
-	 * 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
+	 * 공개할 때 함께 잡을 취소 규정 번호. 서비스 기본 규정이면 null 이다.
 	 * 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
 	 */
-	public SellerPerformanceResponse.Published publish(Long businessId, Long performanceId) {
+	public Long getPublishLockPolicyId(Long businessId, Long performanceId) {
 		getMineEntity(businessId, performanceId);
-		// 규정 번호는 락 이름에 필요해서 락 밖에서 읽는다. 락을 기다리는 사이 바뀌면 안에서 알아챈다.
-		Long cancelPolicyId = performanceRepository.findLockableCancelPolicyId(performanceId).orElse(null);
-
-		List<String> lockNames = new ArrayList<>();
-		lockNames.add(PerformanceLockNames.performance(performanceId));
-		if (cancelPolicyId != null) {
-			lockNames.add(PerformanceLockNames.cancelPolicy(cancelPolicyId));
-		}
-		return lockExecutor.execute(lockNames, properties.lockWait(),
-			() -> transactionTemplate.execute(status -> publishInTransaction(businessId, performanceId, cancelPolicyId)));
+		return performanceRepository.findLockableCancelPolicyId(performanceId).orElse(null);
 	}
 
 	/**
+	 * 작성 중인 내 공연을 공개(PUBLISHED)한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없어서 조건을 모두 만족해야 한다.
+	 * 호출한 쪽(파사드)이 공연 락과 규정 락을 잡고 트랜잭션을 연 상태에서 부른다.
 	 * 락을 기다리는 사이 상태가 바뀌었을 수 있어 락 밖의 판단은 믿지 않고 다시 읽는다.
 	 * 검사 순서: 공연 한 행 → 회차 → 구역 설정. 앞에서 막히면 뒤의 쿼리는 나가지 않는다.
 	 * 회차를 구역보다 먼저 두는 것은 읽을 행 수가 적을 것이라는 추정이고 측정하지는 않았다.
 	 */
-	private SellerPerformanceResponse.Published publishInTransaction(Long businessId, Long performanceId,
+	@Transactional
+	public SellerPerformanceResponse.Published publish(Long businessId, Long performanceId,
 		Long lockedCancelPolicyId) {
 		// 현재 시각은 한 번만 읽어 모든 비교에 같은 값을 쓴다.
 		LocalDateTime now = LocalDateTime.now();
@@ -207,24 +205,13 @@ public class SellerPerformanceService {
 	/**
 	 * 내 공연에 회차를 하나 추가한다. 공개 공연이고 판매 오픈이 가까우면 같은 트랜잭션에서 판매 좌석까지 만들고,
 	 * 좌석을 만들 수 없으면 회차도 남기지 않는다. (회차만 남으면 판매자는 성공으로 알고 예매자에게는 매진으로 보인다)
-	 * 공연 락은 공개·공연 수정·등급과 구역 수정·좌석 생성과 같은 이름이라, 확인한 공연 값이 저장 전에 바뀌지 않는다.
-	 * 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡는 것은 공연 락으로 막지 못한다. (드물다고 보고 감수, DB 제약은 TODO)
-	 * 남의 공연은 락을 잡기 전에 404 로 끝내고, 락은 커밋 뒤에 풀려야 해서 이 메서드에는 @Transactional 을 붙이지 않는다.
-	 */
-	public SellerPerformanceResponse.ScheduleCreated addSchedule(Long businessId, Long performanceId,
-		SellerPerformanceRequest.ScheduleSave request) {
-		getMineEntity(businessId, performanceId);
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
-			() -> transactionTemplate.execute(
-				status -> addScheduleInTransaction(businessId, performanceId, request.startAt())));
-	}
-
-	/**
+	 * 호출한 쪽(파사드)이 공연 락을 잡고 트랜잭션을 연 상태에서 부른다.
 	 * 검사 순서: 공연 한 행(취소) → 공연장 → 새 회차의 시각 → (공개) 기존 회차 → 판매 종료 → (즉시 생성) 구역 설정 → 같은 공연장 겹침.
 	 * 앞에서 막히면 뒤의 쿼리는 나가지 않는다. 처리량은 추정이고 측정하지 않았다.
 	 * 지난 시각은 요청 DTO 가 막으므로 여기서 다시 보지 않는다.
 	 */
-	private SellerPerformanceResponse.ScheduleCreated addScheduleInTransaction(Long businessId, Long performanceId,
+	@Transactional
+	public SellerPerformanceResponse.ScheduleCreated addSchedule(Long businessId, Long performanceId,
 		LocalDateTime startAt) {
 		// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
 		LocalDateTime now = LocalDateTime.now();
