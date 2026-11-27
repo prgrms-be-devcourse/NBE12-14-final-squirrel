@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -156,6 +157,68 @@ public class SellerScheduleController {
 	) {
 		SellerPerformanceResponse.SeatsGenerated response = sellerPerformanceService.generateSeats(account.getBusinessId(),
 			scheduleId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 공연 도메인 안의 조회라 서비스를 바로 부른다. 대표·담당자 모두 볼 수 있다. */
+	@Operation(summary = "회차의 구역별 보류석 현황",
+		description = "도면 이름표와 구역마다의 판매 가능·보류 좌석 수를 준다. 작성 중·취소된 공연과 회차도 보인다. "
+			+ "판매 좌석을 만들지 않은 회차는 seatsGenerated 가 false 이고 좌석 수가 null 이다. 다른 사업체의 회차이거나 없는 회차는 404 다.")
+	@GetMapping("/schedules/{scheduleId}/zones")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleZones>> getScheduleZones(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId
+	) {
+		SellerPerformanceResponse.ScheduleZones response = sellerPerformanceService.getScheduleZones(account.getBusinessId(),
+			scheduleId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "회차의 구역 좌석",
+		description = "한 구역의 판매 좌석과 상태를 구역 안의 표시 순서대로 준다. 작성 중·취소된 공연과 회차도 보인다. "
+			+ "판매 좌석을 만들지 않은 회차는 409 PERFORMANCE600, 그 회차 공연장의 구역이 아니면 404 PERFORMANCE201, "
+			+ "다른 사업체의 회차이거나 없는 회차는 404 PERFORMANCE008 이다.")
+	@GetMapping("/schedules/{scheduleId}/zones/{zoneId}/seats")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ZoneSeats>> getZoneSeats(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@PathVariable Long zoneId
+	) {
+		SellerPerformanceResponse.ZoneSeats response = sellerPerformanceService.getZoneSeats(account.getBusinessId(),
+			scheduleId, zoneId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 지정할 수 있다. */
+	@Operation(summary = "보류석 지정",
+		description = "판매 가능(AVAILABLE) 좌석을 판매자 보류(RESERVED)로 바꾼다. seatIds(최대 500)와 zoneIds 중 하나만 보낸다. "
+			+ "판매 오픈 전까지만 지정할 수 있다(지났으면 409 PERFORMANCE604). 바꿀 수 없는 좌석은 건너뛰고, 하나도 바뀌지 않으면 409 PERFORMANCE602 다. "
+			+ "취소된 공연·회차는 409, 시작한 회차는 400, 좌석 미생성은 409 PERFORMANCE600, 이 회차의 좌석·구역이 아닌 번호가 섞이면 404 이고 "
+			+ "아무것도 바꾸지 않는다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/schedules/{scheduleId}/seats/reserve")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ReservationChanged>> reserveSeats(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SeatSelection request
+	) {
+		SellerPerformanceResponse.ReservationChanged response = sellerPerformanceFacade.reserveSeats(account.getBusinessId(),
+			account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 해제할 수 있다. */
+	@Operation(summary = "보류석 해제",
+		description = "보류석(RESERVED)을 판매 가능(AVAILABLE)으로 되돌린다. 판매 중이면 바로 예매할 수 있게 된다. 대상은 지정과 같이 보낸다. "
+			+ "회차 시작 전까지 언제든 가능하고, 일정 미정으로 연기한 회차도 가능하다. 하나도 바뀌지 않으면 409 PERFORMANCE603 이고 "
+			+ "나머지 거절 조건은 지정과 같다.")
+	@PostMapping("/schedules/{scheduleId}/seats/release")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ReservationChanged>> releaseSeats(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SeatSelection request
+	) {
+		SellerPerformanceResponse.ReservationChanged response = sellerPerformanceFacade.releaseSeats(account.getBusinessId(),
+			account.getId(), scheduleId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

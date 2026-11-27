@@ -17,7 +17,7 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	/**
 	 * 취소(CANCELED)된 공연을 고치려 함. 공연 취소는 모든 회차를 취소해 locked 가 false 가 되므로 따로 막는다.
 	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다.
-	 * 회차 추가(SLR-12)·수정(SLR-13), 판매 좌석 생성(SLR-14), 판매 일시 중지·재개(SLR-26·27), 연기·확정(SLR-28·29)도 취소된 공연을 막을 때 쓴다
+	 * 회차 추가(SLR-12)·수정(SLR-13), 판매 좌석 생성(SLR-14), 판매 일시 중지·재개(SLR-26·27), 연기·확정(SLR-28·29), 보류석 지정·해제(SLR-32·33)도 취소된 공연을 막을 때 쓴다
 	 */
 	PERFORMANCE_CANCELED("PERFORMANCE002", HttpStatus.CONFLICT, "취소된 공연은 수정할 수 없습니다."),
 	/**
@@ -109,7 +109,7 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 판매자 쪽 회차 기능과 헷갈리지 않게 역할 이름(User)을 붙인다
 	 */
 	USER_SCHEDULE_NOT_FOUND("PERFORMANCE200", HttpStatus.NOT_FOUND, "존재하지 않는 회차입니다."),
-	/** 예매자가 고른 구역이 그 회차의 공연장 구역이 아님(없는 구역 포함). 다른 공연장의 구역 번호를 넣어 좌석을 보는 것을 막는다 */
+	/** 예매자가 고른 구역이 그 회차의 공연장 구역이 아님(없는 구역 포함). 다른 공연장의 구역 번호를 넣어 좌석을 보는 것을 막는다. 판매자의 구역 좌석 조회·구역 통째 보류(SLR-31~33)도 같은 코드를 쓴다 */
 	USER_ZONE_NOT_FOUND("PERFORMANCE201", HttpStatus.NOT_FOUND, "존재하지 않는 구역입니다."),
 	/**
 	 * 판매 좌석을 아직 만들지 않은 회차(판매 오픈 24시간 전보다 이전)의 좌석을 보려 함. 고를 수 있는 좌석이 없어서 404로 답한다.
@@ -197,7 +197,20 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	 * 복사할 공연장 좌석이 하나도 없어 좌석이 0행으로 만들어짐. 판매 구역이 있는데 그 구역에 공연장 좌석이 없는 깨진 데이터라
 	 * 지금은 일어나지 않는다. 그대로 두면 빈 회차가 만들어진 것으로 기록되어 등급·가격·구역이 잠기므로 롤백하고 거절한다
 	 */
-	NO_VENUE_SEATS_TO_COPY("PERFORMANCE503", HttpStatus.CONFLICT, "복사할 공연장 좌석이 없어 판매 좌석을 만들 수 없습니다. 공연장 정보를 확인해 주세요.");
+	NO_VENUE_SEATS_TO_COPY("PERFORMANCE503", HttpStatus.CONFLICT, "복사할 공연장 좌석이 없어 판매 좌석을 만들 수 없습니다. 공연장 정보를 확인해 주세요."),
+
+	// 판매자 보류석(SLR-30~33)은 600번대를 쓴다.
+	/** 판매 좌석을 만들지 않은 회차의 보류석을 지정·해제하거나 구역 좌석을 보려 함. "이 회차 좌석이 아님"으로 답하면 이유를 알 수 없어 따로 둔다 */
+	SEATS_NOT_GENERATED_FOR_RESERVATION("PERFORMANCE600", HttpStatus.CONFLICT, "판매 좌석을 먼저 생성해 주세요."),
+	/** 보류·해제 요청에 이 회차의 판매 좌석이 아닌 번호가 섞임. 아무것도 바꾸지 않는다 */
+	SELLER_SEAT_NOT_FOUND("PERFORMANCE601", HttpStatus.NOT_FOUND, "이 회차의 좌석이 아닌 번호가 있습니다."),
+	/** 고른 좌석·구역에 보류할 수 있는(AVAILABLE) 좌석이 하나도 없음 */
+	NO_SEAT_TO_RESERVE("PERFORMANCE602", HttpStatus.CONFLICT, "보류할 수 있는 좌석이 없습니다."),
+	/** 고른 좌석·구역에 해제할 보류석(RESERVED)이 하나도 없음 */
+	NO_SEAT_TO_RELEASE("PERFORMANCE603", HttpStatus.CONFLICT, "해제할 수 있는 보류석이 없습니다."),
+	/** 판매 오픈이 지난 회차에서 보류석을 지정하려 함. 예매자가 고르던 좌석이 갑자기 사라지지 않게 지정은 오픈 전까지만 받는다. 해제는 막지 않는다 */
+	SEAT_RESERVE_AFTER_SALE_OPEN("PERFORMANCE604", HttpStatus.CONFLICT,
+		"판매가 시작된 회차는 보류석을 지정할 수 없습니다. 판매를 일시 중지해도 지정할 수 없습니다.");
 
 	private final String code;
 	private final HttpStatus status;

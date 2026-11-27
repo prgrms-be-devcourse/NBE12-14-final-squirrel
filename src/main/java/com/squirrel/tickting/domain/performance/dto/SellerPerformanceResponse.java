@@ -1,15 +1,23 @@
 package com.squirrel.tickting.domain.performance.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.infra.entity.SchedulePostponement;
+import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
+import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
+import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
+import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
+import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -405,5 +413,136 @@ public class SellerPerformanceResponse {
 			return counts.stream().filter(c -> c.getStatus() == status)
 				.mapToLong(ScheduleSeatRepository.SeatStatusCount::getCount).sum();
 		}
+	}
+
+	/** 판매자의 회차 구역 요약. (SLR-30) 구역은 공연장의 화면 순서대로다. */
+	@Schema(name = "SellerScheduleZones", description = "회차의 구역별 판매 가능·보류 좌석 수")
+	public record ScheduleZones(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "프론트가 그릴 도면 이름표. 비어 있으면 기본 격자 도면", example = "sample-arena", nullable = true)
+		String layoutKey,
+		@Schema(description = "판매 좌석을 만들었는지. 만들지 않았으면 구역의 좌석 수 두 개는 null")
+		boolean seatsGenerated,
+		@Schema(description = "구역")
+		List<ScheduleZone> zones
+	) {
+
+		/** 구역을 지연 로딩하므로 트랜잭션 안에서 부른다. */
+		public static ScheduleZones of(PerformanceSchedule schedule, List<ZoneGrade> zoneGrades,
+			List<ScheduleSeatRepository.ZoneStatusCount> counts) {
+			var venue = schedule.getPerformance().getVenue();
+			boolean generated = schedule.getSeatsGeneratedAt() != null;
+			return new ScheduleZones(schedule.getId(), venue.getLayoutKey(), generated, venue.getZones().stream()
+				.map(zone -> ScheduleZone.of(zone, zoneGrades, counts, generated))
+				.toList());
+		}
+	}
+
+	@Schema(name = "SellerScheduleZone", description = "구역 하나")
+	public record ScheduleZone(
+		@Schema(description = "구역 번호")
+		Long zoneId,
+		@Schema(description = "구역 이름", example = "F2구역")
+		String name,
+		@Schema(description = "층", example = "1층", nullable = true)
+		String floor,
+		@Schema(description = "등급 코드. 판매하지 않는 구역은 null", example = "R", nullable = true)
+		SeatGradeName grade,
+		@Schema(description = "가격 (원). 판매하지 않는 구역은 null", example = "154000", nullable = true)
+		Integer price,
+		@Schema(description = "구역의 전체 좌석 수", example = "220")
+		Integer total,
+		@Schema(description = "판매 가능(AVAILABLE) 좌석 수", example = "180", nullable = true)
+		Long availableSeats,
+		@Schema(description = "판매자 보류(RESERVED) 좌석 수", example = "8", nullable = true)
+		Long reservedSeats
+	) {
+
+		private static ScheduleZone of(VenueZone zone, List<ZoneGrade> zoneGrades,
+			List<ScheduleSeatRepository.ZoneStatusCount> counts, boolean generated) {
+			SeatGrade grade = zoneGrades.stream()
+				.filter(zoneGrade -> zoneGrade.getZoneId().equals(zone.getId())
+					&& zoneGrade.getAssignmentStatus() == ZoneAssignmentStatus.ASSIGNED)
+				.map(ZoneGrade::getGrade)
+				.findFirst().orElse(null);
+			return new ScheduleZone(zone.getId(), zone.getName(), zone.getFloor(),
+				grade == null ? null : grade.getName(), grade == null ? null : grade.getPrice(),
+				Math.toIntExact(zone.getSeatCount()),
+				generated ? count(counts, zone.getId(), SeatStatus.AVAILABLE) : null,
+				generated ? count(counts, zone.getId(), SeatStatus.RESERVED) : null);
+		}
+
+		private static long count(List<ScheduleSeatRepository.ZoneStatusCount> counts, Long zoneId, SeatStatus status) {
+			return counts.stream()
+				.filter(c -> c.getZoneId().equals(zoneId) && c.getStatus() == status)
+				.mapToLong(ScheduleSeatRepository.ZoneStatusCount::getCount).sum();
+		}
+	}
+
+	/** 판매자의 구역 좌석. (SLR-31) 예매자 응답(PFM-04)과 같은 모양이고 점유자·예매 정보는 넣지 않는다. */
+	@Schema(name = "SellerScheduleZoneSeats", description = "회차의 한 구역 좌석")
+	public record ZoneSeats(
+		@Schema(description = "구역 번호")
+		Long zoneId,
+		@Schema(description = "구역 이름", example = "F2구역")
+		String name,
+		@Schema(description = "좌석. 구역 안의 표시 순서대로")
+		List<Seat> seats
+	) {
+
+		public static ZoneSeats of(UserPerformanceRepository.ZoneName zone,
+			List<UserPerformanceRepository.ZoneSeat> seats) {
+			return new ZoneSeats(zone.getId(), zone.getName(), seats.stream()
+				.map(seat -> new Seat(seat.seatId(), seat.rowLabel(), seat.seatNumber(), seat.sortOrder(), seat.status()))
+				.toList());
+		}
+	}
+
+	@Schema(name = "SellerScheduleSeat", description = "좌석 하나")
+	public record Seat(
+		@Schema(description = "판매 좌석 번호. 보류 지정·해제에 보내는 번호", example = "9301")
+		Long seatId,
+		@Schema(description = "열", example = "9열")
+		String row,
+		@Schema(description = "좌석 번호", example = "6")
+		String number,
+		@Schema(description = "구역 안의 표시 순서", example = "186")
+		Integer sortOrder,
+		@Schema(description = "상태", example = "RESERVED")
+		SeatStatus status
+	) {
+	}
+
+	/** 보류석 지정·해제 결과. 좌석으로 보내면 changedSeatIds·skipped 를, 구역으로 보내면 zones 를 담고 나머지는 응답에서 뺀다. */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(name = "SellerSeatReservationChanged", description = "보류석 지정·해제 결과")
+	public record ReservationChanged(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "바뀐 좌석 번호. 번호순", nullable = true)
+		List<Long> changedSeatIds,
+		@Schema(description = "바꾸지 않은 좌석과 지금 상태. 번호순", nullable = true)
+		List<SkippedSeat> skipped,
+		@Schema(description = "구역별 바뀐 좌석 수. 공연장의 화면 순서", nullable = true)
+		List<ZoneChanged> zones
+	) {
+
+		public static ReservationChanged ofSeats(Long scheduleId, List<ScheduleSeat> changed, List<ScheduleSeat> skipped) {
+			return new ReservationChanged(scheduleId, changed.stream().map(ScheduleSeat::getId).toList(),
+				skipped.stream().map(seat -> new SkippedSeat(seat.getId(), seat.getStatus())).toList(), null);
+		}
+
+		public static ReservationChanged ofZones(Long scheduleId, List<ZoneChanged> zones) {
+			return new ReservationChanged(scheduleId, null, null, zones);
+		}
+	}
+
+	@Schema(name = "SellerSkippedSeat", description = "바꾸지 않은 좌석")
+	public record SkippedSeat(Long seatId, SeatStatus status) {
+	}
+
+	@Schema(name = "SellerZoneReservationChanged", description = "구역의 바뀐 좌석 수")
+	public record ZoneChanged(Long zoneId, int changedSeats) {
 	}
 }
