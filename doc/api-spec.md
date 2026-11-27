@@ -125,9 +125,6 @@
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | ADM-08 | 전체 예매 목록 | GET `/api/v1/admin/bookings` | 구현됨 |
 | ADM-09 | 예매 상세 | GET `/api/v1/admin/bookings/{bookingId}` | 구현됨 |
-| ADM-14 | 문의 목록 | GET `/api/v1/admin/inquiries` | 구현됨 |
-| ADM-15 | 문의 상세 | GET `/api/v1/admin/inquiries/{inquiryId}` | 구현됨 |
-| ADM-16 | 문의 답변 | POST `/api/v1/admin/inquiries/{inquiryId}/answer` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
@@ -135,6 +132,9 @@
 | INQ-04 | 내 문의 상세 (예매자) | GET `/api/v1/inquiries/{inquiryId}` | 구현됨 |
 | INQ-05 | 문의 수정 (예매자) | PUT `/api/v1/inquiries/{inquiryId}` | 구현됨 |
 | INQ-06 | 문의 삭제 (예매자) | DELETE `/api/v1/inquiries/{inquiryId}` | 구현됨 |
+| ADM-14 | 문의 목록 | GET `/api/v1/admin/inquiries` | 구현됨 |
+| ADM-15 | 문의 상세 | GET `/api/v1/admin/inquiries/{inquiryId}` | 구현됨 |
+| ADM-16 | 문의 답변 | POST `/api/v1/admin/inquiries/{inquiryId}/answer` | 구현됨 |
 
 ---
 
