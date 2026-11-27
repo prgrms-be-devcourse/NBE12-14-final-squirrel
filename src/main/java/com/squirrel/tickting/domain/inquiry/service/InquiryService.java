@@ -124,33 +124,33 @@ public class InquiryService {
 	 */
 	@Transactional
 	public UserInquiryResponse.Detail updateForUser(Long userId, Long inquiryId, UserInquiryRequest.Update request) {
-		ensureCategoryAllowed(AccountType.USER, request.category());
-		ensureWaiting(findMine(AccountType.USER, userId, inquiryId));
-
-		int updated = inquiryRepository.updateIfWaiting(inquiryId, request.category(), request.bookingId(),
-			request.title().strip(), request.content().strip(), toImageUrls(request.images()), LocalDateTime.now());
-		if (updated == 0) {
-			// 확인한 뒤 바꾸기 전에 답변(또는 삭제)이 먼저 끝났다
-			throw new BusinessException(InquiryExceptionCode.INQUIRY_ALREADY_ANSWERED);
-		}
-
-		// 조건부 UPDATE 가 영속성 컨텍스트를 비워서 바뀐 값을 다시 읽는다
-		Inquiry changed = findMine(AccountType.USER, userId, inquiryId);
-		recordHistory(changed, AccountType.USER, userId, InquiryAction.UPDATED);
+		Inquiry changed = update(AccountType.USER, userId, inquiryId, request.category(), request.bookingId(),
+			request.title(), request.content(), request.images());
 		return UserInquiryResponse.Detail.from(changed);
 	}
 
 	/** 내 문의를 삭제(소프트 삭제)한다. 답변 대기일 때만 되고, 지우기 직전 내용을 삭제 이력(DELETED)으로 남긴다. */
 	@Transactional
 	public void deleteForUser(Long userId, Long inquiryId) {
-		Inquiry inquiry = findMine(AccountType.USER, userId, inquiryId);
-		ensureWaiting(inquiry);
+		delete(AccountType.USER, userId, inquiryId);
+	}
 
-		if (inquiryRepository.deleteIfWaiting(inquiryId, LocalDateTime.now()) == 0) {
-			// 동시에 지운 요청이나 답변이 먼저 끝났다
-			throw new BusinessException(InquiryExceptionCode.INQUIRY_ALREADY_ANSWERED);
-		}
-		recordHistory(inquiry, AccountType.USER, userId, InquiryAction.DELETED);
+	/**
+	 * 판매자가 자기가 쓴 문의를 수정한다. 같은 사업체라도 다른 계정이 쓴 문의는 404 다. (보기는 사업체 단위, 고치기는 작성자 본인)
+	 * 판매자 문의는 예매를 연결하지 않는다.
+	 */
+	@Transactional
+	public SellerInquiryResponse.Detail updateForSeller(Long memberId, Long inquiryId,
+		SellerInquiryRequest.Update request) {
+		Inquiry changed = update(AccountType.SELLER, memberId, inquiryId, request.category(), null, request.title(),
+			request.content(), request.images());
+		return SellerInquiryResponse.Detail.from(changed);
+	}
+
+	/** 판매자가 자기가 쓴 문의를 삭제(소프트 삭제)한다. 같은 사업체라도 다른 계정이 쓴 문의는 404 다. */
+	@Transactional
+	public void deleteForSeller(Long memberId, Long inquiryId) {
+		delete(AccountType.SELLER, memberId, inquiryId);
 	}
 
 	/**
@@ -214,6 +214,39 @@ public class InquiryService {
 		inquiryRepository.save(inquiry);
 		recordHistory(inquiry, inquiry.getAuthorType(), inquiry.getAuthorId(), InquiryAction.CREATED);
 		return inquiry;
+	}
+
+	/**
+	 * 예매자·판매자 문의 수정의 공통 부분. 내가 쓴 답변 대기 문의만 내용을 통째로 바꾸고 수정 이력(UPDATED)을 남긴다.
+	 * 상태를 먼저 확인한 뒤 같은 조건의 UPDATE 로 한 번 더 막는다. 그 사이 답변(또는 삭제)이 먼저 끝나면 바뀐 행이 0이라 409 다.
+	 */
+	private Inquiry update(AccountType authorType, Long authorId, Long inquiryId, InquiryCategory category,
+		Long bookingId, String title, String content, List<UserInquiryRequest.Image> images) {
+		ensureCategoryAllowed(authorType, category);
+		ensureWaiting(findMine(authorType, authorId, inquiryId));
+
+		int updated = inquiryRepository.updateIfWaiting(inquiryId, category, bookingId, title.strip(), content.strip(),
+			toImageUrls(images), LocalDateTime.now());
+		if (updated == 0) {
+			throw new BusinessException(InquiryExceptionCode.INQUIRY_ALREADY_ANSWERED);
+		}
+
+		// 조건부 UPDATE 가 영속성 컨텍스트를 비워서 바뀐 값을 다시 읽는다
+		Inquiry changed = findMine(authorType, authorId, inquiryId);
+		recordHistory(changed, authorType, authorId, InquiryAction.UPDATED);
+		return changed;
+	}
+
+	/** 예매자·판매자 문의 삭제의 공통 부분. 내가 쓴 답변 대기 문의만 지우고, 지우기 직전 내용을 삭제 이력(DELETED)으로 남긴다. */
+	private void delete(AccountType authorType, Long authorId, Long inquiryId) {
+		Inquiry inquiry = findMine(authorType, authorId, inquiryId);
+		ensureWaiting(inquiry);
+
+		if (inquiryRepository.deleteIfWaiting(inquiryId, LocalDateTime.now()) == 0) {
+			// 동시에 지운 요청이나 답변이 먼저 끝났다
+			throw new BusinessException(InquiryExceptionCode.INQUIRY_ALREADY_ANSWERED);
+		}
+		recordHistory(inquiry, authorType, authorId, InquiryAction.DELETED);
 	}
 
 	/** 화면만 막으면 API 를 직접 부르는 요청이 다른 계정의 유형(예: 예매자가 정산)으로 쓸 수 있어서 서버에서도 막는다. */
