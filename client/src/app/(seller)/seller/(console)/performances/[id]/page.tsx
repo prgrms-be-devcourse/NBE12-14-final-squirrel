@@ -19,13 +19,11 @@ import {
 import type {
   Grade,
   GradesResponse,
-  Page,
   SalesSchedule,
   ScheduleSaleChanged,
   ScheduleSkipReason,
   SellerPerformanceDetail,
   SellerSchedule,
-  VenueItem,
 } from "@/lib/types";
 import { ConsoleTitle, Field, Modal, Panel } from "@/components/console";
 import { ZoneGradeMap } from "@/components/zone-grade-map";
@@ -62,8 +60,6 @@ export default function SellerPerformanceDetailPage() {
   const detail = useApi<SellerPerformanceDetail>(base);
   const grades = useApi<GradesResponse>(`${base}/grades`);
   const sales = useApi<{ schedules: SalesSchedule[] }>(`${base}/sales`);
-  // 공연 상세(SLR-06)는 공연장의 도면 이름표(layoutKey)를 주지 않아서 공연장 목록(SLR-01)에서 같은 공연장을 찾는다.
-  const venues = useApi<Page<VenueItem>>("/api/v1/seller/venues", { size: 20 });
 
   const [modal, setModal] = useState<ModalState>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -127,7 +123,9 @@ export default function SellerPerformanceDetailPage() {
   const canceled = p.status === "CANCELED";
   const locked = grades.data?.locked ?? false;
   const zoneChanged = Object.keys(zoneEdits).length > 0;
-  const layout = getVenueLayout(venues.data?.content.find((v) => v.venueId === p.venue.venueId)?.layoutKey);
+  const layout = getVenueLayout(p.venue.layoutKey);
+  // 사용 중지된 공연장에서는 새 판매(공개·회차 추가)를 열 수 없다. 막는 것은 서버다.
+  const venueInactive = p.venue.status === "INACTIVE";
   const published = p.status === "PUBLISHED";
   const switchable = published ? p.schedules.filter((s) => isSwitchable(s, openedAt)) : [];
 
@@ -176,7 +174,7 @@ export default function SellerPerformanceDetailPage() {
     <>
       <ConsoleTitle
         title={p.title}
-        sub={`${GENRE_LABEL[p.genre]} · ${p.venue.name}`}
+        sub={`${GENRE_LABEL[p.genre]} · ${p.venue.name}${venueInactive ? " (사용 중지된 공연장)" : ""}`}
         back={{ href: "/seller/performances", label: "공연 목록" }}
         actions={
           <>
@@ -196,7 +194,8 @@ export default function SellerPerformanceDetailPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={busy}
+                disabled={busy || venueInactive}
+                title={venueInactive ? "사용 중지된 공연장입니다. 수정에서 공연장을 바꿔 주세요" : undefined}
                 onClick={() => run(() => api(`${base}/publish`, { method: "POST" }), "공연을 공개했습니다")}
               >
                 공개하기
@@ -267,9 +266,13 @@ export default function SellerPerformanceDetailPage() {
         className="mt-6"
         title="회차"
         sub={
-          allPaused
-            ? "모든 회차가 판매 중지 상태라 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요"
-            : "판매 좌석을 만들어야 예매가 시작됩니다"
+          venueInactive
+            ? draft
+              ? "사용 중지된 공연장이라 회차를 추가하거나 공개할 수 없습니다. 수정에서 공연장을 바꿔 주세요"
+              : "사용 중지된 공연장이라 회차를 추가할 수 없습니다"
+            : allPaused
+              ? "모든 회차가 판매 중지 상태라 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요"
+              : "판매 좌석을 만들어야 예매가 시작됩니다"
         }
         actions={
           !canceled && (
@@ -302,7 +305,7 @@ export default function SellerPerformanceDetailPage() {
                   })}
                 </>
               )}
-              <button type="button" className="btn" disabled={allPaused} onClick={() => setModal({ kind: "schedule" })}>
+              <button type="button" className="btn" disabled={allPaused || venueInactive} onClick={() => setModal({ kind: "schedule" })}>
                 <Plus size={16} strokeWidth={1.5} />
                 회차 추가
               </button>

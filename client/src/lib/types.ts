@@ -308,6 +308,39 @@ export type BusinessSummary = {
 
 // ---------- 판매자 ----------
 
+export type VenueStatus = "ACTIVE" | "INACTIVE";
+
+export type VenueDeactivationMode = "BLOCK_NEW" | "CANCEL_ALL";
+
+export type AdminVenue = VenueItem & { status: VenueStatus; updatedAt: string };
+
+export type VenueImpact = {
+  venueId: number;
+  name: string;
+  status: VenueStatus;
+  upcomingScheduleCount: number;
+  refundTargetBookingCount: number;
+  pendingBookingCount: number;
+  draftPerformanceCount: number;
+  performances: {
+    performanceId: number;
+    title: string;
+    status: PerformanceStatus;
+    businessId: number;
+    businessName: string;
+    upcomingScheduleCount: number;
+    refundTargetBookingCount: number;
+  }[];
+};
+
+export type VenueDeactivated = {
+  canceledScheduleCount: number;
+  canceledPerformanceCount: number;
+  refundRequestedCount: number;
+  mode: VenueDeactivationMode;
+  name: string;
+};
+
 export type VenueItem = {
   venueId: number;
   name: string;
@@ -343,7 +376,7 @@ export type ScheduleSkipReason = "CANCELED" | "POSTPONED" | "STARTED" | "ALREADY
 export type SellerPerformanceDetail = {
   performanceId: number;
   status: PerformanceStatus;
-  venue: { venueId: number; name: string };
+  venue: { venueId: number; name: string; layoutKey: string | null; status: VenueStatus };
   title: string;
   genre: Genre;
   ageLimit: number;
