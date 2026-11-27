@@ -13,9 +13,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -31,6 +36,8 @@ import org.springframework.test.web.servlet.ResultActions;
 class SellerInvitationApiTest extends IntegrationTestSupport {
 
 	private static final String INVITE_URL = "/api/v1/seller/invitations";
+	private static final String VALIDATE_URL = "/api/v1/auth/sellers/invitations/validate";
+	private static final String ACCEPT_URL = "/api/v1/auth/sellers/invitations/accept";
 	private static final String COMPANY = "(주)초대테스트";
 	private static final String STAFF_EMAIL = "staff-invite@example.com";
 	private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 27, 10, 0);
@@ -157,5 +164,120 @@ class SellerInvitationApiTest extends IntegrationTestSupport {
 		List<Map<String, Object>> rows = invitations(STAFF_EMAIL);
 		assertThat(rows).hasSize(1);
 		assertThat(rows.getFirst()).containsEntry("expires_at", Timestamp.valueOf(NOW));
+	}
+
+	private ResultActions validate(String token) throws Exception {
+		return mockMvc.perform(post(VALIDATE_URL)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"token\": \"" + token + "\"}"));
+	}
+
+	private ResultActions accept(String token) throws Exception {
+		return mockMvc.perform(post(ACCEPT_URL)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{"token": "%s", "password": "%s", "passwordConfirm": "%s", "name": " 이담당 ", "phone": "01055556666"}
+				""".formatted(token, PASSWORD, PASSWORD)));
+	}
+
+	/** 대표로 초대하고 메일로 간 토큰을 돌려준다. */
+	private String invitedToken() throws Exception {
+		invite(ownerSession(), STAFF_EMAIL).andExpect(status().isOk());
+		return fakeEmailSender.lastInvitationToken(STAFF_EMAIL);
+	}
+
+	private Integer staffCount() {
+		return jdbc.queryForObject("SELECT COUNT(*) FROM seller_member WHERE email = ? AND deleted_at IS NULL",
+			Integer.class, STAFF_EMAIL);
+	}
+
+	@Test
+	@DisplayName("링크 확인은 이메일·회사 이름을 주고 토큰을 소모하지 않으며, 가입하면 이 회사의 담당자로 바로 로그인된다")
+	void staffAcceptsAndLogsIn() throws Exception {
+		String token = invitedToken();
+		validate(token).andExpect(jsonPath("$.data.valid").value(true))
+			.andExpect(jsonPath("$.data.email").value(STAFF_EMAIL))
+			.andExpect(jsonPath("$.data.companyName").value(COMPANY));
+		validate(token).andExpect(jsonPath("$.data.valid").value(true));
+
+		accept(token)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.email").value(STAFF_EMAIL))
+			.andExpect(jsonPath("$.data.companyName").value(COMPANY));
+
+		Map<String, Object> member = jdbc.queryForMap(
+			"SELECT business_id, name, role, status FROM seller_member WHERE email = ?", STAFF_EMAIL);
+		assertThat(member).containsEntry("business_id", businessId).containsEntry("name", "이담당")
+			.containsEntry("role", "STAFF").containsEntry("status", "ACTIVE");
+		assertThat(invitations(STAFF_EMAIL).getFirst()).containsEntry("used_at", Timestamp.valueOf(NOW));
+		mockMvc.perform(post("/api/v2/auth/sellers/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"email\": \"" + STAFF_EMAIL + "\", \"password\": \"" + PASSWORD + "\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.role").value("STAFF"));
+	}
+
+	@Test
+	@DisplayName("쓴 링크, 72시간이 지난 링크, 다시 초대해서 무효가 된 링크는 확인이 false 이고 가입은 400 SELLER008 이다")
+	void unusableLinksAreRejected() throws Exception {
+		String replaced = invitedToken();
+		String used = invitedToken();
+		accept(used).andExpect(status().isOk());
+
+		for (String token : List.of(replaced, used)) {
+			validate(token).andExpect(jsonPath("$.data.valid").value(false))
+				.andExpect(jsonPath("$.data.email").doesNotExist());
+			accept(token).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("SELLER008"));
+		}
+
+		jdbc.update("DELETE FROM seller_member WHERE email = ?", STAFF_EMAIL);
+		String expired = invitedToken();
+		emailClock.setNow(NOW.plusHours(72));
+		validate(expired).andExpect(jsonPath("$.data.valid").value(false));
+		accept(expired).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("SELLER008"));
+		assertThat(staffCount()).isZero();
+	}
+
+	@Test
+	@DisplayName("같은 링크로 동시에 5번 가입해도 하나만 성공하고, 나머지는 이메일 중복이 아니라 링크 사용됨(400 SELLER008)으로 막힌다")
+	void acceptsOnceConcurrently() throws Exception {
+		String token = invitedToken();
+		int threads = 5;
+		ExecutorService executor = Executors.newFixedThreadPool(threads);
+		CountDownLatch start = new CountDownLatch(1);
+		List<Future<Integer>> results = new ArrayList<>();
+		try {
+			for (int i = 0; i < threads; i++) {
+				results.add(executor.submit(() -> {
+					start.await();
+					return accept(token).andReturn().getResponse().getStatus();
+				}));
+			}
+			start.countDown();
+			List<Integer> statuses = new ArrayList<>();
+			for (Future<Integer> result : results) {
+				statuses.add(result.get());
+			}
+
+			// 링크 사용 기록의 조건부 UPDATE 가 막으면 400 이다. 그 조건이 빠지면 이메일 UNIQUE 가 대신 막아 409 가 된다
+			assertThat(statuses).containsOnlyOnce(200).containsOnly(200, 400);
+		} finally {
+			executor.shutdownNow();
+		}
+		assertThat(staffCount()).isOne();
+	}
+
+	@Test
+	@DisplayName("초대 뒤 그 이메일의 판매자 계정이 먼저 생기면 가입은 409 SELLER000 이고 링크는 소모되지 않는다")
+	void emailTakenMeanwhileKeepsLink() throws Exception {
+		String token = invitedToken();
+		insertMember(STAFF_EMAIL, "STAFF", "ACTIVE");
+
+		accept(token)
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("SELLER000"));
+
+		assertThat(invitations(STAFF_EMAIL).getFirst()).containsEntry("used_at", null);
+		assertThat(staffCount()).isOne();
 	}
 }
