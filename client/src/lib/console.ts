@@ -21,6 +21,13 @@ export const SCHEDULE_LABEL: Record<ScheduleStatus, string> = {
   CANCELED: "취소",
 };
 
+export const SCHEDULE_BADGE: Record<ScheduleStatus, string> = {
+  ON_SALE: "badge badge-ok",
+  PAUSED: "badge badge-warn",
+  POSTPONED: "badge badge-warn",
+  CANCELED: "badge",
+};
+
 export const BUSINESS_LABEL: Record<BusinessStatus | "ALL", string> = {
   PENDING: "승인 대기",
   APPROVED: "승인",

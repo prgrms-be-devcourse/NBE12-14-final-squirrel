@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useRef, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
-import { ApiError, api, errorText, useApi } from "@/lib/api";
+import { ApiError, api, errorText, useApi, usePolledApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
 import { dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
@@ -22,6 +22,7 @@ type PayView = {
   bookingNo: string;
   status: BookingStatus;
   performanceId: number;
+  scheduleId: number;
   title: string;
   startAt: string;
   seats: { id: number; zoneName: string; rowLabel: string; seatNumber: string; gradeName: string; price: number }[];
@@ -37,6 +38,7 @@ function fromDetail(b: BookingDetail): PayView {
     bookingNo: b.bookingNo,
     status: b.status,
     performanceId: b.performance.performanceId,
+    scheduleId: b.schedule.scheduleId,
     title: b.performance.title,
     startAt: b.schedule.startAt,
     seats: b.seats.map((s) => ({
@@ -91,6 +93,7 @@ export default function PayPage() {
         bookingNo: cache.booking.bookingNo,
         status: cache.booking.status,
         performanceId: cache.booking.performanceId,
+        scheduleId: cache.booking.scheduleId,
         title: cache.booking.performanceTitle,
         startAt: cache.booking.scheduleStartAt,
         seats: cache.booking.seats.map((s) => ({
@@ -109,7 +112,12 @@ export default function PayPage() {
     : detail.data
       ? fromDetail(detail.data)
       : null;
-  const performance = useApi<PerformanceDetail>(view ? `/api/v1/performances/${view.performanceId}` : null);
+  const performancePath = view ? `/api/v1/performances/${view.performanceId}` : null;
+  const performance = useApi<PerformanceDetail>(performancePath);
+  // 결제하는 동안 판매자가 판매를 중지하거나 재개할 수 있어 다시 읽는다. 막는 것은 서버다.
+  const latest = usePolledApi<PerformanceDetail>(performancePath, 10_000);
+  const paused =
+    (latest ?? performance.data)?.schedules.find((s) => s.scheduleId === view?.scheduleId)?.status === "PAUSED";
 
   const now = useNow(1000);
   const [step, setStep] = useState<Step>("review");
@@ -338,6 +346,12 @@ export default function PayPage() {
             남은 결제 시간 {minutes}:{String(seconds).padStart(2, "0")}
           </p>
 
+          {paused && (
+            <p role="status" className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">
+              판매가 일시 중지되어 지금은 결제할 수 없습니다. 남은 시간 안에 재개되면 결제할 수 있습니다
+            </p>
+          )}
+
           {step === "review" && (
             <>
               <section className="card space-y-4 p-6">
@@ -403,7 +417,7 @@ export default function PayPage() {
                   {message}
                 </p>
               )}
-              <button type="button" className="btn btn-primary btn-lg w-full" onClick={goPay}>
+              <button type="button" className="btn btn-primary btn-lg w-full" disabled={paused} onClick={goPay}>
                 결제 진행하기
               </button>
               <p className="text-center text-xs text-muted">내용을 확인한 뒤 누르면 결제 수단을 고를 수 있습니다</p>
@@ -431,7 +445,7 @@ export default function PayPage() {
               <button
                 type="button"
                 className="btn btn-primary btn-lg w-full"
-                disabled={busy || payUnavailable || (useToss && widgetState !== "ready")}
+                disabled={busy || paused || payUnavailable || (useToss && widgetState !== "ready")}
                 onClick={pay}
               >
                 {busy ? "결제 처리 중" : `${won(b.totalAmount)} 결제하기`}

@@ -141,6 +141,30 @@ export function useApi<T>(path: string | null, query?: Query) {
   };
 }
 
+// 화면에 이미 그린 값이 바뀌는지 몇 초마다 다시 읽는다. 읽기에 실패하면 오류로 바꾸지 않고 마지막 값을 그대로 둔다.
+// 첫 값은 useApi 로 읽고, 아직 다시 읽지 않았으면 undefined 다.
+export function usePolledApi<T>(path: string | null, intervalMs: number): T | undefined {
+  const [state, setState] = useState<{ path: string; data: T }>();
+
+  useEffect(() => {
+    if (path === null) return;
+    let ignore = false;
+    const timer = window.setInterval(() => {
+      api<T>(path)
+        .then((data) => {
+          if (!ignore) setState({ path, data });
+        })
+        .catch(() => {});
+    }, intervalMs);
+    return () => {
+      ignore = true;
+      window.clearInterval(timer);
+    };
+  }, [path, intervalMs]);
+
+  return state?.path === path ? state.data : undefined;
+}
+
 export type ImagePurpose = "POSTER" | "DETAIL" | "PROFILE";
 
 // 서버는 10MB 까지 받지만, 브라우저는 Next 서버(BFF)를 거쳐 올리고 Vercel 함수는 요청 본문이 4.5MB 를 넘으면 거절한다.

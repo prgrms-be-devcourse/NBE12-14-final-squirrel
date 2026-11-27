@@ -42,6 +42,7 @@ export const GENRE_LABEL: Record<Genre, string> = {
 };
 
 export const SALE_LABEL: Record<SaleStatus, string> = {
+  PAUSED: "판매 일시 중지",
   UPCOMING: "오픈 예정",
   ON_SALE: "예매 중",
   SOLD_OUT: "매진",

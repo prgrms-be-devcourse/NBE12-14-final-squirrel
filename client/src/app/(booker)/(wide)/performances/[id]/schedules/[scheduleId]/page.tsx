@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
-import { ApiError, api, errorText, useApi } from "@/lib/api";
+import { ApiError, api, errorText, useApi, usePolledApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
 import { getVenueLayout } from "@/lib/venue-layouts";
 import { saveBooking } from "@/lib/booking-cache";
@@ -44,6 +44,8 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
   const performance = useApi<PerformanceDetail>(`/api/v1/performances/${id}`);
   const zones = useApi<ZoneSummary>(`/api/v1/schedules/${scheduleId}/zones`);
+  // 좌석을 고르는 동안 판매자가 판매를 중지하거나 재개할 수 있어 공연 상세를 다시 읽는다. 막는 것은 서버다.
+  const latest = usePolledApi<PerformanceDetail>(`/api/v1/performances/${id}`, 10_000);
 
   // 도면이 있는 공연장은 구역 지도(묶음 단위 좌석 화면)로, 없으면 층별 구역 격자로 그린다.
   const layout = getVenueLayout(zones.data?.layoutKey);
@@ -68,6 +70,8 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
   const p = performance.data;
   const schedule = p?.schedules.find((s) => String(s.scheduleId) === scheduleId);
+  const paused =
+    (latest ?? p)?.schedules.find((s) => String(s.scheduleId) === scheduleId)?.status === "PAUSED";
   const maxPerPerson = p?.sale.maxPerPerson ?? 4;
   const activeZone = zones.data?.zones.find((z) => z.zoneId === activeZoneId);
 
@@ -328,6 +332,11 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
               <dd className="text-2xl font-medium">{won(ticketTotal + feeTotal)}</dd>
             </div>
           </dl>
+          {paused && (
+            <p role="status" className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">
+              판매가 일시 중지되어 지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다
+            </p>
+          )}
           {message && <p className="text-sm text-accent-strong">{message}</p>}
           {account === null ? (
             <button type="button" className="btn btn-primary btn-lg w-full" onClick={toLogin}>
@@ -337,7 +346,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
             <button
               type="button"
               className="btn btn-primary btn-lg w-full"
-              disabled={picked.length === 0 || submitting}
+              disabled={paused || picked.length === 0 || submitting}
               onClick={book}
             >
               {submitting ? "좌석 확인 중" : "주문 확인으로"}

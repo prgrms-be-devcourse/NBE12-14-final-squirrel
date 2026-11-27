@@ -16,7 +16,7 @@ const POLL_MS = 2500;
 
 type Phase =
   | { kind: "entering" }
-  | { kind: "waiting"; position: number; waitingCount: number }
+  | { kind: "waiting"; position: number; waitingCount: number; paused: boolean }
   | { kind: "admitted" }
   | { kind: "error"; message: string; retryable: boolean };
 
@@ -51,7 +51,12 @@ export function QueueGate({
       }
       if (status.status === "WAITING") {
         waitingRef.current = true;
-        setPhase({ kind: "waiting", position: status.position ?? 0, waitingCount: status.waitingCount ?? 0 });
+        setPhase({
+          kind: "waiting",
+          position: status.position ?? 0,
+          waitingCount: status.waitingCount ?? 0,
+          paused: status.paused,
+        });
         timer = window.setTimeout(poll, POLL_MS);
         return;
       }
@@ -144,7 +149,14 @@ export function QueueGate({
           <h1 className="text-xl font-semibold">대기 중입니다</h1>
           <p className="text-5xl font-semibold tabular-nums">{phase.position.toLocaleString("ko-KR")}번째</p>
           <p className="text-sm text-secondary">전체 대기 {phase.waitingCount.toLocaleString("ko-KR")}명</p>
-          <p className="text-xs text-muted">이 화면을 벗어나면 순번이 사라집니다. 자리가 나면 자동으로 이동합니다</p>
+          {phase.paused ? (
+            <p role="status" className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">
+              판매가 일시 중지되었습니다. 재개 시각은 정해지지 않았습니다. 이 화면을 유지하면 순번이 유지되고, 나가면
+              사라집니다
+            </p>
+          ) : (
+            <p className="text-xs text-muted">이 화면을 벗어나면 순번이 사라집니다. 자리가 나면 자동으로 이동합니다</p>
+          )}
           <button type="button" className="btn" onClick={() => router.push(backHref)}>
             나가기
           </button>
