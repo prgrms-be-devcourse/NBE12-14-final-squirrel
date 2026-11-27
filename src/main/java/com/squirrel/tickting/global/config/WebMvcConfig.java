@@ -2,6 +2,7 @@ package com.squirrel.tickting.global.config;
 
 import com.squirrel.tickting.domain.captcha.interceptor.CaptchaInterceptor;
 import com.squirrel.tickting.domain.queue.interceptor.QueueAdmissionInterceptor;
+import com.squirrel.tickting.domain.seller.interceptor.SellerAccountStatusInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -14,6 +15,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
 	private final CaptchaInterceptor captchaInterceptor;
 	private final QueueAdmissionInterceptor queueAdmissionInterceptor;
+	private final SellerAccountStatusInterceptor sellerAccountStatusInterceptor;
 
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
@@ -28,5 +30,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
 			"/api/v1/schedules/*/zones",
 			"/api/v1/schedules/*/zones/*/seats",
 			"/api/v1/schedules/*/bookings");
+		// 비활성화된 판매자 계정의 남은 세션을 막는다. 로그인·로그아웃 같은 인증 API 는 세션 상태와 상관없이 부를 수 있게 뺀다
+		registry.addInterceptor(sellerAccountStatusInterceptor)
+			.addPathPatterns("/api/**")
+			.excludePathPatterns("/api/v1/auth/**", "/api/v2/auth/**");
 	}
 }

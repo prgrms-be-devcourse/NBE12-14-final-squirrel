@@ -53,6 +53,45 @@ public interface SellerMemberRepository extends JpaRepository<SellerMember, Long
 	int reactivateWithProfile(@Param("id") Long id, @Param("password") String password, @Param("name") String name,
 		@Param("phone") String phone, @Param("now") LocalDateTime now);
 
+	/** 내 회사의 계정 하나. 다른 회사 계정은 없는 계정과 같게 비어 있다. */
+	Optional<SellerMember> findByIdAndBusinessIdAndDeletedAtIsNull(Long id, Long businessId);
+
+	/** 회사의 모든 계정(비활성 포함). 대표가 먼저, 나머지는 만든 순서다. */
+	@Query("""
+		SELECT m
+		FROM SellerMember m
+		WHERE m.business.id = :businessId
+		  AND m.deletedAt IS NULL
+		ORDER BY CASE WHEN m.role = com.squirrel.tickting.domain.seller.type.SellerRole.OWNER THEN 0 ELSE 1 END, m.id
+		""")
+	List<SellerMember> findAllOfBusiness(@Param("businessId") Long businessId);
+
+	/** 비활성이거나 삭제된 계정인가. 판매자 요청마다 불러서, 비활성화된 계정의 남은 세션을 막는다. */
+	@Query("""
+		SELECT COUNT(m) > 0
+		FROM SellerMember m
+		WHERE m.id = :id
+		  AND (m.status = com.squirrel.tickting.domain.seller.type.SellerMemberStatus.INACTIVE OR m.deletedAt IS NOT NULL)
+		""")
+	boolean isDisabled(@Param("id") Long id);
+
+	/**
+	 * 담당자의 상태를 바꾼다. 바꾸기 전 상태(from)일 때만 바꾸는 조건부 UPDATE 라서, 같은 계정을 동시에 바꾸면 한 요청만 1행을 얻는다.
+	 * 대표 계정은 바꾸지 않는다. 활성으로 바꿀 때 다른 회사의 같은 이메일이 먼저 활성이면 uq_seller_email_active 가 막는다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE SellerMember m
+		   SET m.status = :to,
+		       m.updatedAt = :now
+		 WHERE m.id = :id
+		   AND m.status = :from
+		   AND m.role = com.squirrel.tickting.domain.seller.type.SellerRole.STAFF
+		   AND m.deletedAt IS NULL
+		""")
+	int changeStaffStatus(@Param("id") Long id, @Param("from") SellerMemberStatus from, @Param("to") SellerMemberStatus to,
+		@Param("now") LocalDateTime now);
+
 	/** 이 이메일의 계정이 이 상태로 있는가. 활성 계정은 이메일당 하나라서 가입·초대 전에 ACTIVE 로 묻는다. */
 	boolean existsByEmailAndStatusAndDeletedAtIsNull(String email, SellerMemberStatus status);
 

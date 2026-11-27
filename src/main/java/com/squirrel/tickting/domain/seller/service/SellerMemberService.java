@@ -1,5 +1,6 @@
 package com.squirrel.tickting.domain.seller.service;
 
+import com.squirrel.tickting.domain.seller.dto.SellerMemberResponse;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerBusiness;
 import com.squirrel.tickting.domain.seller.infra.entity.SellerMember;
 import com.squirrel.tickting.domain.seller.infra.repository.SellerBusinessRepository;
@@ -15,6 +16,7 @@ import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.global.security.PasswordVerifier;
 import com.squirrel.tickting.global.util.EmailUtil;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -101,6 +103,68 @@ public class SellerMemberService {
 		}
 		requireLoginable(member);
 		return toAccount(member);
+	}
+
+	/** 대표가 보는 내 회사의 모든 계정(대표 포함, 비활성 포함). (AUTH-26) */
+	@Transactional(readOnly = true)
+	public List<SellerMemberResponse.Member> getMembers(Long businessId) {
+		return sellerMemberRepository.findAllOfBusiness(businessId).stream()
+			.map(SellerMemberResponse.Member::from)
+			.toList();
+	}
+
+	/**
+	 * 담당자를 비활성화한다. (AUTH-27) 확인 순서: 없거나 다른 회사 계정(404) → 대표 계정(400) → 이미 비활성(409).
+	 * 계정은 지우지 않아서 그 사람이 한 작업 이력이 남는다. 이미 로그인해 있던 세션은 SellerAccountStatusInterceptor 가 다음 요청에서 막는다.
+	 * 확인한 뒤 같은 계정을 동시에 비활성화하면 조건부 UPDATE 가 0행이라 이미 비활성(409)으로 답한다.
+	 */
+	@Transactional
+	public SellerMemberResponse.Member deactivate(Long businessId, Long memberId) {
+		SellerMember member = getMine(businessId, memberId);
+		if (member.getRole() == SellerRole.OWNER) {
+			throw new BusinessException(SellerExceptionCode.OWNER_NOT_DEACTIVATABLE);
+		}
+		if (member.getStatus() == SellerMemberStatus.INACTIVE || sellerMemberRepository.changeStaffStatus(memberId,
+			SellerMemberStatus.ACTIVE, SellerMemberStatus.INACTIVE, LocalDateTime.now()) == 0) {
+			throw new BusinessException(SellerExceptionCode.MEMBER_ALREADY_INACTIVE);
+		}
+		return SellerMemberResponse.Member.from(getMine(businessId, memberId));
+	}
+
+	/**
+	 * 비활성 담당자를 다시 사용 중으로 바꾼다. (AUTH-28) 비밀번호는 예전 그대로다.
+	 * 확인 순서: 없거나 다른 회사 계정(404) → 이미 활성(409 SELLER012) → 그 이메일의 활성 계정이 다른 회사에 있음(409 SELLER013).
+	 * 활성 계정은 이메일당 하나라서, 다른 회사에서 아직 비활성화되지 않은 사람은 복구할 수 없다. 확인한 뒤 다른 회사에서 먼저 활성화되면
+	 * uq_seller_email_active 가 막고 SELLER000 이 된다.
+	 */
+	@Transactional
+	public SellerMemberResponse.Member reactivate(Long businessId, Long memberId) {
+		SellerMember member = getMine(businessId, memberId);
+		if (member.getStatus() == SellerMemberStatus.ACTIVE) {
+			throw new BusinessException(SellerExceptionCode.MEMBER_ALREADY_ACTIVE);
+		}
+		if (sellerMemberRepository.existsByEmailAndStatusAndDeletedAtIsNull(member.getEmail(), SellerMemberStatus.ACTIVE)) {
+			throw new BusinessException(SellerExceptionCode.EMAIL_ACTIVE_IN_OTHER_BUSINESS);
+		}
+		if (sellerMemberRepository.changeStaffStatus(memberId, SellerMemberStatus.INACTIVE, SellerMemberStatus.ACTIVE,
+			LocalDateTime.now()) == 0) {
+			throw new BusinessException(SellerExceptionCode.MEMBER_ALREADY_ACTIVE);
+		}
+		return SellerMemberResponse.Member.from(getMine(businessId, memberId));
+	}
+
+	/**
+	 * 판매자 계정이 비활성이거나 삭제됐는가. 비활성화된 계정의 남은 세션을 막는 데 쓴다. 판매자 요청마다 불려서 조회 하나로 끝낸다.
+	 * 세션은 로그인으로만 만들어져서 계정 행이 없는 세션은 생기지 않는다. 그래서 막아야 할 상태(비활성·삭제)인지만 묻는다.
+	 */
+	@Transactional(readOnly = true)
+	public boolean isDisabled(Long memberId) {
+		return sellerMemberRepository.isDisabled(memberId);
+	}
+
+	private SellerMember getMine(Long businessId, Long memberId) {
+		return sellerMemberRepository.findByIdAndBusinessIdAndDeletedAtIsNull(memberId, businessId)
+			.orElseThrow(() -> new BusinessException(SellerExceptionCode.MEMBER_NOT_FOUND));
 	}
 
 	/** 이메일로 로그인·비밀번호 재설정에 쓸 계정 하나. 활성 계정이 먼저이고, 없으면 가장 최근 계정이다. */
