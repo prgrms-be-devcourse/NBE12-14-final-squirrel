@@ -125,9 +125,9 @@
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | ADM-08 | 전체 예매 목록 | GET `/api/v1/admin/bookings` | 구현됨 |
 | ADM-09 | 예매 상세 | GET `/api/v1/admin/bookings/{bookingId}` | 구현됨 |
-| ADM-10 | 문의 목록 | GET `/api/v1/admin/inquiries` | 구현됨 |
-| ADM-11 | 문의 상세 | GET `/api/v1/admin/inquiries/{inquiryId}` | 구현됨 |
-| ADM-12 | 문의 답변 | POST `/api/v1/admin/inquiries/{inquiryId}/answer` | 구현됨 |
+| ADM-14 | 문의 목록 | GET `/api/v1/admin/inquiries` | 구현됨 |
+| ADM-15 | 문의 상세 | GET `/api/v1/admin/inquiries/{inquiryId}` | 구현됨 |
+| ADM-16 | 문의 답변 | POST `/api/v1/admin/inquiries/{inquiryId}/answer` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
@@ -3094,7 +3094,7 @@ Query: `title`, `status`(여러 개), `from`, `to`, `page`, `size` — BKG-04의
 - 예매 하나를 상태와 상관없이 줍니다. 응답은 `{ userId, businessId, booking }`이고 `booking`은 BKG-05 응답과 같은 모양(결제·환불·취소 규정 포함)입니다. 같은 내용을 두 벌로 만들면 한쪽만 고쳐질 수 있어서 그대로 씁니다.
 - 없는 예매는 404 `BOOKING006`입니다.
 
-### ADM-10 문의 목록 — `GET /api/v1/admin/inquiries` (관리자, 구현됨)
+### ADM-14 문의 목록 — `GET /api/v1/admin/inquiries` (관리자, 구현됨)
 
 Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(기본 `false`), `page`, `size`
 
@@ -3105,7 +3105,7 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 
 **에러**: 403 `AUTH100` 관리자가 아님 · 400 `COMMON000` 없는 `authorType`·`status` 값
 
-### ADM-11 문의 상세 — `GET /api/v1/admin/inquiries/{inquiryId}` (관리자, 구현됨)
+### ADM-15 문의 상세 — `GET /api/v1/admin/inquiries/{inquiryId}` (관리자, 구현됨)
 
 - 문의 하나와 이력(`histories`, 남긴 순서대로)을 줍니다. **삭제된 문의도 볼 수 있습니다.** (분쟁 확인용)
 - INQ-04 응답에 `authorType`, `authorId`, `businessId`, `authorName`, `authorEmail`, `answeredBy`, `deletedAt`, `histories`를 더했고, `category`는 `category`(코드)·`categoryName`으로 나눠 줍니다.
@@ -3120,7 +3120,7 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 
 **에러**: 403 `AUTH100` · 404 `INQUIRY001` 없는 문의
 
-### ADM-12 문의 답변 — `POST /api/v1/admin/inquiries/{inquiryId}/answer` (관리자, 구현됨)
+### ADM-16 문의 답변 — `POST /api/v1/admin/inquiries/{inquiryId}/answer` (관리자, 구현됨)
 
 ```json
 { "answer": "3~5영업일 안에 환불됩니다." }
@@ -3131,7 +3131,7 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 - 답변하면 `ANSWERED`가 되고 답변한 관리자·일시와 답변 이력(`ANSWERED`, 그때 문의 내용 + 답변)이 남습니다.
 - 작성자의 수정·삭제(INQ-05·06)와 같은 상태 조건부 UPDATE라, 동시에 들어오면 **먼저 끝난 쪽만** 성공합니다. 관리자 여러 명이 동시에 답변해도 하나만 성공합니다.
 
-**응답 200**: ADM-11과 같은 문의 상세(답변 반영)
+**응답 200**: ADM-15와 같은 문의 상세(답변 반영)
 
 **에러**: 400 `COMMON000` 답변 누락·2,000자 초과 · 403 `AUTH100` · 404 `INQUIRY001` 없는 문의, 삭제된 문의 · 409 `INQUIRY003` 이미 답변한 문의(동시에 다른 답변이 먼저 끝났거나 작성자가 먼저 지운 경우도)
 
@@ -3198,7 +3198,7 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 
 ## 7. 문의 (`/api/v1/inquiries/**`, 예매자)
 
-설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-10~12), 판매자 문의는 다음 PR입니다.
+설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-14~16), 판매자 문의는 다음 PR입니다.
 
 ### INQ-01 문의 유형 목록 — `GET /api/v1/inquiries/categories` (예매자, 구현됨)
 
