@@ -120,8 +120,8 @@
 | SLR-35 | 문의 작성 (판매자) | POST `/api/v1/seller/inquiries` | 구현됨 |
 | SLR-36 | 사업체 문의 목록 | GET `/api/v1/seller/inquiries` | 구현됨 |
 | SLR-37 | 사업체 문의 상세 | GET `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
-| SLR-32 | 문의 수정 (판매자) | PUT `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
-| SLR-33 | 문의 삭제 (판매자) | DELETE `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
+| SLR-38 | 문의 수정 (판매자) | PUT `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
+| SLR-39 | 문의 삭제 (판매자) | DELETE `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -3204,7 +3204,7 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 
 ## 7. 문의 (`/api/v1/inquiries/**`, 예매자)
 
-설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-14~16), 판매자 문의는 7-1장(SLR-34~33)입니다.
+설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-14~16), 판매자 문의는 7-1장(SLR-34~39)입니다.
 
 ### INQ-01 문의 유형 목록 — `GET /api/v1/inquiries/categories` (예매자, 구현됨)
 
@@ -3456,7 +3456,7 @@ Query: `page`, `size` (기본·최대 20). 우리 사업체의 문의를 최신 
 
 **에러**: 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는·다른 사업체의·삭제한 문의
 
-### SLR-32 문의 수정 — `PUT /api/v1/seller/inquiries/{inquiryId}` (판매자, 구현됨)
+### SLR-38 문의 수정 — `PUT /api/v1/seller/inquiries/{inquiryId}` (판매자, 구현됨)
 
 **같은 사업체라도 작성자 본인만**, **답변 대기일 때만** 됩니다. 요청은 SLR-35와 같은 값을 통째로 다시 보냅니다. (`images`를 비우면 사진을 모두 지움) 바뀐 내용을 수정 이력(`UPDATED`)으로 남깁니다.
 
@@ -3466,7 +3466,7 @@ Query: `page`, `size` (기본·최대 20). 우리 사업체의 문의를 최신 
 
 **에러**: 400 `COMMON000` 형식 오류 · 400 `INQUIRY000` 고를 수 없는 유형 · 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는·다른 계정이 쓴·삭제한 문의 · 409 `INQUIRY002` 답변이 끝난 문의
 
-### SLR-33 문의 삭제 — `DELETE /api/v1/seller/inquiries/{inquiryId}` (판매자, 구현됨)
+### SLR-39 문의 삭제 — `DELETE /api/v1/seller/inquiries/{inquiryId}` (판매자, 구현됨)
 
 **같은 사업체라도 작성자 본인만**, **답변 대기일 때만** 됩니다. 소프트 삭제라 목록·상세에서 사라지고, 지우기 직전 내용을 삭제 이력(`DELETED`)으로 남깁니다.
 
