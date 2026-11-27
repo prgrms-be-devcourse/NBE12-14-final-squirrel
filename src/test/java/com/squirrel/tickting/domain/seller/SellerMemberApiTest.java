@@ -158,13 +158,17 @@ class SellerMemberApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("담당자 토큰으로는 목록·비활성화·복구가 모두 403 AUTH100 이다")
-	void staffCannotManage() throws Exception {
+	@DisplayName("담당자도 자기 회사 목록은 보지만(다른 회사 계정은 안 보임), 비활성화·복구는 403 AUTH100 이다")
+	void staffCanListButCannotManage() throws Exception {
 		Long staffId = insertMember(businessA, STAFF_EMAIL, "STAFF", "ACTIVE");
+		insertMember(businessB, "staff-other@example.com", "STAFF", "ACTIVE");
 		Cookie staff = sessionCookie(new CustomUserDetails(staffId, AccountType.SELLER, "STAFF", businessA));
 
 		mockMvc.perform(get(MEMBERS_URL).cookie(staff))
-			.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH100"));
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(2))
+			.andExpect(jsonPath("$.data[0].memberId").value(ownerA))
+			.andExpect(jsonPath("$.data[1].memberId").value(staffId));
 		deactivate(staff, staffId).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH100"));
 		reactivate(staff, staffId).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH100"));
 		assertThat(statusOf(staffId)).isEqualTo("ACTIVE");
