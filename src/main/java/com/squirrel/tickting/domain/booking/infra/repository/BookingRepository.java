@@ -164,4 +164,27 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
 	/** 주어진 회차들에서 주어진 상태인 예매 수. */
 	long countByScheduleIdInAndStatusIn(Collection<Long> scheduleIds, Collection<BookingStatus> statuses);
+
+	/** 공연별 결제 완료·일부 취소(환불 대상) 예매 수와 결제 대기 예매 수. 공연장 사용 중지 미리보기(ADM-13)가 쓴다. */
+	@Query("""
+		SELECT b.performanceId AS performanceId,
+		       SUM(CASE WHEN b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                                  com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		                THEN 1 ELSE 0 END) AS refundTargetCount,
+		       SUM(CASE WHEN b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PENDING
+		                THEN 1 ELSE 0 END) AS pendingCount
+		FROM Booking b
+		WHERE b.scheduleId IN :scheduleIds
+		GROUP BY b.performanceId
+		""")
+	List<PerformanceBookingCount> countByPerformance(@Param("scheduleIds") Collection<Long> scheduleIds);
+
+	interface PerformanceBookingCount {
+
+		Long getPerformanceId();
+
+		long getRefundTargetCount();
+
+		long getPendingCount();
+	}
 }

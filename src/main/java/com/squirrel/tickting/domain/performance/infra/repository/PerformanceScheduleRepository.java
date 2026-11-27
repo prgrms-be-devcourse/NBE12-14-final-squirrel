@@ -140,6 +140,24 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 	int cancelAll(@Param("scheduleIds") Collection<Long> scheduleIds, @Param("reason") String reason,
 		@Param("now") LocalDateTime now);
 
+	/**
+	 * 공연장의 공개 공연 중 취소할 수 있는 회차(취소되지 않았고 일정 미정이거나 시작 전). 조건은 cancelAll 과 같아야 한다.
+	 * 공연장 사용 중지 미리보기(ADM-13)가 쓴다. 공연은 함께 읽는다.
+	 */
+	@Query("""
+		SELECT s
+		FROM PerformanceSchedule s
+		JOIN FETCH s.performance p
+		WHERE p.venueId = :venueId
+		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
+		  AND s.status <> com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED
+		  AND (s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.POSTPONED OR s.startAt > :now)
+		""")
+	List<PerformanceSchedule> findCancelableByVenueId(@Param("venueId") Long venueId, @Param("now") LocalDateTime now);
+
+	/** 해당 상태가 아닌 회차가 하나라도 있는가. */
+	boolean existsByPerformanceIdAndStatusNot(Long performanceId, ScheduleStatus status);
+
 	/** 공연의 모든 회차를 지운다. 작성 중 공연을 삭제할 때만 쓴다. */
 	@Modifying(flushAutomatically = true)
 	@Query("DELETE FROM PerformanceSchedule s WHERE s.performance.id = :performanceId")

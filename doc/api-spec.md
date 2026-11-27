@@ -132,6 +132,10 @@
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | ADM-08 | 전체 예매 목록 | GET `/api/v1/admin/bookings` | 구현됨 |
 | ADM-09 | 예매 상세 | GET `/api/v1/admin/bookings/{bookingId}` | 구현됨 |
+| ADM-10 | 공연장 목록 | GET `/api/v1/admin/venues` | 구현됨 |
+| ADM-11 | 공연장 사용 중지 | POST `/api/v1/admin/venues/{venueId}/deactivate` | 구현됨 |
+| ADM-12 | 공연장 사용 재개 | POST `/api/v1/admin/venues/{venueId}/activate` | 구현됨 |
+| ADM-13 | 공연장 중지 영향 미리보기 | GET `/api/v1/admin/venues/{venueId}/impact` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
@@ -1728,6 +1732,9 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 | 400 | `VENUE001` | 사용 중지된 공연장 |
 | 404 | `VENUE000` | 공연장 없음 |
 | 404 | `PERFORMANCE100` | 취소 규정 없음 또는 다른 사업체의 규정 (둘 다 같은 404) |
+| 409 | `COMMON004` | 같은 공연장의 다른 변경(중지 등)과 겹쳐 락을 1초 안에 잡지 못함 (2026-11-27) |
+
+- 공연장 락(`venue:{공연장 번호}`) 안에서 공연장과 취소 규정을 확인하고 저장합니다. 확인 직후 사용 중지가 끼어들지 않게 하려는 것입니다.
 
 ### SLR-03 공연 수정 — `PUT /api/v1/seller/performances/{performanceId}` (구현됨)
 
@@ -1750,7 +1757,7 @@ DRAFT에서는 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `recei
 
 공연장은 `DRAFT`일 때만 다른 공연장으로 바꿀 수 있습니다. 바꾸면 같은 트랜잭션에서 다음을 합니다.
 
-1. 새 공연장의 사용 여부를 확인합니다. (없는 공연장 404 `VENUE000`, 사용 중지 400 `VENUE001`)
+1. 새 공연장의 사용 여부를 확인합니다. (없는 공연장 404 `VENUE000`, 사용 중지 400 `VENUE001`) 수정은 공연 락과 함께 요청한 공연장의 락(`venue:{번호}`)을 늘 잡습니다. (2026-11-27)
 2. 이 공연의 취소되지 않은 회차가 새 공연장의 다른 회차와 시간이 겹치지 않는지 확인합니다. (409 `PERFORMANCE007`)
 3. 구역 설정을 새 공연장의 모든 구역 기준 `UNSET`으로 다시 만듭니다. 등급(`seat_grade`)은 유지합니다.
 4. 판매 좌석이 있으면 **판매자 보류석(`RESERVED`)을 포함해 모두 지우고**, 취소되지 않은 회차의 `seatsGeneratedAt`을 비워 스케줄러가 새 공연장 기준으로 다시 만들게 합니다. 작성 중 공연은 예매·점유가 불가능하므로 임시 점유·판매 완료 좌석은 있을 수 없습니다.
@@ -1824,7 +1831,9 @@ Body 없음. `DRAFT` → `PUBLISHED`. 판매자(대표·담당자) 토큰만 쓸
 9. 판매할(`ASSIGNED`) 구역이 1개 이상이어야 합니다. (`PERFORMANCE404`)
 10. 전석(`ALL`)과 다른 등급이 함께 구역에 지정되어 있으면 안 됩니다. (`PERFORMANCE303`)
 
-- 공연 수정, 같은 공연의 구역·등급 수정(SLR-10·11), 그 공연이 쓰는 취소 규정 수정(SLR-22)과 겹치면 하나씩 처리됩니다. 락을 1초 안에 잡지 못하면 409 `COMMON004`(잠시 후 다시 시도)입니다. 서비스 기본 규정을 쓰는 공연은 규정 락을 잡지 않습니다. (기본 규정은 항상 수정할 수 없어서 부딪히지 않습니다)
+- 작성 중 확인 다음, 판매 필드보다 먼저 **공연장이 사용 중인지** 봅니다. 중지됐으면 400 `VENUE001` "사용이 중지된 공연장이라 공개할 수 없습니다. 공연장을 바꿔 주세요."입니다. (2026-11-27. 공연장을 바꾸면 구역·판매 정보가 초기화되는 칸보다 먼저 알려 줍니다)
+- 공연장 락(`venue:{번호}`)도 함께 잡고, 락 밖에서 본 공연장 번호가 바뀌었으면 409 `COMMON004`입니다.
+- 공연 수정, 같은 공연의 구역·등급 수정(SLR-10·11), 그 공연이 쓰는 취소 규정 수정(SLR-22), 그 공연장의 사용 중지와 겹치면 하나씩 처리됩니다. 락을 1초 안에 잡지 못하면 409 `COMMON004`(잠시 후 다시 시도)입니다. 서비스 기본 규정을 쓰는 공연은 규정 락을 잡지 않습니다. (기본 규정은 항상 수정할 수 없어서 부딪히지 않습니다)
 - 공개 두 번이나 삭제(SLR-25)와 겹쳐도 상태 조건부 UPDATE(`DRAFT`일 때만 바뀜)가 마지막으로 막아 409 `PERFORMANCE400`입니다.
 - 문제 구역·회차는 에러 응답의 `data`가 아니라 **메시지**에 나옵니다. (에러 응답에 `data`를 담는 방식은 아직 정하지 않았습니다)
 
@@ -1854,6 +1863,7 @@ Body 없음. `DRAFT` → `PUBLISHED`. 판매자(대표·담당자) 토큰만 쓸
 
 | 상태 | 코드 | 경우 |
 | --- | --- | --- |
+| 400 | `VENUE001` | 사용이 중지된 공연장 |
 | 400 | `PERFORMANCE401` | 판매 필드 미설정 |
 | 400 | `PERFORMANCE402` | 취소되지 않은 회차 없음 |
 | 400 | `PERFORMANCE403` | 설정하지 않은(`UNSET`) 구역 있음 (메시지에 구역 이름) |
@@ -1908,7 +1918,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 - 로그인한 판매자 사업체의 공연만 볼 수 있습니다. 다른 사업체의 공연이거나 없는 공연은 똑같이 404 `PERFORMANCE000`입니다.
 - 작성 중(`DRAFT`)인 공연은 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)가 `null`일 수 있습니다.
-- `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다.
+- `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다. `venue.layoutKey`(도면 이름표, 없으면 `null`)와 `venue.status`(`ACTIVE`·`INACTIVE`)도 줍니다. (2026-11-27)
 - `schedules` 항목의 `pauseReason`은 일시 중지 회차의 중지 사유이고 그 밖은 `null`입니다. 재개 확인 화면에서 씁니다. 예매자 공연 상세(PFM-02)에는 판매 상태가 `PAUSED`인 회차에만 같은 값을 줍니다.
 - `schedules` 항목의 `postponement`는 그 회차의 가장 최근 연기이고 연기한 적이 없으면 `null`입니다. 마감이 지나도 보입니다. 모양은 SLR-28 응답의 `postponement`와 같습니다.
 
@@ -1924,7 +1934,9 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
     "status": "PUBLISHED",
     "venue": {
       "venueId": 1,
-      "name": "가상 아레나 (샘플)"
+      "name": "가상 아레나 (샘플)",
+      "layoutKey": "sample-arena",
+      "status": "ACTIVE"
     },
     "title": "가상 콘서트",
     "genre": "CONCERT",
@@ -2247,7 +2259,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 | 13 | 같은 공연장의 다른 회차와 시간 겹침 | 409 `PERFORMANCE007` |
 | 14 | (즉시 생성) 복사할 공연장 좌석이 없음(깨진 데이터) | 409 `PERFORMANCE503` |
 
-- 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 회차 수정(SLR-13)·공개(SLR-04)·공연 수정(SLR-03)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과 겹치면 하나씩 처리됩니다.
+- 락은 공연 단위(`performance:{공연 번호}`)와 그 공연의 공연장(`venue:{번호}`, 2026-11-27)입니다. 같은 공연의 회차 수정(SLR-13)·공개(SLR-04)·공연 수정(SLR-03)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과, 같은 공연장의 사용 중지·등록·다른 공연의 회차 추가와 겹치면 하나씩 처리됩니다. 락 밖에서 본 공연장 번호가 바뀌었으면 409 `COMMON004`입니다.
 - 감사 로그: `SCHEDULE` / `CREATE`, `target_id`는 회차 번호. 변경 전 값은 없고 변경 후 `performanceId`·`startAt`·`seatsGenerated`(판매 좌석을 바로 만들었는지)입니다.
 
 **일시 중지 중의 회차 추가 (2026-11-27)**: 공개 공연의 아직 시작하지 않은 회차(판매 중·일시 중지만 봄)가 모두 일시 중지면 회차를 추가할 수 없습니다(409 `PERFORMANCE018` "판매를 일시 중지한 공연에는 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요."). 화면은 이때 회차 추가 버튼을 끄고 이유를 보여 줍니다. 하나라도 판매 중이거나, 그런 회차가 없거나(시작·취소·연기 회차만 남음), 작성 중 공연이면 `ON_SALE`로 추가합니다.
@@ -3184,6 +3196,99 @@ Body 없음. 처리 관리자·시각을 기록하고 감사 로그를 남깁니
 ```
 
 **에러**: 401 `AUTH200` 토큰 없음 · 403 `AUTH100` 관리자가 아님 · 404 `SELLER006` 사업체 없음 · 409 `SELLER007` 이미 처리된 사업체 · 400 `COMMON000` 사유가 없거나 공백뿐이거나 500자를 넘음, 번호가 숫자가 아님
+
+### ADM-10 공연장 목록 — `GET /api/v1/admin/venues` (관리자, 구현됨, 2026-11-27)
+
+Query: `status`(`ACTIVE`·`INACTIVE`, 비우면 전체), `region`(정확히 같은 것만), `keyword`(이름 부분 일치), `page`, `size`(기본·최대 20). 이름순(같으면 번호순)이고 정렬은 고정입니다. 항목: `venueId`, `name`, `address`, `region`, `totalSeats`, `layoutKey`, `status`, `updatedAt`.
+
+### ADM-11 공연장 사용 중지 — `POST /api/v1/admin/venues/{venueId}/deactivate` (관리자, 구현됨, 2026-11-27)
+
+**요청** (둘 다 필수. `reason`은 앞뒤 공백을 뺀 400자 이하)
+
+```json
+{ "reason": "리모델링 공사로 대관 중단", "mode": "CANCEL_ALL" }
+```
+
+| `mode` | 동작 |
+|---|---|
+| `BLOCK_NEW` | 공연장만 `INACTIVE`. 새 판매(공연 등록·작성 중 공연장 변경·공개·회차 추가)를 막고 이미 만든 회차의 판매·관리는 그대로 |
+| `CANCEL_ALL` | 위에 더해 이 공연장 **공개 공연**의 시작하지 않은 회차(일정 미정 연기 포함)를 모두 취소하고, 취소되지 않은 회차가 남지 않은 공개 공연도 취소. 작성 중 공연과 시작한 회차는 그대로. **되돌릴 수 없음** |
+
+**응답 200** (`BLOCK_NEW`면 세 수는 0. `refundRequestedCount`는 이번에 취소한 회차의 결제 완료·일부 취소 예매 수)
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "venueId": 3,
+    "name": "가상 아레나",
+    "status": "INACTIVE",
+    "mode": "CANCEL_ALL",
+    "canceledScheduleCount": 12,
+    "canceledPerformanceCount": 3,
+    "refundRequestedCount": 4210
+  }
+}
+```
+
+- 취소 회차의 `cancel_reason`은 `공연장 사용 중지: {사유}`이고 판매자·예매자에게 보입니다. 회차 취소(SLR-15)와 같은 조건부 UPDATE를 쓰고, 환불은 만들지 않습니다(추후 스케줄러, 5부 5-2 ④). 중지된 공연장에서는 취소한 공연을 다시 살릴 수 없습니다.
+- **이미 중지된 공연장에도 `CANCEL_ALL`을 부를 수 있습니다.** 상태는 그대로 두고 취소할 회차가 있으면 취소하며, 없으면 409 `VENUE004`입니다. 사용 중인 공연장에 `CANCEL_ALL`인데 취소할 회차가 없으면 중지만 하고 200입니다.
+- 락: `BLOCK_NEW`는 `venue:{번호}`. `CANCEL_ALL`은 `venue:{번호}`와 대상 공개 공연의 `performance:{번호}`를 한 번에 잡고, 락 안에서 대상 공연 목록을 다시 읽어 락 밖과 다르면 409 `COMMON004`입니다. 커밋·락 해제 뒤 바뀐 공연의 예매자 상세 캐시를 지웁니다.
+- 감사 로그(모두 `ADMIN`, 상태 변경과 한 트랜잭션): `VENUE`/`DEACTIVATE`(사업체 없음, 전 `status`, 후 `status`·`mode`·`reason`·`canceledScheduleIds`), 회차마다 `SCHEDULE`/`CANCEL`과 취소한 공연마다 `PERFORMANCE`/`CANCEL`(그 공연의 사업체 번호, 판매자 취소와 같은 모양).
+
+**에러**
+
+| HTTP | 코드 | 언제 |
+|---|---|---|
+| 400 | `COMMON000` | 사유가 없거나 400자 초과, `mode` 없음·잘못된 값, 번호가 숫자가 아님 |
+| 404 | `VENUE000` | 공연장 없음 |
+| 409 | `VENUE002` | 이미 중지된 공연장에 `BLOCK_NEW` |
+| 409 | `VENUE004` | 이미 중지된 공연장에 `CANCEL_ALL`인데 취소할 회차가 없음 |
+| 409 | `COMMON004` | 락을 1초 안에 잡지 못함, 대상 공연이 바뀜 |
+
+### ADM-12 공연장 사용 재개 — `POST /api/v1/admin/venues/{venueId}/activate` (관리자, 구현됨, 2026-11-27)
+
+본문 없음. `INACTIVE` → `ACTIVE`. 전부 취소로 취소한 회차·공연은 되돌리지 않습니다. 감사 로그 `VENUE`/`ACTIVATE`. 응답 `{ "venueId": 3, "name": "가상 아레나", "status": "ACTIVE" }`.
+
+**에러**: 404 `VENUE000` · 409 `VENUE003` 이미 사용 중 · 409 `COMMON004`
+
+### ADM-13 공연장 중지 영향 미리보기 — `GET /api/v1/admin/venues/{venueId}/impact` (관리자, 구현됨, 2026-11-27)
+
+지금 전부 취소하면 생길 일입니다. 읽기만 하고, 보고 난 뒤 예매가 늘 수 있어 실행 응답(ADM-11)이 실제 수를 다시 줍니다.
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "venueId": 3,
+    "name": "가상 아레나",
+    "status": "ACTIVE",
+    "upcomingScheduleCount": 12,
+    "refundTargetBookingCount": 4210,
+    "pendingBookingCount": 7,
+    "draftPerformanceCount": 1,
+    "performances": [
+      {
+        "performanceId": 12,
+        "title": "가상 콘서트",
+        "status": "PUBLISHED",
+        "businessId": 2,
+        "businessName": "가상 기획",
+        "upcomingScheduleCount": 2,
+        "refundTargetBookingCount": 245
+      }
+    ]
+  }
+}
+```
+
+- `performances`는 취소될 회차가 있는 공개 공연과 작성 중 공연(`upcomingScheduleCount` 0)입니다. 환불 대상이 많은 순, 같으면 공연 번호순입니다. 지난 회차만 남은 공개 공연은 빠집니다. 판매자 연락처는 사업체 상세(ADM-07)에서 봅니다.
+- 이미 모든 회차를 취소한 공개 공연은 목록에 없지만, `CANCEL_ALL`을 실행하면 공연도 취소되어 `canceledPerformanceCount`에 셉니다.
+- **에러**: 404 `VENUE000`
 
 ### ADM-04 공연장 생성 — `POST /api/v1/admin/venues`
 

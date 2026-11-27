@@ -18,6 +18,7 @@ import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
+import com.squirrel.tickting.domain.venue.type.VenueStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -161,7 +162,8 @@ public class SellerPerformanceResponse {
 			return Detail.builder()
 				.performanceId(performance.getId())
 				.status(performance.getStatus())
-				.venue(new Venue(performance.getVenueId(), performance.getVenue().getName()))
+				.venue(new Venue(performance.getVenueId(), performance.getVenue().getName(),
+					performance.getVenue().getLayoutKey(), performance.getVenue().getStatus()))
 				.title(performance.getTitle())
 				.genre(performance.getGenre())
 				.ageLimit(performance.getAgeLimit())
@@ -189,7 +191,11 @@ public class SellerPerformanceResponse {
 		@Schema(description = "공연장 번호")
 		Long venueId,
 		@Schema(description = "공연장명")
-		String name
+		String name,
+		@Schema(description = "프론트가 도면을 고르는 이름표. 비어 있으면 기본 격자 도면", example = "sample-arena", nullable = true)
+		String layoutKey,
+		@Schema(description = "공연장 상태. INACTIVE 면 사용 중지라 공개·회차 추가를 할 수 없다", example = "ACTIVE")
+		VenueStatus status
 	) {
 	}
 
