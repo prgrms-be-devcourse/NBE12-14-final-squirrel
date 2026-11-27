@@ -28,7 +28,7 @@ public final class UniqueConstraintCodes {
 	private enum Constraint {
 
 		USER_EMAIL("uq_user_email", UserExceptionCode.EMAIL_DUPLICATED),
-		// 판매자 이메일: 활성 계정은 이메일당 하나, 같은 회사 안에서는 이메일당 하나 (V24)
+		// 판매자 이메일: 활성 계정은 이메일당 하나, 같은 회사 안에서는 이메일당 하나 (V25)
 		SELLER_EMAIL_ACTIVE("uq_seller_email_active", SellerExceptionCode.EMAIL_DUPLICATED),
 		SELLER_BUSINESS_EMAIL("uq_seller_business_email", SellerExceptionCode.EMAIL_DUPLICATED),
 		SELLER_BUSINESS_NUMBER("uq_seller_business_number", SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED),
