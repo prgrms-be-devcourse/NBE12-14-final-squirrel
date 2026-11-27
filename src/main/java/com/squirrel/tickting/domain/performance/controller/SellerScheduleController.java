@@ -29,7 +29,7 @@ public class SellerScheduleController {
 	private final SellerPerformanceService sellerPerformanceService;
 	private final SellerPerformanceFacade sellerPerformanceFacade;
 
-	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 추가할 수 있다. */
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 추가할 수 있다. */
 	@Operation(summary = "회차 추가",
 		description = "공연에 회차를 하나 추가한다. 시작 시각은 지금보다 늦어야 하고(400), 판매 오픈이 설정되어 있으면 그보다 늦어야 한다(400). "
 			+ "작성 중(DRAFT) 공연은 지금부터 3시간 뒤의 회차부터 추가할 수 있다(400). 공개(PUBLISHED) 공연은 회차가 모두 시작했으면 409, 판매가 끝났으면 400이다. "
@@ -44,8 +44,8 @@ public class SellerScheduleController {
 		@PathVariable Long performanceId,
 		@Valid @RequestBody SellerPerformanceRequest.ScheduleSave request
 	) {
-		SellerPerformanceResponse.ScheduleCreated response = sellerPerformanceService.addSchedule(account.getBusinessId(),
-			performanceId, request);
+		SellerPerformanceResponse.ScheduleCreated response = sellerPerformanceFacade.addSchedule(account.getBusinessId(),
+			account.getId(), performanceId, request);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 
@@ -55,7 +55,7 @@ public class SellerScheduleController {
 			+ "이미 시작한 회차는 400이다. 지금과 같은 일시를 보내면 아무것도 바꾸지 않고 200이다. "
 			+ "새 일시는 지금보다 늦어야 하고(400), 판매 오픈이 설정되어 있으면 그보다 늦어야 하며(400), 작성 중(DRAFT) 공연은 지금부터 3시간 뒤여야 한다(400). "
 			+ "공개(PUBLISHED) 공연은 만료가 아닌 예매(취소 포함)가 있으면 409, 바꾼 뒤 판매 종료가 마지막 회차 시작보다 늦어지면 400이다. "
-			+ "같은 공연장의 다른 회차와 시간이 겹치면 409다. 회차 상태와 판매 좌석은 바뀌지 않고 바꾸기 전 일시는 남지 않는다. "
+			+ "같은 공연장의 다른 회차와 시간이 겹치면 409다. 회차 상태와 판매 좌석은 바뀌지 않고 바꾸기 전 일시는 감사 로그에 남는다. "
 			+ "다른 사업체의 회차이거나 없는 회차는 404 다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
 	@PutMapping("/schedules/{scheduleId}")
 	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleUpdated>> updateSchedule(
@@ -64,7 +64,7 @@ public class SellerScheduleController {
 		@Valid @RequestBody SellerPerformanceRequest.ScheduleSave request
 	) {
 		SellerPerformanceResponse.ScheduleUpdated response = sellerPerformanceFacade.updateSchedule(account.getBusinessId(),
-			scheduleId, request);
+			account.getId(), scheduleId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
