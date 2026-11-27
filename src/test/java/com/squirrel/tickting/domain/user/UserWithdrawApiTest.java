@@ -144,6 +144,13 @@ class UserWithdrawApiTest extends IntegrationTestSupport {
 		jdbc.update("UPDATE performance_schedule SET status = 'POSTPONED' WHERE id = ?", postponed);
 		saveBooking(userId, postponed, "PAID", now.minusDays(2));
 		assertBlocked(session, userId);
+
+		// 4. 취소된 회차의 결제 완료 예매. 원래 일시가 지났어도 환불이 반영되기 전이다
+		jdbc.execute("TRUNCATE TABLE booking RESTART IDENTITY");
+		Long canceled = saveSchedule(now.minusDays(1));
+		jdbc.update("UPDATE performance_schedule SET status = 'CANCELED' WHERE id = ?", canceled);
+		saveBooking(userId, canceled, "PAID", now.minusDays(2));
+		assertBlocked(session, userId);
 	}
 
 	private void assertBlocked(Cookie session, Long userId) throws Exception {

@@ -30,6 +30,9 @@ public class BookingService {
 	/** 좌석을 차지한 예매 상태. 전체 취소(CANCELED)와 만료(EXPIRED)는 좌석을 돌려줬으므로 뺀다. */
 	private static final List<BookingStatus> OCCUPYING_STATUSES =
 		List.of(BookingStatus.PENDING, BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED);
+	/** 돈을 받았고 아직 다 돌려주지 않은 예매 상태. 회차를 취소하면 환불할 대상이다. */
+	private static final List<BookingStatus> PAID_STATUSES =
+		List.of(BookingStatus.PAID, BookingStatus.PARTIAL_CANCELED);
 
 	private final BookingRepository bookingRepository;
 	private final BookingSeatRepository bookingSeatRepository;
@@ -65,6 +68,12 @@ public class BookingService {
 		return bookingRepository.existsByScheduleIdAndStatusNot(scheduleId, BookingStatus.EXPIRED);
 	}
 
+	/** 주어진 회차들의 환불 대상 예매(결제 완료·일부 취소) 수. 판매자가 취소한 직후 몇 명이 환불받는지 알려 주는 데 쓴다. */
+	@Transactional(readOnly = true)
+	public long countRefundTargets(Collection<Long> scheduleIds) {
+		return bookingRepository.countByScheduleIdInAndStatusIn(scheduleIds, PAID_STATUSES);
+	}
+
 	/**
 	 * 결제할 수 있는 내 예매를 읽는다. 없거나 남의 예매면 같은 404, 결제 대기(PENDING)가 아니거나 결제 제한 시각이 지났으면 409 다.
 	 * 스케줄러가 아직 정리하지 않았더라도 시각이 지난 예매는 여기서 막는다. 호출한 쪽의 트랜잭션에 참여한다.
@@ -80,15 +89,18 @@ public class BookingService {
 	}
 
 	/**
-	 * 판매가 일시 중지되었거나 일정이 바뀐 회차의 예매는 결제할 수 없다. 판매자가 중지·연기한 뒤에는 돈이 들어오면 안 된다.
-	 * 일정 미정 회차와, 연기하기 전에 만든 예매(바뀌기 전 일시를 보고 고른 좌석)를 막는다. 중지와 겹치면 연기를 먼저 알린다.
-	 * 그 예매는 재개해도 결제할 수 없어서 "중지"라고 하면 기다리게 되기 때문이다.
+	 * 취소되었거나 판매가 일시 중지되었거나 일정이 바뀐 회차의 예매는 결제할 수 없다. 판매자가 취소·중지·연기한 뒤에는 돈이 들어오면 안 된다.
+	 * 다시 열릴 수 없는 것부터 알려서 취소 회차를 가장 먼저 본다. 이어서 일정 미정 회차와, 연기하기 전에 만든 예매(바뀌기 전 일시를 보고
+	 * 고른 좌석)를 막는다. 중지와 겹치면 연기를 먼저 알린다. 그 예매는 재개해도 결제할 수 없어서 "중지"라고 하면 기다리게 되기 때문이다.
 	 * 좌석 점유는 그대로 두어 만료 전에 재개되면(중지만 한 경우) 이어서 결제한다.
 	 * 회차와 연기 이력을 지연 로딩으로 읽어서 호출한 쪽의 트랜잭션 안에서 부른다.
 	 */
 	@Transactional(readOnly = true)
 	public void validateSchedulePayable(Booking booking) {
 		PerformanceSchedule schedule = booking.getSchedule();
+		if (schedule.getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE, "취소된 회차라 결제할 수 없습니다.");
+		}
 		boolean bookedBeforePostponement = schedule.findLatestPostponement()
 			.filter(latest -> latest.isAnnouncedAfter(booking.getCreatedAt()))
 			.isPresent();
@@ -204,7 +216,7 @@ public class BookingService {
 	 * 예매 취소에서 취소할 좌석과 금액을 계산한다. 아무것도 바꾸지 않는다. 호출한 쪽의 트랜잭션과 예매 단위 락 안에서 불러야
 	 * 계산한 뒤 반영하기 전에 다른 취소가 끼어들지 않는다.
 	 *
-	 * 판정 순서: 없거나 남의 예매 404 → 결제 완료·일부 취소가 아님 409 → 취소 불가 기간 400 → 취소할 수 없는 좌석 400
+	 * 판정 순서: 없거나 남의 예매 404 → 결제 완료·일부 취소가 아님 409 → 취소된 회차 409 → 취소 불가 기간 400 → 취소할 수 없는 좌석 400
 	 *
 	 * @param bookingSeatIds 취소할 예매 좌석. 비어 있으면(null 포함) 남은 좌석 전부다. 같은 번호가 여러 번 와도 한 번으로 본다
 	 */
@@ -214,6 +226,11 @@ public class BookingService {
 			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
 		if (booking.getStatus() != BookingStatus.PAID && booking.getStatus() != BookingStatus.PARTIAL_CANCELED) {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE);
+		}
+		// 계산기도 취소 불가로 답하지만, 그러면 "취소할 수 없는 기간"으로 보여 환불을 못 받는다고 오해한다.
+		if (booking.getSchedule().getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_CANCELABLE,
+				"취소된 회차입니다. 환불은 자동으로 처리됩니다.");
 		}
 		CancelPolicyCalculator.Quote quote = cancelPolicyCalculator.quote(booking, now);
 		if (!quote.cancelable()) {
@@ -238,7 +255,8 @@ public class BookingService {
 
 	/**
 	 * 계산한 취소를 반영한다. 좌석마다 취소 수수료와 환불 번호를 적고 예매 상태를 일부 취소·전체 취소로 바꾼다.
-	 * 상태 조건이 있는 UPDATE 라서 계산한 뒤 다른 요청이 먼저 취소했으면 바뀐 행 수가 모자라고, 예외로 트랜잭션 전체(환불 행 포함)를 되돌린다.
+	 * 상태 조건이 있는 UPDATE 라서 계산한 뒤 다른 요청이 먼저 취소했거나 회차가 취소됐으면 바뀐 행 수가 모자라고,
+	 * 예외로 트랜잭션 전체(환불 행 포함)를 되돌린다.
 	 * 좌석 도메인의 상태(SOLD)는 바꾸지 않고, 되돌릴 판매 좌석 번호만 돌려줘서 파사드가 같은 트랜잭션에서 되돌린다.
 	 *
 	 * @return 다시 팔 수 있게 되돌릴 판매 좌석 번호. 끝난 회차의 좌석을 지워 번호가 없는 좌석은 빠진다

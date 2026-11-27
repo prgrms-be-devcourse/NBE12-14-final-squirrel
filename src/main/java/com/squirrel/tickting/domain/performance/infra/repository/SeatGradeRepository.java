@@ -5,6 +5,9 @@ import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface SeatGradeRepository extends JpaRepository<SeatGrade, Long> {
 
@@ -22,4 +25,9 @@ public interface SeatGradeRepository extends JpaRepository<SeatGrade, Long> {
 
 	/** 이 공연의 등급. 다른 공연의 등급 번호는 없는 등급과 같게 비어 있다. */
 	Optional<SeatGrade> findByIdAndPerformanceId(Long id, Long performanceId);
+
+	/** 공연의 등급을 모두 지운다. 작성 중 공연을 삭제할 때만 쓴다. */
+	@Modifying(flushAutomatically = true)
+	@Query("DELETE FROM SeatGrade g WHERE g.performance.id = :performanceId")
+	void deleteByPerformanceId(@Param("performanceId") Long performanceId);
 }

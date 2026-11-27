@@ -128,7 +128,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		""")
 	int markExpiredAsCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
 
-	/** 일부 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다. */
+	/**
+	 * 예매자의 일부 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 바뀐 행 수를 돌려준다.
+	 * 회차가 취소되지 않았을 때만 바꾼다. 취소 회차의 환불은 따로 만들어져서, 예매 락이 듣지 않아도 직접 취소가 뒤늦게 반영되지 않게 한다.
+	 */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE Booking b
@@ -137,10 +140,13 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		 WHERE b.id = :id
 		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
 		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		   AND NOT EXISTS (SELECT s.id FROM PerformanceSchedule s
+		                    WHERE s.id = b.scheduleId
+		                      AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED)
 		""")
 	int markPartiallyCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
 
-	/** 전체 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 전체 취소 일시를 남긴다. */
+	/** 예매자의 전체 취소 처리. 결제 완료·일부 취소이고 회차가 취소되지 않은 예매만 바꾸고 전체 취소 일시를 남긴다. */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE Booking b
@@ -150,6 +156,12 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		 WHERE b.id = :id
 		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
 		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		   AND NOT EXISTS (SELECT s.id FROM PerformanceSchedule s
+		                    WHERE s.id = b.scheduleId
+		                      AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED)
 		""")
 	int markCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/** 주어진 회차들에서 주어진 상태인 예매 수. */
+	long countByScheduleIdInAndStatusIn(Collection<Long> scheduleIds, Collection<BookingStatus> statuses);
 }
