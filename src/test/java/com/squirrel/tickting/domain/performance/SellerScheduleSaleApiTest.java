@@ -1,6 +1,7 @@
 package com.squirrel.tickting.domain.performance;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -129,7 +130,8 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.data.status").value("PAUSED"));
 		Long added = jdbc.queryForObject("SELECT max(id) FROM performance_schedule", Long.class);
-		assertThat(schedule(added)).isEqualTo("PAUSED:다른 회차가 모두 중지되어 중지 상태로 추가됨");
+		// 자동으로 만든 문구는 예매자에게 보이므로 사유를 비운다.
+		assertThat(schedule(added)).isEqualTo("PAUSED:null");
 
 		resume(show, Map.of("scheduleIds", List.of(added))).andExpect(status().isOk());
 		addSchedule(show, now.plusDays(25))
@@ -141,12 +143,7 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 	@DisplayName("공연 목록·상세는 시작 전 회차가 모두 중지면 PAUSED, 판매 중 회차가 매진이면 중지 회차의 좌석이 남아도 SOLD_OUT 이다")
 	void showsPausedSaleStatus() throws Exception {
 		Show show = show(1);
-		// 공연 상세는 사업체 정보를 함께 준다. 테이블을 비우고 시작하므로 번호가 MY_BUSINESS 인 행이 생긴다.
-		jdbc.update("""
-			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone, contact_email,
-			                             terms_agreed_at, status, created_at, updated_at)
-			VALUES ('(주)가상기획', '김대표', '1234567890', '01012345678', 'contact@company.com', ?, 'APPROVED', ?, ?)
-			""", now, now, now);
+		insertSellerBusiness();
 		jdbc.update("UPDATE performance SET title = '중지 표시 공연' WHERE id = ?", show.performanceId());
 		jdbc.update("UPDATE performance_schedule SET status = 'PAUSED' WHERE id = ?", show.scheduleId());
 
@@ -166,6 +163,42 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 
 		jdbc.update("UPDATE performance SET sale_close_at = ? WHERE id = ?", now.minusMinutes(1), show.performanceId());
 		assertSaleStatus(show, "ENDED");
+	}
+
+	@Test
+	@DisplayName("중지 사유는 선택이고, 입력한 사유만 중지 중인 회차의 공연 상세에 보이며 판매가 끝나거나 재개하면 보이지 않는다")
+	void showsOptionalPauseReason() throws Exception {
+		Show show = show(1);
+		insertSellerBusiness();
+		Long blank = insertSchedule(show, now.plusDays(20), "ON_SALE", null);
+		String url = "/api/v1/performances/" + show.performanceId();
+
+		pause(show, Map.of("scheduleIds", List.of(show.scheduleId()), "reason", "좌석 점검")).andExpect(status().isOk());
+		pause(show, Map.of("scheduleIds", List.of(blank), "reason", "   ")).andExpect(status().isOk());
+		assertThat(schedule(blank)).isEqualTo("PAUSED:null");
+		resume(show, Map.of("scheduleIds", List.of(blank))).andExpect(status().isOk());
+		pause(show, Map.of("scheduleIds", List.of(blank))).andExpect(status().isOk());
+		assertThat(schedule(blank)).isEqualTo("PAUSED:null");
+
+		mockMvc.perform(get(url))
+			.andExpect(jsonPath("$.data.schedules[0].pauseReason").value("좌석 점검"))
+			.andExpect(jsonPath("$.data.schedules[1].pauseReason").value(nullValue()));
+
+		jdbc.update("UPDATE performance SET sale_close_at = ? WHERE id = ?", now.minusMinutes(1), show.performanceId());
+		mockMvc.perform(get(url)).andExpect(jsonPath("$.data.schedules[0].pauseReason").value(nullValue()));
+		jdbc.update("UPDATE performance SET sale_close_at = ? WHERE id = ?", now.plusDays(1), show.performanceId());
+
+		resume(show, Map.of("all", true)).andExpect(status().isOk());
+		mockMvc.perform(get(url)).andExpect(jsonPath("$.data.schedules[0].pauseReason").value(nullValue()));
+	}
+
+	/** 공연 상세는 사업체 정보를 함께 준다. 테이블을 비우고 시작하므로 번호가 MY_BUSINESS 인 행이 생긴다. */
+	private void insertSellerBusiness() {
+		jdbc.update("""
+			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone, contact_email,
+			                             terms_agreed_at, status, created_at, updated_at)
+			VALUES ('(주)가상기획', '김대표', '1234567890', '01012345678', 'contact@company.com', ?, 'APPROVED', ?, ?)
+			""", now, now, now);
 	}
 
 	private void assertSaleStatus(Show show, String saleStatus) throws Exception {

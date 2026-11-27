@@ -77,8 +77,6 @@ public class SellerPerformanceService {
 	/** 일시를 바꿀 수 있는 회차 상태. 취소·연기 회차는 막는다. */
 	private static final Set<ScheduleStatus> RESCHEDULABLE_STATUSES = EnumSet.of(ScheduleStatus.ON_SALE,
 		ScheduleStatus.PAUSED);
-	/** 일시 중지 상태로 추가한 회차의 중지 사유. 재개 화면에서 판매자가 직접 중지한 회차와 구분할 수 있게 한다. */
-	private static final String ADDED_WHILE_PAUSED_REASON = "다른 회차가 모두 중지되어 중지 상태로 추가됨";
 	private static final DateTimeFormatter SCHEDULE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 	private static final DateTimeFormatter TIME_ONLY_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -246,7 +244,6 @@ public class SellerPerformanceService {
 			.performance(performance)
 			.startAt(startAt)
 			.status(addsPaused ? ScheduleStatus.PAUSED : ScheduleStatus.ON_SALE)
-			.pauseReason(addsPaused ? ADDED_WHILE_PAUSED_REASON : null)
 			.build());
 		if (generatesSeats) {
 			createSeats(schedule.getId(), performance, now);

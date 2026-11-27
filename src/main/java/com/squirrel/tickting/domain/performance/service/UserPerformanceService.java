@@ -95,9 +95,7 @@ public class UserPerformanceService {
 			.toList();
 		Set<Long> scheduleIdsWithSeat = new HashSet<>(userPerformanceRepository.findScheduleIdsWithAvailableSeat(performanceId));
 		List<ScheduleItem> scheduleItems = schedules.stream()
-			.map(schedule -> new ScheduleItem(schedule, SaleStatus.of(performance.getSaleOpenAt(),
-				performance.getSaleCloseAt(), schedule.getStartAt(), schedule.getStatus() == ScheduleStatus.PAUSED,
-				scheduleIdsWithSeat.contains(schedule.getId()), now)))
+			.map(schedule -> toScheduleItem(performance, schedule, scheduleIdsWithSeat.contains(schedule.getId()), now))
 			.toList();
 
 		return UserPerformanceResponse.Detail.from(new Detail(
@@ -107,6 +105,14 @@ public class UserPerformanceService {
 			userPerformanceRepository.findAssignedGrades(performanceId),
 			cancelPolicyRuleRepository.findByPolicyIdOrderByDaysFromDesc(performance.getCancelPolicy().getId()),
 			userPerformanceRepository.findCommonGuides()));
+	}
+
+	/** 중지 사유는 판매 상태가 PAUSED 인 회차에만 담는다. 판매가 끝난 회차의 지난 사유는 예매자에게 필요 없다. */
+	private ScheduleItem toScheduleItem(Performance performance, PerformanceSchedule schedule, boolean hasAvailableSeat,
+		LocalDateTime now) {
+		SaleStatus saleStatus = SaleStatus.of(performance.getSaleOpenAt(), performance.getSaleCloseAt(),
+			schedule.getStartAt(), schedule.getStatus() == ScheduleStatus.PAUSED, hasAvailableSeat, now);
+		return new ScheduleItem(schedule, saleStatus, saleStatus == SaleStatus.PAUSED ? schedule.getPauseReason() : null);
 	}
 
 	/**
@@ -157,7 +163,11 @@ public class UserPerformanceService {
 	) {
 	}
 
-	/** 상세의 회차 하나와 그 회차의 판매 상태. */
-	public record ScheduleItem(PerformanceSchedule schedule, SaleStatus saleStatus) {
+	/**
+	 * 상세의 회차 하나와 그 회차의 판매 상태.
+	 *
+	 * @param pauseReason 예매자에게 보여 줄 중지 사유. 없으면 null
+	 */
+	public record ScheduleItem(PerformanceSchedule schedule, SaleStatus saleStatus, String pauseReason) {
 	}
 }
