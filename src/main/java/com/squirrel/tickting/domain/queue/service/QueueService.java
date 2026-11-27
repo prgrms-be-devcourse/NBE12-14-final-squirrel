@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.io.ClassPathResource;
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Service;
  *   <li>{@code tickting:queue:{회차}:seq} 도착 순번 카운터</li>
  *   <li>{@code tickting:queue:{회차}:seen:USER:번호} 대기 중인 사람이 최근에 상태를 확인했다는 표시(짧은 만료)</li>
  *   <li>{@code tickting:queue:{회차}:open} 이 회차가 입장을 받을 수 있다고 DB 로 확인한 표시(짧은 만료)</li>
+ *   <li>{@code tickting:queue:{회차}:status} DB 에서 읽은 회차 상태. 일시 중지·취소를 알아보는 데 쓴다(짧은 만료)</li>
  * </ul>
  * 멤버에는 계정 종류(USER)를 붙인다. 예매자·판매자·관리자는 번호가 겹칠 수 있다.
  *
@@ -50,12 +52,23 @@ public class QueueService {
 
 	/** 줄에 선다. 자리가 있으면 바로 입장하고, 이미 줄에 있거나 입장해 있으면 그대로 현재 상태를 준다. */
 	public QueueResponse enter(Long userId, Long scheduleId) {
-		return poll(userId, scheduleId, true);
+		return poll(userId, scheduleId, true, false);
 	}
 
-	/** 내 상태를 본다. 이때 빈 자리가 있으면 앞사람부터 입장시킨다. 줄에 없으면 NONE 이다. */
-	public QueueResponse status(Long userId, Long scheduleId) {
-		return poll(userId, scheduleId, false);
+	/**
+	 * 내 상태를 본다. 이때 빈 자리가 있으면 앞사람부터 입장시킨다. 줄에 없으면 NONE 이다.
+	 * halted 면 아무도 새로 입장시키지 않고 순번만 유지하며, 응답의 paused 가 true 다.
+	 */
+	public QueueResponse status(Long userId, Long scheduleId, boolean halted) {
+		return poll(userId, scheduleId, false, halted);
+	}
+
+	/**
+	 * 새로 줄을 세우지 않고, 이미 대기·입장 중이면 그 상태를 준다. 아무도 새로 입장시키지 않는다.
+	 * 대기열을 끈 환경에는 줄 자체가 없으므로 NONE 이다.
+	 */
+	public QueueResponse findJoined(Long userId, Long scheduleId) {
+		return properties.enabled() ? poll(userId, scheduleId, false, true) : QueueResponse.none();
 	}
 
 	/** 줄에서 나가거나 입장 자리를 반납한다. 없는 사람이어도 그대로 성공이다. */
@@ -87,9 +100,23 @@ public class QueueService {
 		redis.opsForValue().set(openKey(scheduleId), "1", OPEN_CHECK_TTL);
 	}
 
-	private QueueResponse poll(Long userId, Long scheduleId, boolean join) {
+	/** 누가 한 번이라도 줄을 선 회차인지. 아니면 지킬 순번이 없어서 회차 상태를 읽거나 기억할 일이 없다. */
+	public boolean hasQueue(Long scheduleId) {
+		return Boolean.TRUE.equals(redis.hasKey(seqKey(scheduleId)));
+	}
+
+	/** 최근에 DB 에서 읽어 둔 회차 상태. 없으면 비어 있다. */
+	public Optional<String> findKnownScheduleStatus(Long scheduleId) {
+		return Optional.ofNullable(redis.opsForValue().get(statusKey(scheduleId)));
+	}
+
+	public void rememberScheduleStatus(Long scheduleId, String scheduleStatus) {
+		redis.opsForValue().set(statusKey(scheduleId), scheduleStatus, OPEN_CHECK_TTL);
+	}
+
+	private QueueResponse poll(Long userId, Long scheduleId, boolean join, boolean halted) {
 		if (!properties.enabled()) {
-			return QueueResponse.admitted(LocalDateTime.now().plus(properties.entryTtl()));
+			return QueueResponse.admitted(LocalDateTime.now().plus(properties.entryTtl()), halted);
 		}
 		String member = member(userId);
 		List<?> result = redis.execute(POLL_SCRIPT,
@@ -99,7 +126,7 @@ public class QueueService {
 			String.valueOf(properties.entryTtl().toMillis()),
 			String.valueOf(properties.waitingTimeout().toMillis()),
 			String.valueOf(KEY_TTL.toMillis()),
-			seenPrefix(scheduleId));
+			seenPrefix(scheduleId), halted ? "1" : "0");
 		if (result == null || result.size() < 3) {
 			throw new IllegalStateException("대기열 스크립트가 값을 돌려주지 않았다.");
 		}
@@ -107,10 +134,11 @@ public class QueueService {
 		long first = ((Number) result.get(1)).longValue();
 		long second = ((Number) result.get(2)).longValue();
 		if (state == 1) {
-			return QueueResponse.admitted(LocalDateTime.ofInstant(Instant.ofEpochMilli(first), ZoneId.systemDefault()));
+			return QueueResponse.admitted(LocalDateTime.ofInstant(Instant.ofEpochMilli(first), ZoneId.systemDefault()),
+				halted);
 		}
 		if (state == 2) {
-			return QueueResponse.waiting((int) first, second);
+			return QueueResponse.waiting((int) first, second, halted);
 		}
 		return QueueResponse.none();
 	}
@@ -145,6 +173,10 @@ public class QueueService {
 
 	private static String openKey(Long scheduleId) {
 		return base(scheduleId) + "open";
+	}
+
+	private static String statusKey(Long scheduleId) {
+		return base(scheduleId) + "status";
 	}
 
 	private static <T> DefaultRedisScript<T> script(String path, Class<T> resultType) {

@@ -217,7 +217,80 @@ class QueueApiTest extends BookingTestSupport {
 		assertThat(redis.keys("tickting:queue:*")).isEmpty();
 	}
 
+	// ---------------------------------------------------------------- 판매 일시 중지·취소
+
+	@Test
+	@DisplayName("중지 중에는 순번을 유지한 채 아무도 입장시키지 않고 새 사람은 거절하며, 재개하면 앞사람부터 입장한다")
+	void pausedScheduleKeepsLineWithoutAdmitting() throws Exception {
+		Show show = show(2);
+		User first = signup("first");
+		User second = signup("second");
+		User third = signup("third");
+		User fourth = signup("fourth");
+		User late = signup("late");
+		enter(first, show);
+		enter(second, show);
+		enter(third, show);
+		enter(fourth, show);
+
+		// 입장 가능 표시가 남아 있어도 새 사람이 들어오면 안 되므로 회차 상태 기억만 만료시킨다.
+		changeScheduleStatus(show, "PAUSED");
+		leave(first, show);
+
+		queueStatus(third, show)
+			.andExpect(jsonPath("$.data.status").value("WAITING"))
+			.andExpect(jsonPath("$.data.position").value(1))
+			.andExpect(jsonPath("$.data.paused").value(true));
+		enter(fourth, show)
+			.andExpect(jsonPath("$.data.status").value("WAITING"))
+			.andExpect(jsonPath("$.data.position").value(2))
+			.andExpect(jsonPath("$.data.paused").value(true));
+		enter(second, show)
+			.andExpect(jsonPath("$.data.status").value("ADMITTED"))
+			.andExpect(jsonPath("$.data.paused").value(true));
+		enter(late, show)
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING012"))
+			.andExpect(jsonPath("$.message").value("판매가 일시 중지된 회차입니다."));
+		queueStatus(late, show).andExpect(jsonPath("$.data.status").value("NONE"));
+
+		changeScheduleStatus(show, "ON_SALE");
+
+		queueStatus(fourth, show)
+			.andExpect(jsonPath("$.data.status").value("WAITING"))
+			.andExpect(jsonPath("$.data.position").value(1))
+			.andExpect(jsonPath("$.data.paused").value(false));
+		queueStatus(third, show).andExpect(jsonPath("$.data.status").value("ADMITTED"));
+	}
+
+	@Test
+	@DisplayName("대기 중 회차가 취소되면 400 BOOKING002 로 알리고 줄에서 빼며, 빈 자리가 있어도 입장시키지 않는다")
+	void canceledScheduleRemovesWaitingUser() throws Exception {
+		Show show = show(2);
+		User first = signup("first");
+		User second = signup("second");
+		User third = signup("third");
+		enter(first, show);
+		enter(second, show);
+		enter(third, show);
+
+		changeScheduleStatus(show, "CANCELED");
+		leave(first, show);
+
+		queueStatus(third, show)
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BOOKING002"))
+			.andExpect(jsonPath("$.message").value("취소된 회차입니다."));
+		queueStatus(third, show).andExpect(jsonPath("$.data.status").value("NONE"));
+	}
+
 	// ---------------------------------------------------------------- 호출 도우미
+
+	/** 판매자가 상태를 바꾸고, 대기열이 기억한 회차 상태가 만료된 상황을 만든다. */
+	private void changeScheduleStatus(Show show, String scheduleStatus) {
+		jdbc.update("UPDATE performance_schedule SET status = ? WHERE id = ?", scheduleStatus, show.scheduleId());
+		redis.delete("tickting:queue:{" + show.scheduleId() + "}:status");
+	}
 
 	private ResultActions enter(User user, Show show) throws Exception {
 		return mockMvc.perform(post("/api/v1/schedules/" + show.scheduleId() + "/queue")

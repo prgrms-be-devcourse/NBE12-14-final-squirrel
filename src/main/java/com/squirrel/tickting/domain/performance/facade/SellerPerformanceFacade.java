@@ -4,6 +4,9 @@ import com.squirrel.tickting.domain.audit.service.AuditLogCommand;
 import com.squirrel.tickting.domain.audit.service.AuditLogService;
 import com.squirrel.tickting.domain.audit.type.ActorType;
 import com.squirrel.tickting.domain.booking.service.BookingService;
+import com.squirrel.tickting.domain.performance.cache.UserPerformanceCache;
+import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyRequest;
+import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyResponse;
 import com.squirrel.tickting.domain.performance.dto.SellerGradeRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerGradeResponse;
 import com.squirrel.tickting.domain.performance.dto.SellerPerformanceRequest;
@@ -18,6 +21,7 @@ import com.squirrel.tickting.domain.performance.service.PerformanceProperties;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
 import com.squirrel.tickting.domain.performance.service.SellerPerformanceService;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
+import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.service.VenueService;
@@ -35,7 +39,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 판매자의 공연·등급·회차 변경. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매·감사 로그(audit) 서비스를 엮고,
+ * 판매자의 공연·등급·회차·취소 규정 변경. 공연장(venue)·취소 규정(cancel policy)·공연(performance)·구역 설정(grade)·판매 좌석·예매·감사 로그(audit) 서비스를 엮고,
  * 쓰기는 TransactionTemplate 으로 한 트랜잭션에 묶는다. (조회는 공연의 읽기 전용 연관으로 서비스가 직접 응답을 만든다)
  * 감사 로그는 변경과 같은 트랜잭션이라 로그를 남기지 못하면 변경도 취소된다. 실제로 바뀐 것이 없으면 남기지 않는다.
  */
@@ -46,10 +50,12 @@ public class SellerPerformanceFacade {
 	private static final String TARGET_PERFORMANCE = "PERFORMANCE";
 	private static final String TARGET_SCHEDULE = "SCHEDULE";
 	private static final String TARGET_SEAT_GRADE = "SEAT_GRADE";
+	private static final String TARGET_CANCEL_POLICY = "CANCEL_POLICY";
 	private static final String ACTION_CREATE = "CREATE";
 	private static final String ACTION_UPDATE = "UPDATE";
 
 	private final SellerPerformanceService sellerPerformanceService;
+	private final UserPerformanceCache userPerformanceCache;
 	private final VenueService venueService;
 	private final CancelPolicyService cancelPolicyService;
 	private final GradeService gradeService;
@@ -309,6 +315,65 @@ public class SellerPerformanceFacade {
 	}
 
 	/**
+	 * 회차 판매를 일시 중지하고 바뀐 회차마다 감사 로그를 남긴다. 공연 락은 회차 추가·수정, 공연 수정, 좌석 생성과 같은 이름이다.
+	 * 좌석 점유는 이 락을 잡지 않지만, 중지 순간에 통과한 점유는 결제에서 막힌다. 대기열(Redis)은 건드리지 않는다.
+	 * 검사 순서: 요청 형식(DB 전) → 공연 조회 404(락 밖) → 락 → 서비스의 검사.
+	 */
+	public SellerPerformanceResponse.ScheduleSaleChanged pauseSchedules(Long businessId, Long actorId,
+		Long performanceId, SellerPerformanceRequest.SchedulePause request) {
+		sellerPerformanceService.validateScheduleSelection(request.all(), request.scheduleIds());
+		sellerPerformanceService.getMinePerformance(businessId, performanceId);
+		SellerPerformanceResponse.ScheduleSaleChanged response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				SellerPerformanceService.ScheduleSaleChange change = sellerPerformanceService.pauseSchedules(businessId,
+					performanceId, request);
+				for (PerformanceSchedule schedule : change.changed()) {
+					saveHistory(businessId, actorId, TARGET_SCHEDULE, schedule.getId(), "PAUSE",
+						saleValues(performanceId, ScheduleStatus.ON_SALE, null),
+						saleValues(performanceId, ScheduleStatus.PAUSED, request.reason()));
+				}
+				return change.response();
+			}));
+		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
+	}
+
+	/** 일시 중지한 회차를 재개한다. 지운 중지 사유는 감사 로그의 바꾸기 전 값에 남는다. 락과 검사 순서는 중지와 같다. */
+	public SellerPerformanceResponse.ScheduleSaleChanged resumeSchedules(Long businessId, Long actorId,
+		Long performanceId, SellerPerformanceRequest.ScheduleResume request) {
+		sellerPerformanceService.validateScheduleSelection(request.all(), request.scheduleIds());
+		sellerPerformanceService.getMinePerformance(businessId, performanceId);
+		SellerPerformanceResponse.ScheduleSaleChanged response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				SellerPerformanceService.ScheduleSaleChange change = sellerPerformanceService.resumeSchedules(businessId,
+					performanceId, request);
+				for (PerformanceSchedule schedule : change.changed()) {
+					saveHistory(businessId, actorId, TARGET_SCHEDULE, schedule.getId(), "RESUME",
+						saleValues(performanceId, ScheduleStatus.PAUSED, schedule.getPauseReason()),
+						saleValues(performanceId, ScheduleStatus.ON_SALE, null));
+				}
+				return change.response();
+			}));
+		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
+	}
+
+	/** 중지·재개 로그의 전후 값. 사유가 없는 쪽에는 reason 을 넣지 않는다. */
+	private Map<String, Object> saleValues(Long performanceId, ScheduleStatus status, String reason) {
+		Map<String, Object> values = new LinkedHashMap<>();
+		values.put("performanceId", performanceId);
+		values.put("status", status);
+		if (reason != null) {
+			values.put("reason", reason);
+		}
+		return values;
+	}
+
+	/**
 	 * 회차의 공연 일시를 바꾼다. 예매 확인이 예매 도메인이라 파사드가 맡는다.
 	 * 락은 공연 단위(performance:{번호})라 같은 공연의 회차 추가·공연 수정·공개·판매 좌석 생성과 겹치지 않는다.
 	 * 좌석 점유는 이 락을 잡지 않아, 예매를 확인한 직후 저장하기 전에 들어온 점유는 막지 못한다. (알고 감수, doc/seller-progress.md TODO)
@@ -351,6 +416,56 @@ public class SellerPerformanceFacade {
 			Map.of("performanceId", performanceId, "startAt", previousStartAt),
 			Map.of("performanceId", performanceId, "startAt", startAt));
 		return updated;
+	}
+
+	/** 취소 규정을 만들고 감사 로그를 남긴다. 새 규정은 쓰는 공연이 없어 잠금은 필요 없다. */
+	public SellerCancelPolicyResponse.Detail createCancelPolicy(Long businessId, Long actorId,
+		SellerCancelPolicyRequest.Save request) {
+		return transactionTemplate.execute(status -> {
+			SellerCancelPolicyResponse.Detail created = cancelPolicyService.create(businessId, request);
+			saveHistory(businessId, actorId, TARGET_CANCEL_POLICY, created.cancelPolicyId(), ACTION_CREATE, null,
+				Map.of("name", created.name(), "rules", created.rules()));
+			return created;
+		});
+	}
+
+	/**
+	 * 취소 규정을 수정하고 바뀐 항목만 감사 로그에 남긴다. 값이 그대로면(구간을 보낸 순서만 다른 경우 포함) 남기지 않는다.
+	 * 구간은 지운 뒤 다시 넣으므로 바꾸기 전 값은 엔티티가 아니라 응답 값으로 먼저 읽어 둔다.
+	 * 검사 순서: 구간 → 내 규정(404·기본 규정 409, 락 밖) → 락 → 서비스의 검사·교체.
+	 */
+	public SellerCancelPolicyResponse.Detail updateCancelPolicy(Long businessId, Long actorId, Long cancelPolicyId,
+		SellerCancelPolicyRequest.Save request) {
+		List<SellerCancelPolicyRequest.Rule> sorted = cancelPolicyService.validateUpdateRequest(cancelPolicyId,
+			businessId, request);
+		return lockExecutor.execute(List.of(PerformanceLockNames.cancelPolicy(cancelPolicyId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				SellerCancelPolicyResponse.Detail before = cancelPolicyService.getVisibleDetail(cancelPolicyId,
+					businessId);
+				SellerCancelPolicyResponse.Detail updated = cancelPolicyService.update(cancelPolicyId, businessId,
+					request, sorted);
+				saveCancelPolicyHistory(businessId, actorId, before, updated);
+				return updated;
+			}));
+	}
+
+	private void saveCancelPolicyHistory(Long businessId, Long actorId, SellerCancelPolicyResponse.Detail before,
+		SellerCancelPolicyResponse.Detail after) {
+		Map<String, Object> changedBefore = new LinkedHashMap<>();
+		Map<String, Object> changedAfter = new LinkedHashMap<>();
+		if (!before.name().equals(after.name())) {
+			changedBefore.put("name", before.name());
+			changedAfter.put("name", after.name());
+		}
+		// 두 목록 모두 공연에서 먼 구간부터라 순서를 맞출 필요가 없다.
+		if (!before.rules().equals(after.rules())) {
+			changedBefore.put("rules", before.rules());
+			changedAfter.put("rules", after.rules());
+		}
+		if (!changedBefore.isEmpty()) {
+			saveHistory(businessId, actorId, TARGET_CANCEL_POLICY, after.cancelPolicyId(), ACTION_UPDATE,
+				changedBefore, changedAfter);
+		}
 	}
 
 	/** 판매자 행동 한 줄. 사업체 번호를 채워야 판매자가 자기 사업체 이력으로 찾을 수 있다. */

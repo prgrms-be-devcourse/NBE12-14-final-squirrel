@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { CAPTCHA_HEADER, getCaptchaToken } from "@/lib/captcha";
 import type { QueueStatus } from "@/lib/types";
+import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Loading } from "@/components/ui";
 
 // 대기열 입구. 서버는 회차마다 정원만큼만 들여보내고, 입장하지 않으면 구역·좌석 조회와 좌석 점유가 403(QUEUE000)이다.
@@ -16,8 +17,9 @@ const POLL_MS = 2500;
 
 type Phase =
   | { kind: "entering" }
-  | { kind: "waiting"; position: number; waitingCount: number }
+  | { kind: "waiting"; position: number; waitingCount: number; paused: boolean }
   | { kind: "admitted" }
+  | { kind: "salePaused" }
   | { kind: "error"; message: string; retryable: boolean };
 
 export function QueueGate({
@@ -51,7 +53,12 @@ export function QueueGate({
       }
       if (status.status === "WAITING") {
         waitingRef.current = true;
-        setPhase({ kind: "waiting", position: status.position ?? 0, waitingCount: status.waitingCount ?? 0 });
+        setPhase({
+          kind: "waiting",
+          position: status.position ?? 0,
+          waitingCount: status.waitingCount ?? 0,
+          paused: status.paused,
+        });
         timer = window.setTimeout(poll, POLL_MS);
         return;
       }
@@ -69,6 +76,11 @@ export function QueueGate({
       waitingRef.current = false;
       if (error instanceof ApiError && error.status === 401) {
         toLogin();
+        return;
+      }
+      // 새로 줄을 서려는데 중지된 회차다. 이미 기다리는 사람은 오류가 아니라 paused 상태를 받아 순번을 지킨다.
+      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
+        setPhase({ kind: "salePaused" });
         return;
       }
       setPhase({
@@ -129,6 +141,9 @@ export function QueueGate({
 
   if (phase.kind === "admitted") return <>{children(reenter)}</>;
   if (phase.kind === "entering") return <Loading label="대기열에 입장하는 중" />;
+  if (phase.kind === "salePaused") {
+    return <SalePausedModal href={backHref}>지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다</SalePausedModal>;
+  }
 
   return (
     <div className="mx-auto max-w-md py-12">
@@ -144,7 +159,14 @@ export function QueueGate({
           <h1 className="text-xl font-semibold">대기 중입니다</h1>
           <p className="text-5xl font-semibold tabular-nums">{phase.position.toLocaleString("ko-KR")}번째</p>
           <p className="text-sm text-secondary">전체 대기 {phase.waitingCount.toLocaleString("ko-KR")}명</p>
-          <p className="text-xs text-muted">이 화면을 벗어나면 순번이 사라집니다. 자리가 나면 자동으로 이동합니다</p>
+          {phase.paused ? (
+            <p role="status" className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">
+              판매가 일시 중지되었습니다. 재개 시각은 정해지지 않았습니다. 이 화면을 유지하면 순번이 유지되고, 나가면
+              사라집니다
+            </p>
+          ) : (
+            <p className="text-xs text-muted">이 화면을 벗어나면 순번이 사라집니다. 자리가 나면 자동으로 이동합니다</p>
+          )}
           <button type="button" className="btn" onClick={() => router.push(backHref)}>
             나가기
           </button>

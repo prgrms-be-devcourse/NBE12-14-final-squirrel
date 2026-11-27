@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.performance.controller;
 
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyResponse;
+import com.squirrel.tickting.domain.performance.facade.SellerPerformanceFacade;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.global.response.ApiResponse;
 import com.squirrel.tickting.global.response.PageResponse;
@@ -35,6 +36,8 @@ public class SellerCancelPolicyController {
 	private static final int MAX_PAGE_SIZE = 20;
 
 	private final CancelPolicyService cancelPolicyService;
+	/** 생성·수정은 감사 로그를 함께 남겨 파사드를 부르고, 조회는 서비스를 바로 부른다. */
+	private final SellerPerformanceFacade sellerPerformanceFacade;
 
 	/** 사업체 번호를 경로나 쿼리로 받지 않고 토큰에서 꺼낸다. 받으면 남의 사업체 번호를 넣어 볼 수 있기 때문이다. */
 	@Operation(summary = "취소 규정 목록",
@@ -76,7 +79,8 @@ public class SellerCancelPolicyController {
 		@AuthenticationPrincipal CustomUserDetails account,
 		@Valid @RequestBody SellerCancelPolicyRequest.Save request
 	) {
-		SellerCancelPolicyResponse.Detail response = cancelPolicyService.create(account.getBusinessId(), request);
+		SellerCancelPolicyResponse.Detail response = sellerPerformanceFacade.createCancelPolicy(account.getBusinessId(),
+			account.getId(), request);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 
@@ -89,8 +93,8 @@ public class SellerCancelPolicyController {
 		@PathVariable Long cancelPolicyId,
 		@Valid @RequestBody SellerCancelPolicyRequest.Save request
 	) {
-		SellerCancelPolicyResponse.Detail response = cancelPolicyService.update(cancelPolicyId, account.getBusinessId(),
-			request);
+		SellerCancelPolicyResponse.Detail response = sellerPerformanceFacade.updateCancelPolicy(account.getBusinessId(),
+			account.getId(), cancelPolicyId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

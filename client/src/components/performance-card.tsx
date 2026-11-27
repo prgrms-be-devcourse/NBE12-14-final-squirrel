@@ -6,12 +6,13 @@ import { Poster } from "@/components/ui";
 const SALE_BADGE: Record<SaleStatus, string> = {
   ON_SALE: "badge badge-accent",
   UPCOMING: "badge badge-warn",
+  PAUSED: "badge badge-warn",
   SOLD_OUT: "badge",
   ENDED: "badge",
 };
 
 export function PerformanceCard({ p }: { p: PerformanceSummary }) {
-  const dim = p.saleStatus === "ENDED" || p.saleStatus === "SOLD_OUT";
+  const dim = p.saleStatus === "ENDED" || p.saleStatus === "SOLD_OUT" || p.saleStatus === "PAUSED";
   return (
     <Link href={`/performances/${p.performanceId}`} className="group block">
       <div className={`transition-opacity duration-150 ${dim ? "opacity-60 group-hover:opacity-100" : ""}`}>

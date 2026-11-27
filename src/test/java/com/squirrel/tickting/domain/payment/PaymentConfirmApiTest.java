@@ -185,6 +185,48 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 	}
 
 	@Test
+	@DisplayName("판매를 중지한 회차는 점유·결제 준비·승인이 거절되고 토스를 부르지 않으며 점유 시간은 그대로이고, 재개하면 결제된다")
+	void rejectsPausedSchedule() throws Exception {
+		Show show = show(2);
+		User user = signup("first");
+		Order order = prepareOrder(user, show, 1);
+		// 승인을 시작하면 점유를 늘리는 상황(남은 시간이 짧음)에서도 중지면 늘리지 않아야 한다.
+		LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(30).withNano(0);
+		jdbc.update("UPDATE booking SET expires_at = ? WHERE id = ?", expiresAt, order.bookingId());
+		jdbc.update("UPDATE schedule_seat SET held_until = ? WHERE id = ?", expiresAt, show.seatIds().get(0));
+		jdbc.update("UPDATE performance_schedule SET status = 'PAUSED' WHERE id = ?", show.scheduleId());
+
+		book(user.session(), show.scheduleId(), List.of(show.seatIds().get(1)))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING012"))
+			.andExpect(jsonPath("$.message").value("판매가 일시 중지된 회차입니다."));
+		mockMvc.perform(post("/api/v1/bookings/" + order.bookingId() + "/payments")
+				.cookie(user.session())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("receiveType", "DELIVERY", "recipientName", "홍길동",
+					"recipientPhone", "01012345678", "recipientAddress", "서울"))))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING012"))
+			.andExpect(jsonPath("$.message").value("판매가 일시 중지된 회차라 결제할 수 없습니다."));
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount())
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING012"));
+
+		assertThat(gateway.confirmedOrderIds()).isEmpty();
+		assertThat(paymentStatus(order.orderId())).isEqualTo("READY");
+		assertThat(count("payment")).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT receive_type FROM booking WHERE id = ?", String.class,
+			order.bookingId())).isEqualTo("ONSITE");
+		assertThat(jdbc.queryForObject("SELECT expires_at FROM booking WHERE id = ?", LocalDateTime.class,
+			order.bookingId())).isEqualTo(expiresAt);
+		assertThat(seatHeldUntil(show.seatIds().get(0))).isEqualTo(expiresAt);
+
+		jdbc.update("UPDATE performance_schedule SET status = 'ON_SALE' WHERE id = ?", show.scheduleId());
+		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount()).andExpect(status().isOk());
+		assertThat(bookingStatus(order.bookingId())).isEqualTo("PAID");
+	}
+
+	@Test
 	@DisplayName("이미 승인한 결제를 다시 승인하면 409 PAYMENT003 이고 토스는 한 번만 불린다")
 	void rejectsAlreadyProcessed() throws Exception {
 		Show show = show(1);

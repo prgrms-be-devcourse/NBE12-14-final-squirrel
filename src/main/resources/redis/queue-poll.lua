@@ -5,6 +5,7 @@
 -- KEYS: [1] 대기 ZSET(점수=도착 순번)  [2] 입장 ZSET(점수=만료 시각 ms)  [3] 도착 순번 카운터  [4] 내 확인 표시 키
 -- ARGV: [1] 내 멤버(USER:번호)  [2] 줄 서기 여부(1=들어가기, 0=상태만 보기)  [3] 정원  [4] 입장 유효 ms
 --       [5] 확인 표시 유효 ms  [6] 키 유효 ms  [7] 확인 표시 키 접두사
+--       [8] 입장 멈춤(1=판매 일시 중지 등이라 아무도 새로 입장시키지 않음. 순번과 확인 표시는 그대로 관리)
 -- 반환: {상태, 값1, 값2}  상태 0=없음, 1=입장(값1=만료 시각 ms), 2=대기(값1=내 순번, 값2=전체 대기 인원)
 
 local wait, active, seq, seen = KEYS[1], KEYS[2], KEYS[3], KEYS[4]
@@ -15,6 +16,7 @@ local entry_ttl = tonumber(ARGV[4])
 local seen_ttl = tonumber(ARGV[5])
 local key_ttl = tonumber(ARGV[6])
 local seen_prefix = ARGV[7]
+local halted = ARGV[8] == '1'
 
 local t = redis.call('TIME')
 local now = t[1] * 1000 + math.floor(t[2] / 1000)
@@ -37,7 +39,7 @@ end
 redis.call('SET', seen, '1', 'PX', seen_ttl)
 
 -- 빈 자리만큼 앞에서부터 입장시킨다. 오래 확인하지 않은 사람(확인 표시가 사라진 사람)은 자리를 주지 않고 건너뛴다.
-local free = max_active - redis.call('ZCARD', active)
+local free = halted and 0 or max_active - redis.call('ZCARD', active)
 while free > 0 do
 	local popped = redis.call('ZPOPMIN', wait, 1)
 	if #popped == 0 then

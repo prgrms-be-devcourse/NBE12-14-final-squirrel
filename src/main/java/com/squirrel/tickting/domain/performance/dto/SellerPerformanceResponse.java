@@ -206,13 +206,41 @@ public class SellerPerformanceResponse {
 		@Schema(description = "회차 판매 상태", example = "ON_SALE")
 		ScheduleStatus status,
 		@Schema(description = "판매 좌석을 만든 시각. 아직 안 만들었으면 null", nullable = true)
-		LocalDateTime seatsGeneratedAt
+		LocalDateTime seatsGeneratedAt,
+		@Schema(description = "일시 중지(PAUSED) 회차의 중지 사유. 그 밖은 null", nullable = true)
+		String pauseReason
 	) {
 
 		public static Schedule from(PerformanceSchedule schedule) {
 			return new Schedule(schedule.getId(), schedule.getStartAt(), schedule.getStatus(),
-				schedule.getSeatsGeneratedAt());
+				schedule.getSeatsGeneratedAt(), schedule.getPauseReason());
 		}
+	}
+
+	/** 판매 일시 중지(SLR-26)·재개(SLR-27) 결과. 두 목록은 공연 일시가 빠른 순(같으면 회차 번호순)이다. */
+	@Schema(name = "SellerPerformanceScheduleSaleChanged", description = "회차 판매 일시 중지·재개 결과")
+	public record ScheduleSaleChanged(
+		@Schema(description = "공연 번호")
+		Long performanceId,
+		@Schema(description = "상태를 바꾼 회차 번호")
+		List<Long> changedScheduleIds,
+		@Schema(description = "바꾸지 않고 건너뛴 회차")
+		List<SkippedSchedule> skipped
+	) {
+	}
+
+	@Schema(name = "SellerPerformanceSkippedSchedule", description = "건너뛴 회차")
+	public record SkippedSchedule(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "건너뛴 이유", example = "ALREADY_PAUSED")
+		SkipReason reason
+	) {
+	}
+
+	/** 회차를 건너뛴 이유. 겹치면 CANCELED → POSTPONED → STARTED → ALREADY_* 순으로 하나만 알린다. */
+	public enum SkipReason {
+		CANCELED, POSTPONED, STARTED, ALREADY_PAUSED, ALREADY_ON_SALE
 	}
 
 	/** 공연 공개 결과. 공개되면 고칠 수 없는 구역 설정 중 판매하지 않기로 한 구역을 함께 알려 판매자가 마지막으로 확인하게 한다. */
@@ -237,7 +265,7 @@ public class SellerPerformanceResponse {
 		Long performanceId,
 		@Schema(description = "공연 일시")
 		LocalDateTime startAt,
-		@Schema(description = "회차 판매 상태. 추가 직후에는 항상 ON_SALE", example = "ON_SALE")
+		@Schema(description = "회차 판매 상태. 아직 시작하지 않은 다른 회차가 모두 중지 상태면 PAUSED, 아니면 ON_SALE", example = "ON_SALE")
 		ScheduleStatus status,
 		@Schema(description = "판매 좌석을 바로 만들었으면 그 시각, 아니면 null", nullable = true)
 		LocalDateTime seatsGeneratedAt
