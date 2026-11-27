@@ -45,8 +45,8 @@ public class TossPaymentGateway implements PaymentGateway {
 	private static final Set<String> CANCELED_STATUSES = Set.of("PARTIAL_CANCELED", "CANCELED");
 	/** 4xx 이지만 이미 승인된 결제라서 "거절"이 아니다. 실패로 기록하지 말고 승인 중으로 남겨 조회로 확정한다. */
 	private static final Set<String> ALREADY_APPROVED_CODES = Set.of("ALREADY_PROCESSED_PAYMENT");
-	private static final String LOOKUP_PATH = "/v1/payments/orders/{orderId}";
-	/** 조회한 주문이 토스에 없다. 결제창을 열기만 하고 인증하지 않은 결제 등이다. */
+	private static final String LOOKUP_PATH = "/v1/payments/{paymentKey}";
+	/** 조회한 결제가 토스에 없다. 사용자가 없는 결제 키를 보낸 경우 등이다. */
 	private static final String LOOKUP_NOT_FOUND_CODE = "NOT_FOUND_PAYMENT";
 	/**
 	 * 돈이 나가지 않았고 앞으로도 나가지 않는 상태. 승인 실패(ABORTED), 시간 만료(EXPIRED), 취소됨(CANCELED)이다.
@@ -121,23 +121,24 @@ public class TossPaymentGateway implements PaymentGateway {
 	}
 
 	/**
-	 * 주문 ID 로 결제를 조회한다. (GET /v1/payments/orders/{orderId}) 승인 요청의 응답을 받지 못한 결제의 결과를 확인하는 용도다.
+	 * 결제 키로 결제를 조회한다. (GET /v1/payments/{paymentKey}) 승인 요청의 응답을 받지 못한 결제의 결과를 확인하는 용도다.
 	 * 토스 문서도 "응답을 못 받았다면 결과를 추측하지 말고 결제 조회로 status 를 먼저 확인하라"고 안내한다.
+	 * 주문 ID 조회(GET /v1/payments/orders/{orderId})를 쓰지 않는 이유: 토스는 결제위젯 시크릿 키(test_gsk_, live_gsk_)로
+	 * 그 API 를 부를 수 없다고 안내하고, 결제 키 조회는 이 키의 사용 범위에 넣어 두었다.
 	 *
 	 * 결과를 나누는 기준은 돈이 나갔는지다. 모르면 모른다고 답해서 호출한 쪽이 결제를 그대로 두게 한다.
+	 *   - 조회된 결제의 주문 ID 가 orderId 와 다름: 사용자가 다른 주문의 키를 보낸 것이다. 이 주문은 나가지 않았다.
 	 *   - DONE: 돈이 나갔다.
 	 *   - 조회되는 결제가 없음(404 NOT_FOUND_PAYMENT), ABORTED·EXPIRED·CANCELED: 나가지 않았고 앞으로도 나가지 않는다.
 	 *   - 그 밖의 상태(READY, IN_PROGRESS, WAITING_FOR_DEPOSIT, PARTIAL_CANCELED 등)와 읽을 수 없는 응답: 아직 모른다.
 	 *   - 통신 오류·시간 초과·5xx, 404 가 아닌 4xx(키 설정 문제 등): 모른다 → GatewayUnavailableException
-	 * 주문서형·결제창형 연동 키(test_gsk_, live_gsk_)로는 이 API 를 부를 수 없다고 토스가 안내한다. 그런 키면 4xx 로 거절돼
-	 * 계속 "모른다"가 되고 로그에 남으므로, 보정이 되지 않는 것을 발견할 수 있다.
 	 */
 	@Override
-	public GatewayLookup lookup(String orderId) {
+	public GatewayLookup lookup(String paymentKey, String orderId) {
 		TossPayment payment;
 		try {
 			payment = tossRestClient.get()
-				.uri(LOOKUP_PATH, orderId)
+				.uri(LOOKUP_PATH, paymentKey)
 				.header(HttpHeaders.AUTHORIZATION, authorization())
 				.retrieve()
 				.body(TossPayment.class);
@@ -153,8 +154,13 @@ public class TossPaymentGateway implements PaymentGateway {
 			throw new GatewayUnavailableException("토스 결제 조회 실패", e);
 		}
 
-		if (payment == null || payment.status() == null) {
+		if (payment == null || payment.status() == null || payment.orderId() == null) {
 			throw new GatewayUnavailableException("토스 결제 조회 응답을 읽을 수 없다");
+		}
+		if (!orderId.equals(payment.orderId())) {
+			log.error("승인 요청에 온 결제 키가 다른 주문의 것이다. 이 주문은 결제되지 않은 것으로 본다. 주문 ID: {}, 조회된 주문 ID: {}",
+				orderId, payment.orderId());
+			return GatewayLookup.notPaid();
 		}
 		if (STATUS_DONE.equals(payment.status())) {
 			if (payment.paymentKey() == null || payment.totalAmount() == null) {

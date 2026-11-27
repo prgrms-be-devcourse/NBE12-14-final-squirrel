@@ -1,7 +1,7 @@
 package com.squirrel.tickting.domain.payment.gateway;
 
 /**
- * 결제 대행사에 주문 ID 로 조회한 결과. 보정 작업이 필요한 것만 세 갈래로 나눈다.
+ * 결제 대행사에 결제 키로 조회한 결과. 보정 작업이 필요한 것만 세 갈래로 나눈다.
  *
  * @param outcome 결제됐는지, 아닌지, 아직 모르는지
  * @param payment 결제된 경우의 결제 키·수단·승인 시각. 그 밖에는 null

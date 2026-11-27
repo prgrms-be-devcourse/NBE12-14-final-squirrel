@@ -40,7 +40,11 @@ public class Payment extends CreatedTimeEntity {
 	@Column(nullable = false, length = 100)
 	private String orderId;
 
-	/** 토스 승인 후에만 생긴다. */
+	/**
+	 * 승인을 시작할 때 승인 요청에 온 값을 넣고, 승인에 성공하면 토스가 돌려준 값으로 다시 쓴다.
+	 * 승인 응답을 잃은 결제를 보정 작업이 이 키로 토스에 조회해서, 승인 성공 전에도 있어야 한다.
+	 * (결제위젯 시크릿 키로는 주문 ID 조회를 부를 수 없고 결제 키 조회만 된다)
+	 */
 	@Column(length = 200)
 	private String paymentKey;
 
@@ -72,11 +76,14 @@ public class Payment extends CreatedTimeEntity {
 	/**
 	 * 토스에 승인을 요청하기 직전에 부른다. 이 상태가 되면 같은 결제의 다른 승인 요청은 막힌다.
 	 * 결제 준비(READY) 상태에서만 시작할 수 있다.
+	 *
+	 * @param paymentKey 승인 요청에 온 결제 키. 사용자가 보낸 값이라, 보정 작업은 이 키로 조회한 결제의 주문 ID 가 이 결제의 것인지 확인한다
 	 */
-	public void startProcessing(LocalDateTime now) {
+	public void startProcessing(String paymentKey, LocalDateTime now) {
 		requireStatus(PaymentStatus.READY);
 		this.status = PaymentStatus.PROCESSING;
 		this.processingStartedAt = now;
+		this.paymentKey = paymentKey;
 	}
 
 	/**

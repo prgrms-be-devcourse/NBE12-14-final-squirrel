@@ -192,7 +192,8 @@ class TossPaymentGatewayTest {
 
 	// ---------------------------------------------------------------- 결제 조회 (보정 작업이 쓴다)
 
-	private static final String LOOKUP_URL = BASE_URL + "/v1/payments/orders/" + ORDER_ID;
+	private static final String LOOKUP_PAYMENT_KEY = "pay_key_1";
+	private static final String LOOKUP_URL = BASE_URL + "/v1/payments/" + LOOKUP_PAYMENT_KEY;
 
 	private static String paymentBody(String status) {
 		return """
@@ -202,7 +203,7 @@ class TossPaymentGatewayTest {
 	}
 
 	@Test
-	@DisplayName("결제 조회는 주문 ID 로 GET 하고 시크릿 키 인증을 달며, 승인 완료(DONE)면 결제됨과 결제 키·금액을 돌려준다")
+	@DisplayName("결제 조회는 결제 키로 GET 하고 시크릿 키 인증을 달며, 승인 완료(DONE)면 결제됨과 결제 키·금액을 돌려준다")
 	void lookupPaid() {
 		String expectedAuth = "Basic " + Base64.getEncoder().encodeToString((secretKey + ":").getBytes(StandardCharsets.UTF_8));
 		server.expect(requestTo(LOOKUP_URL))
@@ -210,13 +211,25 @@ class TossPaymentGatewayTest {
 			.andExpect(header("Authorization", expectedAuth))
 			.andRespond(withSuccess(paymentBody("DONE"), MediaType.APPLICATION_JSON));
 
-		GatewayLookup result = gateway.lookup(ORDER_ID);
+		GatewayLookup result = gateway.lookup(LOOKUP_PAYMENT_KEY, ORDER_ID);
 
 		server.verify();
 		assertThat(result.outcome()).isEqualTo(GatewayLookup.Outcome.PAID);
 		assertThat(result.amount()).isEqualTo(312000);
 		assertThat(result.payment().paymentKey()).isEqualTo("pay_key_1");
 		assertThat(result.payment().method()).isEqualTo("카드");
+	}
+
+	@Test
+	@DisplayName("결제 키로 조회한 결제가 다른 주문의 것이면 승인 완료여도 이 주문은 결제 안 됨이다 (사용자가 보낸 키를 믿지 않는다)")
+	void lookupOtherOrderIsNotPaid() {
+		server.expect(requestTo(LOOKUP_URL)).andRespond(withSuccess("""
+			{"paymentKey":"pay_key_1","orderId":"BK_OTHER-01","status":"DONE","method":"카드",
+			 "approvedAt":"2026-11-25T20:05:12+09:00","totalAmount":312000}
+			""", MediaType.APPLICATION_JSON));
+
+		assertThat(gateway.lookup(LOOKUP_PAYMENT_KEY, ORDER_ID).outcome()).isEqualTo(GatewayLookup.Outcome.NOT_PAID);
+		server.verify();
 	}
 
 	@Test
@@ -230,7 +243,7 @@ class TossPaymentGatewayTest {
 		}
 
 		for (int i = 0; i < 4; i++) {
-			assertThat(gateway.lookup(ORDER_ID).outcome()).isEqualTo(GatewayLookup.Outcome.NOT_PAID);
+			assertThat(gateway.lookup(LOOKUP_PAYMENT_KEY, ORDER_ID).outcome()).isEqualTo(GatewayLookup.Outcome.NOT_PAID);
 		}
 		server.verify();
 	}
@@ -244,7 +257,7 @@ class TossPaymentGatewayTest {
 		}
 
 		for (int i = 0; i < statuses.length; i++) {
-			assertThat(gateway.lookup(ORDER_ID).outcome()).isEqualTo(GatewayLookup.Outcome.UNDECIDED);
+			assertThat(gateway.lookup(LOOKUP_PAYMENT_KEY, ORDER_ID).outcome()).isEqualTo(GatewayLookup.Outcome.UNDECIDED);
 		}
 		server.verify();
 	}
@@ -264,7 +277,7 @@ class TossPaymentGatewayTest {
 			.andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.TEXT_PLAIN).body("not json"));
 
 		for (int i = 0; i < 4; i++) {
-			assertThatThrownBy(() -> gateway.lookup(ORDER_ID)).isInstanceOf(GatewayUnavailableException.class);
+			assertThatThrownBy(() -> gateway.lookup(LOOKUP_PAYMENT_KEY, ORDER_ID)).isInstanceOf(GatewayUnavailableException.class);
 		}
 	}
 
@@ -275,6 +288,6 @@ class TossPaymentGatewayTest {
 			{"orderId":"%s","status":"DONE","method":"카드"}
 			""".formatted(ORDER_ID), MediaType.APPLICATION_JSON));
 
-		assertThatThrownBy(() -> gateway.lookup(ORDER_ID)).isInstanceOf(GatewayUnavailableException.class);
+		assertThatThrownBy(() -> gateway.lookup(LOOKUP_PAYMENT_KEY, ORDER_ID)).isInstanceOf(GatewayUnavailableException.class);
 	}
 }
