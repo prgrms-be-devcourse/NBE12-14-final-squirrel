@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -53,14 +54,15 @@ public class SellerInvitationService {
 	}
 
 	/**
-	 * 초대를 만든다. 이미 판매자 계정이 있는 이메일(비활성 담당자, 다른 회사 계정 포함)이면 EMAIL_DUPLICATED.
-	 * 가입 단계까지 가서 실패하면 담당자만 헤매게 되므로 초대할 때 막는다.
+	 * 초대를 만든다. 그 이메일의 사용 중(활성) 판매자 계정이 있으면(어느 회사든) EMAIL_DUPLICATED.
+	 * 활성 계정은 이메일당 하나라서 가입 단계까지 가도 실패하므로, 담당자가 헤매지 않게 초대할 때 막는다.
+	 * 비활성 계정만 있으면 초대할 수 있다. 같은 회사의 비활성 계정이면 가입할 때 그 계정을 되살린다.
 	 * 같은 회사가 같은 이메일로 보낸 쓰지 않은 초대는 무효로 만들어서, 가장 최근 링크만 살아 있다.
 	 */
 	@Transactional
 	public Issued invite(Long businessId, Long inviterId, String rawEmail, LocalDateTime now, Duration linkTtl) {
 		String email = EmailUtil.normalize(rawEmail);
-		if (sellerMemberRepository.existsByEmailAndDeletedAtIsNull(email)) {
+		if (sellerMemberRepository.existsByEmailAndStatusAndDeletedAtIsNull(email, SellerMemberStatus.ACTIVE)) {
 			throw new BusinessException(SellerExceptionCode.EMAIL_DUPLICATED);
 		}
 		SellerBusiness business = sellerBusinessRepository.findById(businessId).orElseThrow();
@@ -92,10 +94,11 @@ public class SellerInvitationService {
 	}
 
 	/**
-	 * 초대 링크로 담당자 계정을 만든다. 확인 순서: 비밀번호 확인(400 AUTH005) → 링크(400 SELLER008) → 이메일 중복(409 SELLER000).
-	 * 링크 사용 기록과 계정 생성이 한 트랜잭션이라, 계정을 만들지 못하면 링크도 소모되지 않는다.
-	 * 같은 링크로 동시에 가입하면 markUsed 의 조건이 한 요청만 통과시킨다. 다른 회사의 초대로 같은 이메일 계정이 동시에 생기면
-	 * 확인을 함께 통과해도 uq_seller_email 이 막고 SELLER000 으로 바뀐다. (UniqueConstraintCodes)
+	 * 초대 링크로 담당자 계정을 만든다. 확인 순서: 비밀번호 확인(400 AUTH005) → 링크(400 SELLER008) → 활성 계정 중복(409 SELLER000).
+	 * 같은 회사에 그 이메일의 비활성 계정이 있으면 새로 만들지 않고 그 계정을 새 비밀번호·이름·휴대폰으로 되살린다. (같은 회사 안에서는 이메일당 계정 하나)
+	 * 링크 사용 기록과 계정 생성·재활성화가 한 트랜잭션이라, 실패하면 링크도 소모되지 않는다.
+	 * 같은 링크로 동시에 가입하면 markUsed 의 조건이 한 요청만 통과시킨다. 다른 회사에서 같은 이메일 계정이 동시에 활성화되면
+	 * 확인을 함께 통과해도 uq_seller_email_active 가 막고 SELLER000 으로 바뀐다. (UniqueConstraintCodes)
 	 */
 	@Transactional
 	public SellerInvitationResponse.Accepted accept(SellerInvitationRequest.Accept request) {
@@ -106,22 +109,34 @@ public class SellerInvitationService {
 		LocalDateTime now = now();
 		SellerInvitation invitation = sellerInvitationRepository.findUsableByToken(sha256(request.token()), now)
 			.orElseThrow(() -> new BusinessException(SellerExceptionCode.INVITATION_INVALID));
-		if (sellerMemberRepository.existsByEmailAndDeletedAtIsNull(invitation.getEmail())) {
+		String email = invitation.getEmail();
+		Long businessId = invitation.getBusiness().getId();
+		if (sellerMemberRepository.existsByEmailAndStatusAndDeletedAtIsNull(email, SellerMemberStatus.ACTIVE)) {
 			throw new BusinessException(SellerExceptionCode.EMAIL_DUPLICATED);
 		}
 		if (sellerInvitationRepository.markUsed(invitation.getId(), now) == 0) {
 			throw new BusinessException(SellerExceptionCode.INVITATION_INVALID);
 		}
+		String password = passwordEncoder.encode(request.password());
+		Optional<SellerMember> sameBusiness = sellerMemberRepository.findByBusinessIdAndEmailAndDeletedAtIsNull(businessId, email);
+		if (sameBusiness.isPresent()) {
+			Long memberId = sameBusiness.get().getId();
+			// 활성 계정이 없다고 확인했으니 이 계정은 비활성이다. 0행이면 그 사이 대표가 복구해서 이미 활성이 된 것이다
+			if (sellerMemberRepository.reactivateWithProfile(memberId, password, request.name(), request.phone(), now) == 0) {
+				throw new BusinessException(SellerExceptionCode.EMAIL_DUPLICATED);
+			}
+			return SellerInvitationResponse.Accepted.from(sellerMemberRepository.findById(memberId).orElseThrow(), true);
+		}
 		SellerMember member = sellerMemberRepository.save(SellerMember.builder()
-			.business(sellerBusinessRepository.getReferenceById(invitation.getBusiness().getId()))
-			.email(invitation.getEmail())
-			.password(passwordEncoder.encode(request.password()))
+			.business(sellerBusinessRepository.getReferenceById(businessId))
+			.email(email)
+			.password(password)
 			.name(request.name())
 			.phone(request.phone())
 			.role(SellerRole.STAFF)
 			.status(SellerMemberStatus.ACTIVE)
 			.build());
-		return SellerInvitationResponse.Accepted.from(member);
+		return SellerInvitationResponse.Accepted.from(member, false);
 	}
 
 	private LocalDateTime now() {

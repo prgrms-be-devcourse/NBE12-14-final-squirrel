@@ -57,11 +57,14 @@ public final class SellerInvitationResponse {
 		String email,
 
 		@Schema(description = "소속 회사 이름", example = "(주)가상기획")
-		String companyName
+		String companyName,
+
+		@Schema(description = "같은 회사의 비활성 계정을 다시 사용했으면 true, 새로 만들었으면 false", example = "false")
+		boolean reactivated
 	) {
 
-		public static Accepted from(SellerMember member) {
-			return new Accepted(member.getId(), member.getEmail(), member.getBusiness().getCompanyName());
+		public static Accepted from(SellerMember member, boolean reactivated) {
+			return new Accepted(member.getId(), member.getEmail(), member.getBusiness().getCompanyName(), reactivated);
 		}
 	}
 }

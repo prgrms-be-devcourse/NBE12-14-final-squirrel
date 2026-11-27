@@ -28,7 +28,9 @@ public final class UniqueConstraintCodes {
 	private enum Constraint {
 
 		USER_EMAIL("uq_user_email", UserExceptionCode.EMAIL_DUPLICATED),
-		SELLER_EMAIL("uq_seller_email", SellerExceptionCode.EMAIL_DUPLICATED),
+		// 판매자 이메일: 활성 계정은 이메일당 하나, 같은 회사 안에서는 이메일당 하나 (V24)
+		SELLER_EMAIL_ACTIVE("uq_seller_email_active", SellerExceptionCode.EMAIL_DUPLICATED),
+		SELLER_BUSINESS_EMAIL("uq_seller_business_email", SellerExceptionCode.EMAIL_DUPLICATED),
 		SELLER_BUSINESS_NUMBER("uq_seller_business_number", SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED),
 		SEAT_GRADE_NAME("uq_seat_grade_performance_name", PerformanceExceptionCode.GRADE_NAME_DUPLICATED),
 		CANCEL_POLICY_NAME("uq_cancel_policy_business_name", PerformanceExceptionCode.CANCEL_POLICY_NAME_DUPLICATED),		// 락이 뚫려 같은 좌석이 두 번 예매되려 할 때 DB 가 마지막으로 막는다. 사용자에게는 "이미 선택된 좌석"으로 알린다.

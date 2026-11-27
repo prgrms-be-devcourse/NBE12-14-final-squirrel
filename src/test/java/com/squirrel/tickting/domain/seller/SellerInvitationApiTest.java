@@ -44,32 +44,46 @@ class SellerInvitationApiTest extends IntegrationTestSupport {
 
 	private Long businessId;
 	private Long ownerId;
+	/** 담당자가 회사를 옮기는 경우를 보려는 다른 회사 */
+	private Long otherBusinessId;
 
 	@BeforeEach
 	void insertBusiness() {
 		emailClock.setNow(NOW);
-		businessId = jdbc.queryForObject("""
-			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone, contact_email,
-			                             terms_agreed_at, status, created_at, updated_at)
-			VALUES (?, '김대표', '8970000001', '01011112222', 'contact-invite@example.com', NOW(), 'APPROVED', NOW(), NOW())
-			RETURNING id
-			""", Long.class, COMPANY);
+		businessId = insertBusiness(COMPANY, "8970000001");
+		otherBusinessId = insertBusiness("(주)다른회사", "8970000002");
 		ownerId = insertMember("owner-invite@example.com", "OWNER", "ACTIVE");
 	}
 
 	@AfterEach
 	void deleteInsertedRows() {
-		jdbc.update("DELETE FROM seller_invitation WHERE business_id = ?", businessId);
-		jdbc.update("DELETE FROM seller_member WHERE business_id = ?", businessId);
-		jdbc.update("DELETE FROM seller_business WHERE id = ?", businessId);
+		for (Long id : List.of(businessId, otherBusinessId)) {
+			jdbc.update("DELETE FROM seller_invitation WHERE business_id = ?", id);
+			jdbc.update("DELETE FROM seller_member WHERE business_id = ?", id);
+			jdbc.update("DELETE FROM seller_business WHERE id = ?", id);
+		}
+	}
+
+	private Long insertBusiness(String companyName, String businessNumber) {
+		return jdbc.queryForObject("""
+			INSERT INTO seller_business (company_name, representative_name, business_number, contact_phone, contact_email,
+			                             terms_agreed_at, status, created_at, updated_at)
+			VALUES (?, '김대표', ?, '01011112222', 'contact-invite@example.com', NOW(), 'APPROVED', NOW(), NOW())
+			RETURNING id
+			""", Long.class, companyName, businessNumber);
 	}
 
 	private Long insertMember(String email, String role, String status) {
+		return insertMember(businessId, email, role, status);
+	}
+
+	/** 비밀번호는 로그인에 쓸 수 없는 값이라, 이 계정으로는 로그인이 되지 않는다. */
+	private Long insertMember(Long business, String email, String role, String status) {
 		return jdbc.queryForObject("""
 			INSERT INTO seller_member (business_id, email, password, name, phone, role, status, created_at, updated_at)
 			VALUES (?, ?, 'not-used', '테스트', '01033334444', ?, ?, NOW(), NOW())
 			RETURNING id
-			""", Long.class, businessId, email, role, status);
+			""", Long.class, business, email, role, status);
 	}
 
 	private Cookie ownerSession() {
@@ -127,9 +141,9 @@ class SellerInvitationApiTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	@DisplayName("이미 판매자 계정이 있는 이메일(비활성 담당자 포함)은 409 SELLER000 이고 초대·메일이 생기지 않는다")
-	void existingSellerEmailIsRejected() throws Exception {
-		insertMember(STAFF_EMAIL, "STAFF", "INACTIVE");
+	@DisplayName("그 이메일의 활성 계정이 다른 회사에 있으면 409 SELLER000 이고 초대·메일이 생기지 않는다")
+	void activeEmailInOtherBusinessIsRejected() throws Exception {
+		insertMember(otherBusinessId, STAFF_EMAIL, "STAFF", "ACTIVE");
 
 		invite(ownerSession(), STAFF_EMAIL)
 			.andExpect(status().isConflict())
@@ -279,5 +293,48 @@ class SellerInvitationApiTest extends IntegrationTestSupport {
 
 		assertThat(invitations(STAFF_EMAIL).getFirst()).containsEntry("used_at", null);
 		assertThat(staffCount()).isOne();
+	}
+
+	private ResultActions login(String email) throws Exception {
+		return mockMvc.perform(post("/api/v2/auth/sellers/login")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"email\": \"" + email + "\", \"password\": \"" + PASSWORD + "\"}"));
+	}
+
+	@Test
+	@DisplayName("같은 회사의 비활성 담당자를 다시 초대하면, 가입할 때 새 계정이 아니라 그 계정이 새 비밀번호·이름으로 되살아난다")
+	void reinvitedInactiveStaffIsReactivated() throws Exception {
+		Long inactiveId = insertMember(STAFF_EMAIL, "STAFF", "INACTIVE");
+
+		String token = invitedToken();
+		accept(token)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.memberId").value(inactiveId))
+			.andExpect(jsonPath("$.data.reactivated").value(true));
+
+		assertThat(staffCount()).isOne();
+		assertThat(jdbc.queryForMap("SELECT status, name, phone FROM seller_member WHERE id = ?", inactiveId))
+			.containsEntry("status", "ACTIVE").containsEntry("name", "이담당").containsEntry("phone", "01055556666");
+		login(STAFF_EMAIL).andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("STAFF"));
+	}
+
+	@Test
+	@DisplayName("다른 회사에서 비활성화된 사람은 이 회사 초대로 새 계정이 생기고, 로그인은 새 회사의 활성 계정으로 된다")
+	void staffMovedFromOtherBusinessGetsNewAccount() throws Exception {
+		Long oldId = insertMember(otherBusinessId, STAFF_EMAIL, "STAFF", "INACTIVE");
+
+		String token = invitedToken();
+		accept(token)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.reactivated").value(false))
+			.andExpect(jsonPath("$.data.companyName").value(COMPANY));
+
+		assertThat(jdbc.queryForObject("SELECT status FROM seller_member WHERE id = ?", String.class, oldId))
+			.isEqualTo("INACTIVE");
+		assertThat(jdbc.queryForObject(
+			"SELECT business_id FROM seller_member WHERE email = ? AND status = 'ACTIVE'", Long.class, STAFF_EMAIL))
+			.isEqualTo(businessId);
+		// 옛 계정의 비밀번호로는 로그인할 수 없어서, 성공했다면 새 계정으로 로그인한 것이다
+		login(STAFF_EMAIL).andExpect(status().isOk());
 	}
 }

@@ -15,6 +15,7 @@ import com.squirrel.tickting.global.security.CustomUserDetails;
 import com.squirrel.tickting.global.security.PasswordVerifier;
 import com.squirrel.tickting.global.util.EmailUtil;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -31,12 +32,13 @@ public class SellerMemberService {
 	private final PasswordVerifier passwordVerifier;
 
 	/**
-	 * 가입 전 이메일 인증번호를 보내도 되는 이메일인지 확인한다. 이미 가입한(탈퇴하지 않은) 판매자 이메일이면 EMAIL_DUPLICATED.
-	 * 가입 API 의 중복 확인과 같은 기준이다. 가입한 이메일로 번호를 보내 봐야 가입할 수 없어서 미리 막는다.
+	 * 가입 전 이메일 인증번호를 보내도 되는 이메일인지 확인한다. 그 이메일의 사용 중(활성) 판매자 계정이 있으면 EMAIL_DUPLICATED.
+	 * 가입 API 의 중복 확인과 같은 기준이다. 가입할 수 없는 이메일로 번호를 보내 봐야 소용없어서 미리 막는다.
+	 * 다른 회사에서 비활성화된 계정만 있으면 새 회사로 가입할 수 있다. (활성 계정은 이메일당 하나, uq_seller_email_active)
 	 */
 	@Transactional(readOnly = true)
 	public void requireEmailNotTaken(String normalizedEmail) {
-		if (sellerMemberRepository.existsByEmailAndDeletedAtIsNull(normalizedEmail)) {
+		if (sellerMemberRepository.existsByEmailAndStatusAndDeletedAtIsNull(normalizedEmail, SellerMemberStatus.ACTIVE)) {
 			throw new BusinessException(SellerExceptionCode.EMAIL_DUPLICATED);
 		}
 	}
@@ -58,7 +60,7 @@ public class SellerMemberService {
 		if (sellerBusinessRepository.existsByBusinessNumber(command.businessNumber())) {
 			throw new BusinessException(SellerExceptionCode.BUSINESS_NUMBER_DUPLICATED);
 		}
-		if (sellerMemberRepository.existsByEmailAndDeletedAtIsNull(email)) {
+		if (sellerMemberRepository.existsByEmailAndStatusAndDeletedAtIsNull(email, SellerMemberStatus.ACTIVE)) {
 			throw new BusinessException(SellerExceptionCode.EMAIL_DUPLICATED);
 		}
 
@@ -89,16 +91,21 @@ public class SellerMemberService {
 	 * 비밀번호가 맞은 뒤에만 계정·사업체 상태를 알려 준다. (틀린 사람에게 사업체 상태를 노출하지 않는다)
 	 * 트랜잭션을 걸지 않는다. 걸면 BCrypt 비교(수십 ms, 로그인이 몰리면 수 초) 동안 DB 연결을 쥐고 있어서 풀이 바닥나고 다른 API 까지 멈춘다.
 	 * 사업체는 조회할 때 JOIN FETCH 로 함께 읽어서 트랜잭션이 끝난 뒤 꺼내도 지연 로딩 오류가 나지 않는다. (조회를 바꾸면 이 점을 지킨다)
+	 * 같은 이메일의 계정이 회사마다 있으면 활성 계정으로 로그인한다. 활성 계정이 없으면 가장 최근 계정으로 확인해서 "비활성화된 계정"으로 답한다.
 	 */
 	public CustomUserDetails login(String rawEmail, String rawPassword) {
-		SellerMember member = sellerMemberRepository.findForLoginByEmail(EmailUtil.normalize(rawEmail))
-			.orElse(null);
+		SellerMember member = representative(EmailUtil.normalize(rawEmail)).orElse(null);
 
 		if (!passwordVerifier.matches(rawPassword, member == null ? null : member.getPassword())) {
 			throw new BusinessException(AuthExceptionCode.INVALID_CREDENTIALS);
 		}
 		requireLoginable(member);
 		return toAccount(member);
+	}
+
+	/** 이메일로 로그인·비밀번호 재설정에 쓸 계정 하나. 활성 계정이 먼저이고, 없으면 가장 최근 계정이다. */
+	private Optional<SellerMember> representative(String normalizedEmail) {
+		return sellerMemberRepository.findAccountsByEmail(normalizedEmail).stream().findFirst();
 	}
 
 	private void requireLoginable(SellerMember member) {
@@ -122,10 +129,11 @@ public class SellerMemberService {
 	/**
 	 * 비밀번호 재설정 메일을 받을 수 있는 판매자 계정(대표·담당자)을 읽는다. 삭제됐거나 없으면 PASSWORD_RESET_EMAIL_NOT_FOUND.
 	 * 계정·사업체 상태와 무관하게 허용한다. 승인 대기 중인 대표가 비밀번호를 잊어도 방법이 있어야 하고, 로그인 차단은 로그인이 그대로 맡는다.
+	 * 같은 이메일의 계정이 회사마다 있으면 로그인과 같은 계정(활성 계정, 없으면 가장 최근 계정)의 비밀번호를 바꾼다.
 	 */
 	@Transactional(readOnly = true)
 	public SellerMember getPasswordResetTarget(String rawEmail) {
-		return sellerMemberRepository.findByEmailAndDeletedAtIsNull(EmailUtil.normalize(rawEmail))
+		return representative(EmailUtil.normalize(rawEmail))
 			.orElseThrow(() -> new BusinessException(AuthExceptionCode.PASSWORD_RESET_EMAIL_NOT_FOUND,
 				"판매자 계정으로 가입된 이메일이 아닙니다."));
 	}
