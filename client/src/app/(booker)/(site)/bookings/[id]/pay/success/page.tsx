@@ -8,13 +8,14 @@ import { ApiError, api } from "@/lib/api";
 import { clearBooking, loadBooking } from "@/lib/booking-cache";
 import { dateTimeText, won } from "@/lib/format";
 import type { BookingDetail, PaymentConfirmed } from "@/lib/types";
-import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
+import { SALE_PAUSED_CODE, SCHEDULE_POSTPONED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Loading } from "@/components/ui";
 
 type Failure = { code: string; message: string };
 
 // 결제 결과를 모르는(502) 경우와 이미 처리된(409) 경우는 다시 결제하면 안 된다.
-const NO_RETRY_CODES = new Set(["PAYMENT006", "PAYMENT003"]);
+// 일정이 바뀌기 전에 만든 예매는 다시 눌러도 결제할 수 없다.
+const NO_RETRY_CODES = new Set(["PAYMENT006", "PAYMENT003", SCHEDULE_POSTPONED_CODE]);
 
 export default function PaySuccessPage() {
   const { id } = useRouteParams<{ id: string }>("/bookings/[id]/pay/success");
@@ -22,8 +23,8 @@ export default function PaySuccessPage() {
   const params = useSearchParams();
   const [failure, setFailure] = useState<Failure | null>(null);
   const [done, setDone] = useState<PaymentConfirmed | null>(null);
-  // 판매 중지로 승인이 거절되면 보낼 공연 번호
-  const [pausedPerformanceId, setPausedPerformanceId] = useState<number | null>(null);
+  // 판매 중지·연기로 승인이 거절되면 보낼 공연 번호
+  const [blockedPerformanceId, setBlockedPerformanceId] = useState<number | null>(null);
   // 개발 모드(StrictMode)에서 효과가 두 번 돌아도 승인은 한 번만 보낸다. 새로고침으로 다시 오면 서버가 409 로 막는다.
   const started = useRef(false);
 
@@ -51,13 +52,13 @@ export default function PaySuccessPage() {
           router.push("/login");
           return;
         }
-        if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
+        if (error instanceof ApiError && (error.code === SALE_PAUSED_CODE || error.code === SCHEDULE_POSTPONED_CODE)) {
           const cached = loadBooking(id);
-          if (cached) setPausedPerformanceId(cached.performanceId);
+          if (cached) setBlockedPerformanceId(cached.performanceId);
           else
             // 다른 탭에서 결제한 경우다. 읽지 못하면 아래 실패 화면이 그대로 알린다.
             api<BookingDetail>(`/api/v1/bookings/${id}`)
-              .then((booking) => setPausedPerformanceId(booking.performance.performanceId))
+              .then((booking) => setBlockedPerformanceId(booking.performance.performanceId))
               .catch(() => {});
         }
         setFailure(
@@ -111,11 +112,16 @@ export default function PaySuccessPage() {
       <p role="alert" className="text-sm text-secondary">
         {shown.message}
       </p>
-      {pausedPerformanceId !== null && (
-        <SalePausedModal href={`/performances/${pausedPerformanceId}`}>
-          결제되지 않았습니다. 좌석 점유 시간 안에 재개되면 내 예매에서 다시 결제할 수 있습니다
-        </SalePausedModal>
-      )}
+      {blockedPerformanceId !== null &&
+        (shown.code === SCHEDULE_POSTPONED_CODE ? (
+          <SalePausedModal href={`/performances/${blockedPerformanceId}`} title="공연 일정이 바뀌었습니다">
+            결제되지 않았습니다. 바뀐 일정을 확인한 뒤 다시 예매해 주세요
+          </SalePausedModal>
+        ) : (
+          <SalePausedModal href={`/performances/${blockedPerformanceId}`}>
+            결제되지 않았습니다. 좌석 점유 시간 안에 재개되면 내 예매에서 다시 결제할 수 있습니다
+          </SalePausedModal>
+        ))}
       <div className="flex justify-center gap-2">
         <Link href="/bookings" className="btn">
           내 예매 보기

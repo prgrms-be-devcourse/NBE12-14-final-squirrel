@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useApi } from "@/lib/api";
-import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, won } from "@/lib/format";
+import { BOOKING_BADGE, BOOKING_LABEL, scheduleText, won } from "@/lib/format";
 import type { BookingStatus, BookingSummary, Page } from "@/lib/types";
 import { Empty, ErrorBox, Loading, PageTitle, Pagination, Poster } from "@/components/ui";
 
@@ -73,7 +73,7 @@ export default function BookingsPage() {
                     </div>
                     <p className="mt-1 truncate font-medium">{b.performanceTitle}</p>
                     <p className="text-sm text-muted">
-                      {dateTimeText(b.scheduleStartAt)} · {b.seatCount}매
+                      {scheduleText(b.scheduleStartAt, b.scheduleStatus)} · {b.seatCount}매
                     </p>
                   </div>
                   <p className="self-center text-sm font-medium">{won(b.totalAmount)}</p>

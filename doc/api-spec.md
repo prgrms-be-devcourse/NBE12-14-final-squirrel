@@ -116,8 +116,8 @@
 | SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
 | SLR-26 | 회차 판매 일시 중지 | POST `/api/v1/seller/performances/{performanceId}/schedules/pause` | 구현됨 |
 | SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
-| SLR-28 | 회차 연기 | POST `/api/v1/seller/schedules/{scheduleId}/postpone` | 구현됨 (화면 전) |
-| SLR-29 | 연기 회차 새 일정 확정 | POST `/api/v1/seller/schedules/{scheduleId}/postpone/confirm` | 구현됨 (화면 전) |
+| SLR-28 | 회차 연기 | POST `/api/v1/seller/schedules/{scheduleId}/postpone` | 구현됨 |
+| SLR-29 | 연기 회차 새 일정 확정 | POST `/api/v1/seller/schedules/{scheduleId}/postpone/confirm` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -1238,7 +1238,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 
 **판매 일시 중지 (2026-11-27)**: 아직 시작하지 않았고 판매 종료 전인 회차가 일시 중지면 409 `BOOKING012` "판매가 일시 중지된 회차입니다."입니다. 대기열 입장(`doc/queue-design.md`)도 같습니다. 판매가 끝났거나 시작한 회차는 `BOOKING002`입니다. 화면은 `BOOKING012`를 받으면 알림 창을 띄우고 확인하면 공연 상세로 보냅니다.
 
-**회차 연기 (2026-11-27)**: 일정 미정(`POSTPONED`) 회차는 409 `BOOKING013` "연기된 회차라 지금은 예매할 수 없습니다."이고 대기열 입장도 같습니다. 날짜를 바꿔 연기한 회차는 판매 상태 그대로라 점유할 수 있습니다. 화면의 `BOOKING013` 알림 창은 아직 없습니다(다음 PR).
+**회차 연기 (2026-11-27)**: 일정 미정(`POSTPONED`) 회차는 409 `BOOKING013` "연기된 회차라 지금은 예매할 수 없습니다."이고 대기열 입장도 같습니다. 날짜를 바꿔 연기한 회차는 판매 상태 그대로라 점유할 수 있습니다. 화면은 `BOOKING013`을 받거나 일정 미정 회차에 들어오면 "연기" 알림 창을 띄우고 확인하면 공연 상세로 보냅니다.
 
 ### BKG-02 결제 준비 — `POST /api/v1/bookings/{bookingId}/payments` (예매자)
 
@@ -2472,7 +2472,7 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 - 사용이 중지된 공연장의 회차도 재개할 수 있습니다.
 - 감사 로그: `SCHEDULE` / `RESUME`, 변경 전 `performanceId`·`status`·`reason`(중지 사유), 변경 후 `performanceId`·`status`.
 
-### SLR-28 회차 연기 — `POST /api/v1/seller/schedules/{scheduleId}/postpone` (구현됨, 화면 전)
+### SLR-28 회차 연기 — `POST /api/v1/seller/schedules/{scheduleId}/postpone` (구현됨)
 
 이미 표를 산 사람이 있는 회차의 날짜를 바꿉니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 다른 사업체의 회차는 없는 회차와 같은 404 `PERFORMANCE008`입니다. (2026-11-27)
 
@@ -2556,7 +2556,7 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 - 커밋 뒤 공연 상세 저장분을 지웁니다. 대기열의 회차 상태 기억은 최대 10초 늦습니다.
 - 감사 로그: `SCHEDULE` / `POSTPONE`. 변경 전 `performanceId`·`status`·`startAt`, 변경 후 `performanceId`·`status`·`startAt`(미정이면 `null`)·`reason`·`freeCancelUntil`(미정이면 `null`). 이력 저장과 한 트랜잭션입니다.
 
-### SLR-29 연기 회차 새 일정 확정 — `POST /api/v1/seller/schedules/{scheduleId}/postpone/confirm` (구현됨, 화면 전)
+### SLR-29 연기 회차 새 일정 확정 — `POST /api/v1/seller/schedules/{scheduleId}/postpone/confirm` (구현됨)
 
 일정 미정(`POSTPONED`) 회차의 새 일시를 정하고 **판매 중(`ON_SALE`)**으로 바꿉니다. 중지한 상태에서 연기했어도 판매가 열립니다. 권한·404·락·응답 모양은 SLR-28과 같습니다.
 

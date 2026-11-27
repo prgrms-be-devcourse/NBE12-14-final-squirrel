@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, useApi } from "@/lib/api";
-import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won } from "@/lib/format";
+import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won, scheduleText } from "@/lib/format";
 import type { BookingDetail, CancelResult } from "@/lib/types";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
@@ -87,7 +87,7 @@ export default function BookingDetailPage() {
               <span className="text-xs text-muted">{b.bookingNo}</span>
             </div>
             <h1 className="mt-4 text-2xl leading-snug font-semibold">{b.performance.title}</h1>
-            <p className="mt-1 text-sm text-secondary">{dateTimeText(b.schedule.startAt)}</p>
+            <p className="mt-1 text-sm text-secondary">{scheduleText(b.schedule.startAt, b.schedule.status)}</p>
           </>
         }
         stub={
@@ -175,7 +175,11 @@ export default function BookingDetailPage() {
           {b.cancelable ? (
             <>
               <p className="text-sm text-muted">
-                지금 취소하면 티켓 금액의 {b.currentFeeRate}%가 수수료로 차감됩니다. 예매 수수료는 환불됩니다.
+                {b.postponeFreeCancel
+                  ? `공연이 연기되어 ${
+                      b.postponeFreeCancel.until ? `${dateTimeText(b.postponeFreeCancel.until)}까지` : "일정 확정 전까지"
+                    } 수수료 없이 취소할 수 있습니다. 예매 수수료도 환불됩니다.`
+                  : `지금 취소하면 티켓 금액의 ${b.currentFeeRate}%가 수수료로 차감됩니다. 예매 수수료는 환불됩니다.`}
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
