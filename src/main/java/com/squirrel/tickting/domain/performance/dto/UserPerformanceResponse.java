@@ -218,7 +218,7 @@ public class UserPerformanceResponse {
 		LocalDateTime startAt,
 		@Schema(description = "회차 상태. PAUSED(일시 중지)·POSTPONED(연기)면 화면은 판매 상태보다 이 값을 먼저 보여 준다")
 		ScheduleStatus status,
-		@Schema(description = "판매 상태 (계산값). 판매 기간·회차 시작 일시·남은 좌석으로만 정한다")
+		@Schema(description = "판매 상태 (계산값). 판매 기간·회차 시작 일시·일시 중지 여부·남은 좌석으로 정한다")
 		SaleStatus saleStatus
 	) {
 

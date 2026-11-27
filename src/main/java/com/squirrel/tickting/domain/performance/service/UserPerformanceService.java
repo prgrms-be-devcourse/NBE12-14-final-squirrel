@@ -53,7 +53,8 @@ public class UserPerformanceService {
 	 * 응답에 쓰는 값은 쿼리 한 번(과 개수 쿼리)으로 읽는다. 첫·마지막 회차 일시와 남은 좌석 여부는 쿼리 안에서 계산하고,
 	 * 판매 상태만 여기서 현재 시각으로 계산한다. (공연·회차 엔티티를 읽지 않아서 지연 로딩 쿼리도 없다)
 	 *   - 취소된 회차는 공연 일시에서 뺀다. 회차가 전부 취소된 공연은 일시가 비고(null) 판매 상태가 종료다.
-	 *   - 매진 판단은 아직 시작하지 않은 회차의 AVAILABLE 좌석만 본다. 임시 점유(HELD)만 남았으면 지금은 살 수 없으니 매진이고,
+	 *   - 아직 시작하지 않은 회차에 일시 중지는 있고 판매 중은 없으면 일시 중지다.
+	 *   - 매진 판단은 아직 시작하지 않은 판매 중 회차의 AVAILABLE 좌석만 본다. 임시 점유(HELD)만 남았으면 지금은 살 수 없으니 매진이고,
 	 *     점유가 풀려 AVAILABLE 로 돌아오면 다음 조회부터 다시 판매 중이 된다. (상태를 저장하지 않고 계산하므로 따로 되돌릴 일이 없다)
 	 * 현재 시각은 여기서 한 번만 구해서 남은 좌석 판단과 판매 상태 계산에 같이 쓴다.
 	 */
@@ -70,7 +71,7 @@ public class UserPerformanceService {
 			allGenres ? Genre.values()[0] : genre, allRegions, allRegions ? "" : region.trim(),
 			LikeUtil.containsPattern(keyword), now, sorted);
 		return rows.map(row -> UserPerformanceResponse.Summary.from(row, SaleStatus.of(row.saleOpenAt(),
-			row.saleCloseAt(), row.lastStartAt(), row.hasAvailableSeat(), now)));
+			row.saleCloseAt(), row.lastStartAt(), row.paused(), row.hasAvailableSeat(), now)));
 	}
 
 	/**
@@ -79,7 +80,7 @@ public class UserPerformanceService {
 	 *
 	 *   - 회차: 취소된 회차는 뺀다. 공연 목록의 첫·마지막 회차 일시와 같은 기준이다.
 	 *     판매 상태는 회차마다 목록과 같은 SaleStatus 규칙으로 계산한다. (마지막 회차 자리에 그 회차의 시작 일시)
-	 *     일시 중지·연기는 판매 상태에 섞지 않고 회차 상태(status)로 따로 보여 준다.
+	 *     일시 중지 회차는 판매 상태도 일시 중지다. 연기는 판매 상태에 섞지 않고 회차 상태(status)로 따로 보여 준다.
 	 *   - 공통 안내: 유형마다 한 행이다. 아직 넣지 않은 유형은 응답에서 null 이다.
 	 */
 	@Transactional(readOnly = true)
@@ -95,7 +96,8 @@ public class UserPerformanceService {
 		Set<Long> scheduleIdsWithSeat = new HashSet<>(userPerformanceRepository.findScheduleIdsWithAvailableSeat(performanceId));
 		List<ScheduleItem> scheduleItems = schedules.stream()
 			.map(schedule -> new ScheduleItem(schedule, SaleStatus.of(performance.getSaleOpenAt(),
-				performance.getSaleCloseAt(), schedule.getStartAt(), scheduleIdsWithSeat.contains(schedule.getId()), now)))
+				performance.getSaleCloseAt(), schedule.getStartAt(), schedule.getStatus() == ScheduleStatus.PAUSED,
+				scheduleIdsWithSeat.contains(schedule.getId()), now)))
 			.toList();
 
 		return UserPerformanceResponse.Detail.from(new Detail(

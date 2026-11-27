@@ -143,6 +143,41 @@ public class SellerPerformanceRequest {
 	) {
 	}
 
+	/** 판매 일시 중지(SLR-26) 본문. all 과 scheduleIds 중 하나만 보냈는지는 두 값의 관계라 서비스가 본다. */
+	@Schema(name = "SellerSchedulePauseRequest", description = "회차 판매 일시 중지 요청")
+	public record SchedulePause(
+
+		@Schema(description = "모든 회차를 중지하면 true. scheduleIds 와 함께 보낼 수 없다", example = "true")
+		Boolean all,
+
+		@Size(min = 1, message = "회차를 하나 이상 선택해 주세요.")
+		@Schema(description = "중지할 회차 번호. all 이 true 면 보내지 않는다", example = "[31, 33]")
+		List<@NotNull(message = "회차 번호를 입력해 주세요.") Long> scheduleIds,
+
+		@NotBlank(message = "중지 사유를 입력해 주세요.")
+		@Size(max = 255, message = "중지 사유는 255자 이하로 입력해 주세요.")
+		@Schema(description = "중지 사유. 판매자에게만 보인다", example = "좌석 점검")
+		String reason
+	) {
+
+		public SchedulePause {
+			reason = trim(reason);
+		}
+	}
+
+	/** 판매 재개(SLR-27) 본문. 대상을 고르는 방식은 중지와 같다. */
+	@Schema(name = "SellerScheduleResumeRequest", description = "회차 판매 재개 요청")
+	public record ScheduleResume(
+
+		@Schema(description = "일시 중지한 모든 회차를 재개하면 true. scheduleIds 와 함께 보낼 수 없다", example = "true")
+		Boolean all,
+
+		@Size(min = 1, message = "회차를 하나 이상 선택해 주세요.")
+		@Schema(description = "재개할 회차 번호. all 이 true 면 보내지 않는다", example = "[31, 33]")
+		List<@NotNull(message = "회차 번호를 입력해 주세요.") Long> scheduleIds
+	) {
+	}
+
 	private static String trim(String value) {
 		return value == null ? null : value.trim();
 	}

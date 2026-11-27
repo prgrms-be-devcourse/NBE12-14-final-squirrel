@@ -84,6 +84,26 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("editableStatuses") Collection<ScheduleStatus> editableStatuses, @Param("now") LocalDateTime now);
 
 	/**
+	 * 상태가 fromStatus 이고 아직 시작하지 않은 회차만 판매 상태와 중지 사유를 바꾸고 바뀐 행 수를 돌려준다. (일시 중지·재개)
+	 * 락이 듣지 않는 경우(Redis 장애·락 만료)에도 그 사이 바뀌거나 시작한 회차를 덮어쓰지 않게 하는 상태 조건부 UPDATE 다.
+	 * pauseReason 은 중지하면 사유, 재개하면 null 이다.
+	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣고, 영속성 컨텍스트는 비우지 않는다. (읽어 둔 엔티티에는 바꾸기 전 값이 남는다)
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE PerformanceSchedule s
+		   SET s.status = :toStatus,
+		       s.pauseReason = :pauseReason,
+		       s.updatedAt = :now
+		 WHERE s.id IN :scheduleIds
+		   AND s.status = :fromStatus
+		   AND s.startAt > :now
+		""")
+	int updateSaleStatus(@Param("scheduleIds") Collection<Long> scheduleIds,
+		@Param("fromStatus") ScheduleStatus fromStatus, @Param("toStatus") ScheduleStatus toStatus,
+		@Param("pauseReason") String pauseReason, @Param("now") LocalDateTime now);
+
+	/**
 	 * 이 공연의 회차 중, 주어진 공연장의 다른 회차와 시간이 겹치는 회차의 시작 일시. 빠른 순이다.
 	 * 회차가 차지하는 시간은 시작부터 러닝타임 + bufferMinutes 까지이고, 끝나는 시각과 다음 시작이 같으면 겹치지 않는다.
 	 * 이 공연의 회차는 새 러닝타임(runningTime)으로, 다른 공연의 회차는 그 공연의 러닝타임으로 계산한다.
