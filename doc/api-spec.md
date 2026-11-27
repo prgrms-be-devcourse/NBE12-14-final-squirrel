@@ -757,7 +757,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - 공개(`PUBLISHED`)된 공연만 볼 수 있습니다. 작성 중·취소된 공연은 없는 공연과 같은 404입니다.
 - `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
   - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
-  - 시작 전의 일시 중지(`PAUSED`) 회차는 판매 종료가 아니면 `saleStatus`도 `PAUSED`입니다. 연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다. 중지 사유는 예매자에게 주지 않습니다.
+  - 시작 전의 일시 중지(`PAUSED`) 회차는 판매 종료가 아니면 `saleStatus`도 `PAUSED`입니다. 연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다. `pauseReason`은 `saleStatus`가 `PAUSED`이고 판매자가 사유를 입력한 회차에만 있고 그 밖은 `null`입니다. 화면은 값이 있을 때만 회차 아래에 보여 줍니다. (2026-11-27 변경)
 - `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다. `name`은 등급 코드(SLR-08의 표)이고 화면 이름과 색은 프론트가 정합니다.
 - `cancelPolicy`: 공연이 고른 취소 규정의 구간입니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
 - `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다. `venue`·`seller`는 공연의 공연장·사업체를 읽기 전용 연관으로 꺼내므로 항상 있습니다. (행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
@@ -804,7 +804,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
         "scheduleId": 31,
         "startAt": "2026-12-20T19:00:00",
         "status": "ON_SALE",
-        "saleStatus": "UPCOMING"
+        "saleStatus": "UPCOMING",
+        "pauseReason": null
       }
     ],
     "grades": [
@@ -1663,7 +1664,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 - 로그인한 판매자 사업체의 공연만 볼 수 있습니다. 다른 사업체의 공연이거나 없는 공연은 똑같이 404 `PERFORMANCE000`입니다.
 - 작성 중(`DRAFT`)인 공연은 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)가 `null`일 수 있습니다.
 - `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다.
-- `schedules` 항목의 `pauseReason`은 일시 중지 회차의 중지 사유이고 그 밖은 `null`입니다. 재개 확인 화면에서 씁니다. 판매자에게만 주고 예매자 응답에는 넣지 않습니다.
+- `schedules` 항목의 `pauseReason`은 일시 중지 회차의 중지 사유이고 그 밖은 `null`입니다. 재개 확인 화면에서 씁니다. 예매자 공연 상세(PFM-02)에는 판매 상태가 `PAUSED`인 회차에만 같은 값을 줍니다.
 
 **응답 200**
 
@@ -2008,7 +2009,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 | 작성 중 공연 | `ON_SALE` |
 
 - 시작한 회차, 취소·연기 회차는 판단에서 뺍니다.
-- `PAUSED`로 추가한 회차의 중지 사유는 "다른 회차가 모두 중지되어 중지 상태로 추가됨"입니다. 모두 재개에 포함되고, 선택 재개는 이 회차도 골라야 합니다.
+- `PAUSED`로 추가한 회차에는 중지 사유를 넣지 않습니다. (자동으로 만든 문구가 예매자에게 보이지 않게) 모두 재개에 포함되고, 선택 재개는 이 회차도 골라야 합니다.
 - 검사 순서와 에러, 판매 좌석 즉시 생성은 그대로입니다. 감사 로그의 변경 후 값에 `status`를 더합니다.
 
 ### SLR-13 회차 수정 — `PUT /api/v1/seller/schedules/{scheduleId}` (구현됨)
@@ -2158,7 +2159,7 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 
 - `all: true`와 `scheduleIds` 중 **정확히 하나**를 보냅니다. `all: false`는 보내지 않은 것과 같습니다.
 - `scheduleIds`: 빈 목록과 빈 값(`null`)은 400, 같은 번호는 한 번으로 봅니다.
-- `reason`: 필수, 앞뒤 공백을 뺀 255자 이하.
+- `reason`: 선택. 앞뒤 공백을 뺀 255자 이하이고, 보내지 않거나 공백만 보내면 없음(`null`)으로 저장합니다. 입력한 사유는 예매자 공연 상세(PFM-02)에 보이므로 화면의 입력창에서 알립니다.
 
 **응답 200**
 
