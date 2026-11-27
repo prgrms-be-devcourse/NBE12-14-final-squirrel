@@ -138,6 +138,10 @@ export default function PerformanceDetailPage() {
                     <span>{dateTimeText(s.startAt)}</span>
                     {!ok && <span className="text-xs text-muted">{SALE_LABEL[s.saleStatus]}</span>}
                   </button>
+                  {/* 선택할 수 없는 버튼은 흐려지므로 사유는 버튼 밖에 둔다 */}
+                  {s.pauseReason && (
+                    <p className="mt-1 px-4 text-xs break-words text-secondary">중지 사유: {s.pauseReason}</p>
+                  )}
                 </li>
               );
             })}

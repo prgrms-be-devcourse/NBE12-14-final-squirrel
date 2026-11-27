@@ -459,7 +459,8 @@ export default function SellerPerformanceDetailPage() {
         <ReasonModal
           title={modal.scheduleIds === null ? "모든 회차 판매 중지" : "선택한 회차 판매 중지"}
           description="중지하면 대기열 입장, 좌석 선택, 결제가 막힙니다. 이미 승인 중인 결제는 완료될 수 있습니다. 판매 중이고 시작 전인 회차만 중지합니다"
-          label="중지 사유"
+          label="중지 사유 (선택, 입력하면 예매자 공연 상세에 보입니다)"
+          optional
           maxLength={255}
           submitLabel="중지하기"
           busy={busy}
@@ -634,6 +635,7 @@ function ReasonModal({
   description,
   label = "취소 사유",
   maxLength,
+  optional,
   submitLabel = "취소하기",
   busy,
   onClose,
@@ -643,6 +645,7 @@ function ReasonModal({
   description: string;
   label?: string;
   maxLength?: number;
+  optional?: boolean;
   submitLabel?: string;
   busy: boolean;
   onClose: () => void;
@@ -654,7 +657,7 @@ function ReasonModal({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (reason.trim()) onSubmit(reason.trim());
+          if (optional || reason.trim()) onSubmit(reason.trim());
         }}
         className="space-y-5"
       >
@@ -665,7 +668,7 @@ function ReasonModal({
             value={reason}
             maxLength={maxLength}
             onChange={(e) => setReason(e.target.value)}
-            required
+            required={!optional}
           />
         </Field>
         <div className="flex justify-end gap-2">

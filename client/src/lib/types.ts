@@ -94,6 +94,7 @@ export type PerformanceDetail = {
     startAt: string;
     status: string;
     saleStatus: SaleStatus;
+    pauseReason: string | null;
   }[];
   grades: { gradeId: number; name: string; price: number }[];
   cancelPolicy: CancelRule[];
