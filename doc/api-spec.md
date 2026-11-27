@@ -76,9 +76,9 @@
 | AUTH-20 | 판매자 비밀번호 재설정 메일 요청 | POST `/api/v1/auth/sellers/password-reset/request` | 구현됨 |
 | AUTH-21 | 재설정 링크 확인 | POST `/api/v1/auth/password-reset/validate` | 구현됨 |
 | AUTH-22 | 비밀번호 재설정 | POST `/api/v1/auth/password-reset/confirm` | 구현됨 |
-| AUTH-23 | 담당자 초대 (판매자 대표) | POST `/api/v1/seller/invitations` | 구현 중 |
-| AUTH-24 | 초대 링크 확인 | POST `/api/v1/auth/sellers/invitations/validate` | 구현 중 |
-| AUTH-25 | 담당자 가입 | POST `/api/v1/auth/sellers/invitations/accept` | 구현 중 |
+| AUTH-23 | 담당자 초대 (판매자 대표) | POST `/api/v1/seller/invitations` | 구현됨 |
+| AUTH-24 | 초대 링크 확인 | POST `/api/v1/auth/sellers/invitations/validate` | 구현됨 |
+| AUTH-25 | 담당자 가입 | POST `/api/v1/auth/sellers/invitations/accept` | 구현됨 |
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 구현됨 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 구현됨 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 구현됨 |
@@ -681,7 +681,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 
 ### 담당자 초대 (AUTH-23~25)
 
-> 구현 중입니다(2026-11-27, 브랜치 `feat/seller-staff-invitation`). 정책 수치는 임시이고 설정 `app.seller.invitation.*`에 있습니다. 메일 링크의 프론트 주소는 비밀번호 재설정과 같은 `.env`의 `FRONTEND_BASE_URL`입니다. 담당자 비활성화·재활성화와 보낸 초대 목록·취소는 다음 작업입니다.
+> 구현했습니다(2026-11-27). 정책 수치는 임시이고 설정 `app.seller.invitation.*`에 있습니다. 메일 링크의 프론트 주소는 비밀번호 재설정과 같은 `.env`의 `FRONTEND_BASE_URL`입니다. 담당자 비활성화·재활성화와 보낸 초대 목록·취소는 다음 작업입니다.
 
 **왜 필요한가**: 판매자는 회사 1개에 계정이 여러 개입니다. 대표는 판매자 가입 신청으로 생기고, 담당자(STAFF)는 대표가 보낸 **초대 링크로만** 가입합니다. 가입 화면에서 회사를 고르게 하면 어떤 회사가 있는지 드러나서 쓰지 않습니다. (1부 1-3)
 
@@ -705,7 +705,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 | 발송 | 비동기. 200은 접수이고 도착을 보장하지 않음 |
 | 가입 뒤 | 자동 로그인 없음 |
 
-#### AUTH-23 담당자 초대 — `POST /api/v1/seller/invitations` (판매자 대표)
+#### AUTH-23 담당자 초대 — `POST /api/v1/seller/invitations` (판매자 대표, 구현됨)
 
 **요청**
 
@@ -743,7 +743,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 - 사업체 번호와 초대한 사람은 본문으로 받지 않고 로그인 정보에서 꺼냅니다.
 - 메일은 텍스트와 HTML 둘 다 담고, 회사 이름·유효 시간·"모르는 초대라면 무시" 안내를 넣습니다. 버튼과 같은 링크를 글자로도 넣습니다.
 
-#### AUTH-24 초대 링크 확인 — `POST /api/v1/auth/sellers/invitations/validate` (공개)
+#### AUTH-24 초대 링크 확인 — `POST /api/v1/auth/sellers/invitations/validate` (공개, 구현됨)
 
 링크를 열었을 때 입력 화면을 보여 주기 전에 유효한지 확인합니다. **토큰을 소모하지 않아서** 메일 보안 프로그램이나 링크 미리보기가 열어도 링크가 죽지 않습니다. 토큰이 주소와 서버 로그에 남지 않도록 `POST` 본문으로 받습니다.
 
@@ -774,7 +774,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 
 - 확인 직후 만료될 수 있어서 이 API는 불편을 줄이는 용도이고, 최종 판단은 AUTH-25가 합니다.
 
-#### AUTH-25 담당자 가입 — `POST /api/v1/auth/sellers/invitations/accept` (공개)
+#### AUTH-25 담당자 가입 — `POST /api/v1/auth/sellers/invitations/accept` (공개, 구현됨)
 
 **요청**
 
