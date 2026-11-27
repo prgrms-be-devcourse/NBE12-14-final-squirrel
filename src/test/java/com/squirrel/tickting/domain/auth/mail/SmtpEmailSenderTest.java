@@ -132,6 +132,25 @@ class SmtpEmailSenderTest {
 	}
 
 	@Test
+	@DisplayName("초대 메일은 회사 이름을 제목·본문에 담고(HTML 은 escape), 텍스트와 HTML 모두에 같은 링크와 유효 시간을 담는다")
+	void sendsStaffInvitationMail() throws Exception {
+		SmtpEmailSender sender = new SmtpEmailSender(
+			mailSender(MAILPIT.getHost(), MAILPIT.getMappedPort(SMTP_PORT)), properties());
+		String link = "http://localhost:3000/seller/invitation#token=abc_DEF-123";
+
+		sender.sendStaffInvitation("receiver@example.com", "<가상>기획", link, Duration.ofHours(72));
+
+		JsonNode summary = get("/api/v1/messages").path("messages").get(0);
+		assertThat(summary.path("Subject").asString()).isEqualTo("[리셀노] <가상>기획 담당자 초대 안내");
+		JsonNode message = get("/api/v1/message/" + summary.path("ID").asString());
+		assertThat(message.path("Text").asString()).contains("<가상>기획").contains(link).contains("72시간 동안 유효합니다.");
+		String html = message.path("HTML").asString();
+		assertThat(html).contains("&lt;가상&gt;기획").doesNotContain("<가상>").contains("href=\"" + link + "\"")
+			.contains("72시간 동안");
+		assertThat(html.split(java.util.regex.Pattern.quote(link), -1)).hasSize(3);
+	}
+
+	@Test
 	@DisplayName("로컬 설정(암호화는 쓰되 필수는 아님, 로그인 끔, 사용자·비밀번호 빈 값)으로 암호화·로그인을 지원하지 않는 서버에도 보내진다")
 	void sendsWithLocalSettingsToServerWithoutEncryption() throws Exception {
 		JavaMailSenderImpl mailSender = mailSender(MAILPIT.getHost(), MAILPIT.getMappedPort(SMTP_PORT));

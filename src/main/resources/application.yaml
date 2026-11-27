@@ -196,6 +196,13 @@ app:
       max-concurrent: 4
       # 자리가 날 때까지 기다리는 시간. 길면 기다리는 요청이 톰캣 스레드를 쥐고 쌓이고, 짧으면 잠깐 붐빌 때도 돌려보낸다. 넘으면 503(COMMON005) (임시값)
       wait-timeout: 1s
+  seller:
+    # 담당자 초대 (doc/api-spec.md AUTH-23~25, 모두 임시 정책)
+    invitation:
+      # 초대 링크 유효 시간. 메일이 도착해서 담당자가 가입을 마칠 때까지를 모두 포함한다
+      link-ttl: 72h
+      # 메일 링크의 앞부분(프론트 주소). 비밀번호 재설정과 같은 FRONTEND_BASE_URL 을 쓴다. 기본값을 두지 않는다 (빠뜨리면 앱이 안 뜬다)
+      frontend-base-url: ${FRONTEND_BASE_URL}
   cookie:
     # 리프레시 토큰 쿠키. secure 는 안전한 쪽(true)이 기본이고 로컬 프로필에서만 낮춘다.
     secure: true

@@ -9,11 +9,13 @@ import com.squirrel.tickting.domain.captcha.interceptor.CaptchaInterceptor;
 import com.squirrel.tickting.domain.captcha.verifier.CaptchaVerifier;
 import com.squirrel.tickting.domain.queue.service.QueueProperties;
 import com.squirrel.tickting.domain.queue.service.QueueService;
+import com.squirrel.tickting.domain.seller.service.SellerMemberService;
 import com.squirrel.tickting.global.exception.GlobalExceptionHandler;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -59,6 +61,15 @@ class SecurityConfigTest {
 		@Bean
 		CaptchaVerifier captchaVerifier() {
 			return (token, action) -> true;
+		}
+
+		/**
+		 * 판매자 계정 상태 인터셉터도 만들어진다. 이 테스트는 경로 규칙만 보므로 모든 계정을 사용 중으로 답하는 대역을 넣는다.
+		 * (Mockito 대역의 boolean 기본값이 false 라서 isDisabled 는 항상 false 다. 차단은 SellerMemberApiTest 가 확인한다)
+		 */
+		@Bean
+		SellerMemberService sellerMemberService() {
+			return Mockito.mock(SellerMemberService.class);
 		}
 
 		/** 캡챠 인터셉터 팩토리는 HandlerInterceptor 가 아니라서 @WebMvcTest 가 만들어 주지 않는다. WebMvcConfig 가 쓰므로 직접 넣는다. */

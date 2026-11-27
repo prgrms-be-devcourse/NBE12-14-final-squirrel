@@ -3,7 +3,7 @@ package com.squirrel.tickting.domain.auth.mail;
 import org.springframework.web.util.HtmlUtils;
 
 /**
- * 인증 관련 메일(이메일 인증번호, 비밀번호 재설정 링크, 비밀번호 변경 알림)의 본문. 보내는 일(SmtpEmailSender)과 모양을 나누려고 따로 둔다.
+ * 인증 관련 메일(이메일 인증번호, 비밀번호 재설정 링크, 비밀번호 변경 알림, 담당자 초대 링크)의 본문. 보내는 일(SmtpEmailSender)과 모양을 나누려고 따로 둔다.
  * 세 메일이 같은 바깥 틀(layout)을 써서 같은 서비스의 메일로 보이게 한다.
  *
  * <p>메일 앱은 웹 브라우저와 달라서 모양을 만드는 방식이 정해져 있다.
@@ -147,6 +147,53 @@ final class AuthMailTemplate {
 			""";
 		return layout(brand, account + " 계정의 비밀번호가 변경되었습니다.",
 			content.replace("{{account}}", HtmlUtils.htmlEscape(account)));
+	}
+
+	static String invitationText(String companyName, long validHours, String link) {
+		return """
+			%s에서 판매자 담당자로 초대했습니다.
+			아래 링크에서 담당자 계정을 만들어 주세요. %d시간 동안 유효합니다.
+			%s
+			모르는 초대라면 이 메일을 무시해 주세요. 링크를 누르지 않으면 계정이 만들어지지 않습니다.
+			""".formatted(companyName, validHours, link);
+	}
+
+	/** 회사 이름은 대표가 가입 때 적은 값이라 HTML 로 해석되지 않게 escape 한다. 버튼이 보이지 않는 메일 앱을 위해 같은 링크를 글자로도 넣는다. */
+	static String invitationHtml(String brand, String companyName, long validHours, String link) {
+		String content = """
+			<tr><td style="padding:36px 40px 8px 40px;font-family:{{font}};">
+			  <div style="font-size:22px;line-height:1.4;font-weight:700;color:{{foreground}};">담당자 초대</div>
+			  <div style="padding-top:14px;font-size:15px;line-height:1.7;color:{{secondary}};">
+			    <strong style="color:{{foreground}};">{{company}}</strong>에서 판매자 담당자로 초대했습니다.<br>
+			    아래 버튼을 눌러 담당자 계정을 만들어 주세요.
+			  </div>
+			</td></tr>
+			<tr><td align="center" style="padding:28px 40px 8px 40px;">
+			  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+			    <td align="center" bgcolor="{{accent}}" style="border-radius:8px;">
+			      <a href="{{link}}" style="display:inline-block;padding:15px 40px;font-family:{{font}};font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;">담당자 계정 만들기</a>
+			    </td>
+			  </tr></table>
+			</td></tr>
+			<tr><td style="padding:20px 40px 0 40px;font-family:{{font}};">
+			  <div style="padding:12px 16px;background-color:{{warnSoft}};border-radius:8px;font-size:14px;line-height:1.6;color:{{warn}};">
+			    이 링크는 <strong>{{hours}}시간 동안</strong>만 유효합니다. 다시 초대를 받으면 이전 링크는 사용할 수 없게 됩니다.
+			  </div>
+			</td></tr>
+			<tr><td style="padding:24px 40px 0 40px;font-family:{{font}};">
+			  <div style="font-size:13px;line-height:1.6;color:{{muted}};">버튼이 보이지 않으면 아래 주소를 복사해 브라우저에 붙여 넣어 주세요.</div>
+			  <div style="margin-top:8px;padding:12px 14px;background-color:{{raised}};border-radius:8px;font-size:12px;line-height:1.6;color:{{secondary}};word-break:break-all;">{{link}}</div>
+			</td></tr>
+			<tr><td style="padding:28px 40px 36px 40px;font-family:{{font}};">
+			  <div style="padding-top:20px;border-top:1px solid {{line}};font-size:13px;line-height:1.6;color:{{muted}};">
+			    모르는 초대라면 이 메일을 무시해 주세요. 링크를 누르지 않으면 계정이 만들어지지 않습니다.
+			  </div>
+			</td></tr>
+			""";
+		return layout(brand, companyName + "에서 담당자로 초대했습니다. " + validHours + "시간 동안 유효합니다.",
+			content.replace("{{company}}", HtmlUtils.htmlEscape(companyName))
+				.replace("{{hours}}", String.valueOf(validHours))
+				.replace("{{link}}", HtmlUtils.htmlEscape(link)));
 	}
 
 	/** 두 메일이 같이 쓰는 바깥 틀. 맨 위 강조색 띠와 글자 로고, 아래 서비스 이름을 둔다. */
