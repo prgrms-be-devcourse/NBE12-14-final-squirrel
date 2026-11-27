@@ -94,6 +94,7 @@ public abstract class IntegrationTestSupport {
 		registry.add("app.auth.email-verification.from-address", () -> "no-reply@tickting.local");
 		// 재설정 메일의 링크 앞부분. 메일은 FakeEmailSender 가 받아서 실제로 열리는 주소일 필요는 없다.
 		registry.add("app.auth.password-reset.frontend-base-url", () -> "http://localhost:3000");
+		registry.add("app.seller.invitation.frontend-base-url", () -> "http://localhost:3000");
 	}
 
 	@Autowired
