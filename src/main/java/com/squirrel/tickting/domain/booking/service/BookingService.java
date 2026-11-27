@@ -85,7 +85,7 @@ public class BookingService {
 	@Transactional(readOnly = true)
 	public void validateScheduleNotPaused(Booking booking) {
 		if (booking.getSchedule().getStatus() == ScheduleStatus.PAUSED) {
-			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE, "판매가 일시 중지된 회차라 결제할 수 없습니다.");
+			throw new BusinessException(BookingExceptionCode.SCHEDULE_SALE_PAUSED, "판매가 일시 중지된 회차라 결제할 수 없습니다.");
 		}
 	}
 

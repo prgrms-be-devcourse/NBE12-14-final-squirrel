@@ -29,7 +29,7 @@ public class QueueController {
 	@Operation(summary = "대기열 입장(예매하기)",
 		description = "회차를 골라 예매하기를 누를 때 부른다. 자리가 있으면 바로 입장(ADMITTED)하고, 없으면 대기(WAITING)와 순번을 준다. "
 			+ "이미 줄에 있거나 입장해 있으면 순번·입장 상태를 바꾸지 않고 그대로 준다. "
-			+ "판매 중이 아닌 회차는 BOOKING002, 없는 회차는 BOOKING004 다. 입장해야 구역 요약·구역 좌석 조회와 좌석 점유를 할 수 있다.")
+			+ "판매 중이 아닌 회차는 BOOKING002, 일시 중지한 회차는 BOOKING012, 없는 회차는 BOOKING004 다. 입장해야 구역 요약·구역 좌석 조회와 좌석 점유를 할 수 있다.")
 	@PostMapping
 	public ResponseEntity<ApiResponse<QueueResponse>> enter(
 		@AuthenticationPrincipal CustomUserDetails account,

@@ -4,6 +4,7 @@ import com.squirrel.tickting.domain.audit.service.AuditLogCommand;
 import com.squirrel.tickting.domain.audit.service.AuditLogService;
 import com.squirrel.tickting.domain.audit.type.ActorType;
 import com.squirrel.tickting.domain.booking.service.BookingService;
+import com.squirrel.tickting.domain.performance.cache.UserPerformanceCache;
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyRequest;
 import com.squirrel.tickting.domain.performance.dto.SellerCancelPolicyResponse;
 import com.squirrel.tickting.domain.performance.dto.SellerGradeRequest;
@@ -54,6 +55,7 @@ public class SellerPerformanceFacade {
 	private static final String ACTION_UPDATE = "UPDATE";
 
 	private final SellerPerformanceService sellerPerformanceService;
+	private final UserPerformanceCache userPerformanceCache;
 	private final VenueService venueService;
 	private final CancelPolicyService cancelPolicyService;
 	private final GradeService gradeService;
@@ -321,7 +323,8 @@ public class SellerPerformanceFacade {
 		Long performanceId, SellerPerformanceRequest.SchedulePause request) {
 		sellerPerformanceService.validateScheduleSelection(request.all(), request.scheduleIds());
 		sellerPerformanceService.getMinePerformance(businessId, performanceId);
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+		SellerPerformanceResponse.ScheduleSaleChanged response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
 			() -> transactionTemplate.execute(status -> {
 				SellerPerformanceService.ScheduleSaleChange change = sellerPerformanceService.pauseSchedules(businessId,
 					performanceId, request);
@@ -332,6 +335,9 @@ public class SellerPerformanceFacade {
 				}
 				return change.response();
 			}));
+		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
 	}
 
 	/** 일시 중지한 회차를 재개한다. 지운 중지 사유는 감사 로그의 바꾸기 전 값에 남는다. 락과 검사 순서는 중지와 같다. */
@@ -339,7 +345,8 @@ public class SellerPerformanceFacade {
 		Long performanceId, SellerPerformanceRequest.ScheduleResume request) {
 		sellerPerformanceService.validateScheduleSelection(request.all(), request.scheduleIds());
 		sellerPerformanceService.getMinePerformance(businessId, performanceId);
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+		SellerPerformanceResponse.ScheduleSaleChanged response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
 			() -> transactionTemplate.execute(status -> {
 				SellerPerformanceService.ScheduleSaleChange change = sellerPerformanceService.resumeSchedules(businessId,
 					performanceId, request);
@@ -350,6 +357,9 @@ public class SellerPerformanceFacade {
 				}
 				return change.response();
 			}));
+		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
 	}
 
 	/** 중지·재개 로그의 전후 값. 사유가 없는 쪽에는 reason 을 넣지 않는다. */

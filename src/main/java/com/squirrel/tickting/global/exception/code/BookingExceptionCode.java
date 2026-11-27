@@ -34,7 +34,9 @@ public enum BookingExceptionCode implements ExceptionCode {
 	/** 취소 규정상 지금은 취소할 수 없음. 공연 당일처럼 취소 불가 구간이거나 회차가 이미 시작함 */
 	CANCEL_PERIOD_OVER("BOOKING009", HttpStatus.BAD_REQUEST, "지금은 취소할 수 없는 기간입니다."),
 	/** 이미 취소된 좌석이거나 이 예매의 좌석이 아님 */
-	SEAT_NOT_CANCELABLE("BOOKING010", HttpStatus.BAD_REQUEST, "취소할 수 없는 좌석이 포함되어 있습니다.");
+	SEAT_NOT_CANCELABLE("BOOKING010", HttpStatus.BAD_REQUEST, "취소할 수 없는 좌석이 포함되어 있습니다."),
+	/** 판매가 일시 중지된 회차를 점유·결제하거나 대기열에 새로 들어가려 함. 화면은 이 코드를 보고 알린 뒤 공연 상세로 보낸다 */
+	SCHEDULE_SALE_PAUSED("BOOKING012", HttpStatus.CONFLICT, "판매가 일시 중지된 회차입니다.");
 
 	private final String code;
 	private final HttpStatus status;

@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -30,6 +32,9 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 	/** BookingTestSupport 가 공연을 넣는 사업체 번호 */
 	private static final long MY_BUSINESS = 1L;
 	private static final long OTHER_BUSINESS = 986L;
+
+	@Autowired
+	private StringRedisTemplate redis;
 
 	@Test
 	@DisplayName("모두 중지는 판매 중이고 시작 전인 회차만 바꾸고 나머지는 이유를 알려 주며, 모두 재개는 따로 중지한 회차까지 열고 사유를 비운다")
@@ -190,6 +195,21 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 
 		resume(show, Map.of("all", true)).andExpect(status().isOk());
 		mockMvc.perform(get(url)).andExpect(jsonPath("$.data.schedules[0].pauseReason").value(nullValue()));
+	}
+
+	@Test
+	@DisplayName("중지·재개하면 저장해 둔 공연 상세를 지워, 상세로 보낸 예매자가 이전 상태를 보지 않는다")
+	void evictsCachedDetail() throws Exception {
+		Show show = show(1);
+		String key = "tickting:cache:performance-detail:" + show.performanceId();
+
+		redis.opsForValue().set(key, "{}");
+		pause(show, Map.of("all", true)).andExpect(status().isOk());
+		assertThat(redis.hasKey(key)).isFalse();
+
+		redis.opsForValue().set(key, "{}");
+		resume(show, Map.of("all", true)).andExpect(status().isOk());
+		assertThat(redis.hasKey(key)).isFalse();
 	}
 
 	/** 공연 상세는 사업체 정보를 함께 준다. 테이블을 비우고 시작하므로 번호가 MY_BUSINESS 인 행이 생긴다. */

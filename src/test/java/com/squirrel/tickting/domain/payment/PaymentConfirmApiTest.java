@@ -197,8 +197,8 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 		jdbc.update("UPDATE performance_schedule SET status = 'PAUSED' WHERE id = ?", show.scheduleId());
 
 		book(user.session(), show.scheduleId(), List.of(show.seatIds().get(1)))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("BOOKING002"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING012"))
 			.andExpect(jsonPath("$.message").value("판매가 일시 중지된 회차입니다."));
 		mockMvc.perform(post("/api/v1/bookings/" + order.bookingId() + "/payments")
 				.cookie(user.session())
@@ -206,11 +206,11 @@ class PaymentConfirmApiTest extends BookingTestSupport {
 				.content(objectMapper.writeValueAsString(Map.of("receiveType", "DELIVERY", "recipientName", "홍길동",
 					"recipientPhone", "01012345678", "recipientAddress", "서울"))))
 			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("BOOKING007"))
+			.andExpect(jsonPath("$.code").value("BOOKING012"))
 			.andExpect(jsonPath("$.message").value("판매가 일시 중지된 회차라 결제할 수 없습니다."));
 		confirm(user.session(), "pay_key_ok", order.orderId(), order.amount())
 			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("BOOKING007"));
+			.andExpect(jsonPath("$.code").value("BOOKING012"));
 
 		assertThat(gateway.confirmedOrderIds()).isEmpty();
 		assertThat(paymentStatus(order.orderId())).isEqualTo("READY");

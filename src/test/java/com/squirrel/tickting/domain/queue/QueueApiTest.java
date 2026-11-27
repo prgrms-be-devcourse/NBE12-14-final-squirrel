@@ -249,8 +249,8 @@ class QueueApiTest extends BookingTestSupport {
 			.andExpect(jsonPath("$.data.status").value("ADMITTED"))
 			.andExpect(jsonPath("$.data.paused").value(true));
 		enter(late, show)
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("BOOKING002"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING012"))
 			.andExpect(jsonPath("$.message").value("판매가 일시 중지된 회차입니다."));
 		queueStatus(late, show).andExpect(jsonPath("$.data.status").value("NONE"));
 

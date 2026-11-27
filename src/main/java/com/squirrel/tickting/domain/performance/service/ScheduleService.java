@@ -43,7 +43,7 @@ public class ScheduleService {
 	 * 지금 예매할 수 있는 회차를 읽는다. 읽기만 하고 아무것도 바꾸지 않는다.
 	 * 없는 회차와 공개되지 않은(작성 중·취소된) 공연의 회차는 같은 404 다. (번호가 존재하는지 알려주지 않으려고)
 	 * 공개된 공연이라도 판매 기간 밖이거나 회차가 중지·연기·취소됐거나 이미 시작했으면 판매 중이 아니다.
-	 * 아직 시작하지 않았고 판매 종료 전인 회차가 일시 중지면 같은 코드에 중지 안내 메시지를 준다. (재개되면 살 수 있어서)
+	 * 아직 시작하지 않았고 판매 종료 전인 회차가 일시 중지면 중지 전용 코드를 준다. (재개되면 살 수 있어서)
 	 *
 	 * 취소 규정은 지연 로딩이라 트랜잭션이 끝난 뒤에는 꺼낼 수 없어서 여기서 읽어 담는다.
 	 */
@@ -73,7 +73,7 @@ public class ScheduleService {
 		boolean scheduleOpen = schedule.getStatus() == ScheduleStatus.ON_SALE && schedule.getStartAt().isAfter(now);
 		if (schedule.getStatus() == ScheduleStatus.PAUSED && schedule.getStartAt().isAfter(now)
 			&& !now.isAfter(performance.getSaleCloseAt())) {
-			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE, "판매가 일시 중지된 회차입니다.");
+			throw new BusinessException(BookingExceptionCode.SCHEDULE_SALE_PAUSED);
 		}
 		if (!saleOpen || !scheduleOpen) {
 			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE);
