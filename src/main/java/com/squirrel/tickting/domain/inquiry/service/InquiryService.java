@@ -14,6 +14,7 @@ import com.squirrel.tickting.global.exception.code.InquiryExceptionCode;
 import com.squirrel.tickting.global.security.AccountType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.BiFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -21,7 +22,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
 
 /**
  * 문의. 예매자·판매자·관리자가 함께 쓰는 문의 도메인의 서비스다. 문의와 이력은 같은 도메인이라 한 트랜잭션으로 저장한다.
@@ -34,9 +34,11 @@ public class InquiryService {
 	/** 최근 문의가 먼저. 같은 시각이면 번호가 큰 쪽이 먼저라 페이지를 넘겨도 순서가 바뀌지 않는다. */
 	private static final Sort LATEST = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"));
 
+	/** 문의를 쓸 수 있는 계정 종류. 관리자 목록에서 작성자 종류를 거르지 않을 때 넘긴다. */
+	private static final List<AccountType> AUTHOR_TYPES = List.of(AccountType.USER, AccountType.SELLER);
+
 	private final InquiryRepository inquiryRepository;
 	private final InquiryHistoryRepository inquiryHistoryRepository;
-	private final ObjectMapper objectMapper;
 
 	/** 그 계정이 고를 수 있는 문의 유형. 화면의 유형 드롭다운에 쓴다. */
 	public List<UserInquiryResponse.Category> getCategories(AccountType accountType) {
@@ -121,6 +123,56 @@ public class InquiryService {
 		recordHistory(inquiry, AccountType.USER, userId, InquiryAction.DELETED);
 	}
 
+	/**
+	 * 관리자 문의 목록. 작성자 종류·상태를 비우면 거르지 않는다. 기본은 삭제하지 않은 문의이고, deleted 면 삭제된 문의만 준다.
+	 * 목록 항목은 문의 행의 값(작성 때 복사한 이름·이메일 포함)만 써서 연관을 읽지 않는다. 그래서 쿼리는 목록·개수 두 번이다.
+	 */
+	@Transactional(readOnly = true)
+	public Page<Inquiry> searchForAdmin(AccountType authorType, InquiryStatus status, boolean deleted,
+		Pageable pageable) {
+		List<AccountType> authorTypes = authorType == null ? AUTHOR_TYPES : List.of(authorType);
+		List<InquiryStatus> statuses = status == null ? List.of(InquiryStatus.values()) : List.of(status);
+		Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST);
+		return deleted
+			? inquiryRepository.findByAuthorTypeInAndStatusInAndDeletedAtIsNotNull(authorTypes, statuses, sorted)
+			: inquiryRepository.findByAuthorTypeInAndStatusInAndDeletedAtIsNull(authorTypes, statuses, sorted);
+	}
+
+	/**
+	 * 관리자 문의 상세. 삭제된 문의도 준다(분쟁 확인용). 이력은 남긴 순서대로 한 번에 읽는다.
+	 * 응답에 예매(읽기 전용 연관)를 꺼내므로 호출한 쪽이 넘긴 변환을 트랜잭션 안에서 부른다. (서비스가 관리자 DTO 를 몰라도 되게)
+	 */
+	@Transactional(readOnly = true)
+	public <T> T getForAdmin(Long inquiryId, BiFunction<Inquiry, List<InquiryHistory>, T> mapper) {
+		Inquiry inquiry = inquiryRepository.findById(inquiryId)
+			.orElseThrow(() -> new BusinessException(InquiryExceptionCode.INQUIRY_NOT_FOUND));
+		return mapper.apply(inquiry, inquiryHistoryRepository.findByInquiryIdOrderByIdAsc(inquiryId));
+	}
+
+	/**
+	 * 관리자가 답변한다. 답변 대기이고 삭제하지 않은 문의에만 되고, 답변은 하나뿐이라 고치거나 지울 수 없다.
+	 * 상태를 먼저 확인한 뒤 같은 조건의 UPDATE 로 한 번 더 막는다. 그 사이 작성자가 고치거나 지웠거나 다른 관리자가 먼저 답했으면 409 다.
+	 * 답변 이력(ANSWERED)에는 답변한 순간의 문의 내용과 답변을 함께 남긴다.
+	 */
+	@Transactional
+	public <T> T answer(Long adminId, Long inquiryId, String answer,
+		BiFunction<Inquiry, List<InquiryHistory>, T> mapper) {
+		Inquiry inquiry = inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)
+			.orElseThrow(() -> new BusinessException(InquiryExceptionCode.INQUIRY_NOT_FOUND));
+		if (inquiry.getStatus() != InquiryStatus.WAITING) {
+			throw new BusinessException(InquiryExceptionCode.INQUIRY_NOT_ANSWERABLE);
+		}
+
+		if (inquiryRepository.answerIfWaiting(inquiryId, answer.strip(), adminId, LocalDateTime.now()) == 0) {
+			throw new BusinessException(InquiryExceptionCode.INQUIRY_NOT_ANSWERABLE);
+		}
+
+		// 조건부 UPDATE 가 영속성 컨텍스트를 비워서 답변이 달린 값을 다시 읽는다
+		Inquiry answered = inquiryRepository.findById(inquiryId).orElseThrow();
+		recordHistory(answered, AccountType.ADMIN, adminId, InquiryAction.ANSWERED);
+		return mapper.apply(answered, inquiryHistoryRepository.findByInquiryIdOrderByIdAsc(inquiryId));
+	}
+
 	/** 남의 문의·삭제한 문의는 없는 문의와 같은 404 다. */
 	private Inquiry findMine(Long userId, Long inquiryId) {
 		return inquiryRepository
@@ -149,7 +201,7 @@ public class InquiryService {
 			.action(action)
 			.title(inquiry.getTitle())
 			.content(inquiry.getContent())
-			.imageUrls(objectMapper.writeValueAsString(inquiry.getImageUrls()))
+			.imageUrls(inquiry.getImageUrls())
 			.answer(inquiry.getAnswer())
 			.build());
 	}
