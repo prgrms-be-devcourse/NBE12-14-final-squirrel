@@ -116,12 +116,6 @@
 | SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
 | SLR-26 | 회차 판매 일시 중지 | POST `/api/v1/seller/performances/{performanceId}/schedules/pause` | 구현됨 |
 | SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
-| SLR-34 | 문의 유형 목록 (판매자) | GET `/api/v1/seller/inquiries/categories` | 구현됨 |
-| SLR-35 | 문의 작성 (판매자) | POST `/api/v1/seller/inquiries` | 구현됨 |
-| SLR-36 | 사업체 문의 목록 | GET `/api/v1/seller/inquiries` | 구현됨 |
-| SLR-37 | 사업체 문의 상세 | GET `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
-| SLR-38 | 문의 수정 (판매자) | PUT `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
-| SLR-39 | 문의 삭제 (판매자) | DELETE `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -131,9 +125,6 @@
 | ADM-07 | 사업체 상세 | GET `/api/v1/admin/seller-businesses/{businessId}` | 구현됨 |
 | ADM-08 | 전체 예매 목록 | GET `/api/v1/admin/bookings` | 구현됨 |
 | ADM-09 | 예매 상세 | GET `/api/v1/admin/bookings/{bookingId}` | 구현됨 |
-| ADM-14 | 문의 목록 | GET `/api/v1/admin/inquiries` | 구현됨 |
-| ADM-15 | 문의 상세 | GET `/api/v1/admin/inquiries/{inquiryId}` | 구현됨 |
-| ADM-16 | 문의 답변 | POST `/api/v1/admin/inquiries/{inquiryId}/answer` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
@@ -141,6 +132,15 @@
 | INQ-04 | 내 문의 상세 (예매자) | GET `/api/v1/inquiries/{inquiryId}` | 구현됨 |
 | INQ-05 | 문의 수정 (예매자) | PUT `/api/v1/inquiries/{inquiryId}` | 구현됨 |
 | INQ-06 | 문의 삭제 (예매자) | DELETE `/api/v1/inquiries/{inquiryId}` | 구현됨 |
+| ADM-14 | 문의 목록 | GET `/api/v1/admin/inquiries` | 구현됨 |
+| ADM-15 | 문의 상세 | GET `/api/v1/admin/inquiries/{inquiryId}` | 구현됨 |
+| ADM-16 | 문의 답변 | POST `/api/v1/admin/inquiries/{inquiryId}/answer` | 구현됨 |
+| SLR-34 | 문의 유형 목록 (판매자) | GET `/api/v1/seller/inquiries/categories` | 구현됨 |
+| SLR-35 | 문의 작성 (판매자) | POST `/api/v1/seller/inquiries` | 구현됨 |
+| SLR-36 | 사업체 문의 목록 | GET `/api/v1/seller/inquiries` | 구현됨 |
+| SLR-37 | 사업체 문의 상세 | GET `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
+| SLR-38 | 문의 수정 (판매자) | PUT `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
+| SLR-39 | 문의 삭제 (판매자) | DELETE `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
 
 ---
 
