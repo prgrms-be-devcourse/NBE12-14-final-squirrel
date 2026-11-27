@@ -84,6 +84,36 @@ public class EmailTestConfiguration {
 			changedNotices.computeIfAbsent(to, key -> new CopyOnWriteArrayList<>()).add(type);
 		}
 
+		private final Map<String, List<String>> invitationLinks = new ConcurrentHashMap<>();
+		private final Map<String, List<String>> invitationCompanies = new ConcurrentHashMap<>();
+
+		@Override
+		public void sendStaffInvitation(String to, String companyName, String link, Duration validFor) {
+			if (failing) {
+				throw new IllegalStateException("가짜 메일 서버가 발송에 실패했습니다.");
+			}
+			invitationLinks.computeIfAbsent(to, key -> new CopyOnWriteArrayList<>()).add(link);
+			invitationCompanies.computeIfAbsent(to, key -> new CopyOnWriteArrayList<>()).add(companyName);
+		}
+
+		/** 이 주소로 마지막에 보낸 초대 링크. 보낸 적이 없으면 null */
+		public String lastInvitationLink(String to) {
+			List<String> links = invitationLinks.get(to);
+			return links == null || links.isEmpty() ? null : links.get(links.size() - 1);
+		}
+
+		/** 이 주소로 마지막에 보낸 초대 링크의 토큰. 링크의 # 뒤에서 읽는다. */
+		public String lastInvitationToken(String to) {
+			String link = lastInvitationLink(to);
+			return link == null ? null : link.substring(link.indexOf("#token=") + "#token=".length());
+		}
+
+		/** 이 주소로 마지막에 보낸 초대 메일의 회사 이름. 보낸 적이 없으면 null */
+		public String lastInvitationCompany(String to) {
+			List<String> companies = invitationCompanies.get(to);
+			return companies == null || companies.isEmpty() ? null : companies.get(companies.size() - 1);
+		}
+
 		/** 이 주소로 마지막에 보낸 재설정 링크. 보낸 적이 없으면 null */
 		public String lastResetLink(String to) {
 			List<String> links = resetLinks.get(to);
@@ -132,6 +162,8 @@ public class EmailTestConfiguration {
 			resetLinks.clear();
 			resetTypes.clear();
 			changedNotices.clear();
+			invitationLinks.clear();
+			invitationCompanies.clear();
 			failing = false;
 		}
 	}

@@ -50,6 +50,14 @@ public class SmtpEmailSender implements EmailSender {
 			AuthMailTemplate.changedHtml(properties.senderName(), account));
 	}
 
+	/** 초대 메일도 재설정 메일처럼 버튼과 같은 링크를 글자로 넣고 텍스트 본문을 함께 담는다. */
+	@Override
+	public void sendStaffInvitation(String to, String companyName, String link, Duration validFor) {
+		send(to, "[" + properties.senderName() + "] " + companyName + " 담당자 초대 안내",
+			AuthMailTemplate.invitationText(companyName, validFor.toHours(), link),
+			AuthMailTemplate.invitationHtml(properties.senderName(), companyName, validFor.toHours(), link));
+	}
+
 	private void send(String to, String subject, String text, String html) {
 		try {
 			MimeMessage message = mailSender.createMimeMessage();

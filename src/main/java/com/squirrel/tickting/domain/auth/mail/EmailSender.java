@@ -23,4 +23,10 @@ public interface EmailSender {
 
 	/** 비밀번호가 바뀌었다는 알림 메일. 링크가 새어 바뀐 경우 본인이 알아챌 수 있게 한다. 실패하면 RuntimeException. */
 	void sendPasswordChanged(String to, AccountType type);
+
+	/**
+	 * 담당자 초대 링크 메일. 받는 사람이 어느 회사의 초대인지 알 수 있게 회사 이름을 넣는다. 실패하면 RuntimeException.
+	 * 초대받은 사람은 아직 계정이 없어서 이름 같은 개인정보는 넣지 않는다.
+	 */
+	void sendStaffInvitation(String to, String companyName, String link, Duration validFor);
 }
