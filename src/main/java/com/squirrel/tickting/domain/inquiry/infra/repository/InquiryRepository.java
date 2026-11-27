@@ -24,6 +24,12 @@ public interface InquiryRepository extends JpaRepository<Inquiry, Long> {
 	Page<Inquiry> findByAuthorTypeAndAuthorIdAndDeletedAtIsNull(AccountType authorType, Long authorId,
 		Pageable pageable);
 
+	/** 우리 사업체 문의 하나. 사업체 번호는 판매자 문의에만 있어서 예매자 문의는 걸리지 않는다. 다른 사업체·삭제한 문의는 비어 있다. */
+	Optional<Inquiry> findByIdAndBusinessIdAndDeletedAtIsNull(Long id, Long businessId);
+
+	/** 우리 사업체 문의 목록 (대표·담당자 모두). 삭제한 문의는 빠진다. 정렬은 호출한 쪽이 pageable 로 정한다. */
+	Page<Inquiry> findByBusinessIdAndDeletedAtIsNull(Long businessId, Pageable pageable);
+
 	/**
 	 * 답변 대기인 문의만 내용을 통째로 바꾸고 바뀐 행 수를 돌려준다.
 	 * 서비스가 미리 상태를 확인해도 그 사이 답변이 끝날 수 있어서, 상태 조건을 UPDATE 에 함께 걸어 답변과 겹치면 한쪽만 성공하게 한다.

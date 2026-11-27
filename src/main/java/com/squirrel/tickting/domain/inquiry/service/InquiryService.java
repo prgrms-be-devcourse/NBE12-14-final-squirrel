@@ -1,5 +1,7 @@
 package com.squirrel.tickting.domain.inquiry.service;
 
+import com.squirrel.tickting.domain.inquiry.dto.SellerInquiryRequest;
+import com.squirrel.tickting.domain.inquiry.dto.SellerInquiryResponse;
 import com.squirrel.tickting.domain.inquiry.dto.UserInquiryRequest;
 import com.squirrel.tickting.domain.inquiry.dto.UserInquiryResponse;
 import com.squirrel.tickting.domain.inquiry.infra.entity.Inquiry;
@@ -52,11 +54,7 @@ public class InquiryService {
 	@Transactional
 	public UserInquiryResponse.Created createForUser(Long userId, String authorName, String authorEmail,
 		UserInquiryRequest.Create request) {
-		if (!request.category().isAllowedFor(AccountType.USER)) {
-			throw new BusinessException(InquiryExceptionCode.CATEGORY_NOT_ALLOWED);
-		}
-
-		Inquiry inquiry = inquiryRepository.save(Inquiry.builder()
+		Inquiry inquiry = create(Inquiry.builder()
 			.authorType(AccountType.USER)
 			.authorId(userId)
 			.authorName(authorName)
@@ -65,25 +63,59 @@ public class InquiryService {
 			.bookingId(request.bookingId())
 			.title(request.title().strip())
 			.content(request.content().strip())
-			.imageUrls(toImageUrls(request.images()))
-			.status(InquiryStatus.WAITING)
-			.build());
-		recordHistory(inquiry, AccountType.USER, userId, InquiryAction.CREATED);
+			.imageUrls(toImageUrls(request.images())));
+		return UserInquiryResponse.Created.from(inquiry);
+	}
+
+	/**
+	 * 판매자 문의를 작성한다. 같은 사업체의 대표·담당자가 함께 보도록 사업체 번호를 남긴다. 예매는 연결하지 않는다.
+	 * 작성자 이름·이메일은 판매자 도메인이라 파사드가 읽어서 넘긴다. 호출한 쪽의 트랜잭션에 참여한다.
+	 */
+	@Transactional
+	public UserInquiryResponse.Created createForSeller(Long memberId, Long businessId, String authorName,
+		String authorEmail, SellerInquiryRequest.Create request) {
+		Inquiry inquiry = create(Inquiry.builder()
+			.authorType(AccountType.SELLER)
+			.authorId(memberId)
+			.businessId(businessId)
+			.authorName(authorName)
+			.authorEmail(authorEmail)
+			.category(request.category())
+			.title(request.title().strip())
+			.content(request.content().strip())
+			.imageUrls(toImageUrls(request.images())));
 		return UserInquiryResponse.Created.from(inquiry);
 	}
 
 	/** 내 문의 목록. 삭제한 문의는 빠지고 최신 작성순이다. pageable 은 페이지 번호와 크기만 쓴다. */
 	@Transactional(readOnly = true)
 	public Page<UserInquiryResponse.Summary> getMyInquiries(Long userId, Pageable pageable) {
-		Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST);
-		return inquiryRepository.findByAuthorTypeAndAuthorIdAndDeletedAtIsNull(AccountType.USER, userId, sorted)
+		return inquiryRepository.findByAuthorTypeAndAuthorIdAndDeletedAtIsNull(AccountType.USER, userId, latest(pageable))
 			.map(UserInquiryResponse.Summary::from);
 	}
 
 	/** 내 문의 하나. 남의 문의·삭제한 문의는 없는 문의와 같은 404 다. */
 	@Transactional(readOnly = true)
 	public UserInquiryResponse.Detail getMyInquiry(Long userId, Long inquiryId) {
-		return UserInquiryResponse.Detail.from(findMine(userId, inquiryId));
+		return UserInquiryResponse.Detail.from(findMine(AccountType.USER, userId, inquiryId));
+	}
+
+	/**
+	 * 우리 사업체 문의 목록. 대표·담당자 누가 썼든 같은 사업체면 모두 보인다. 삭제한 문의는 빠지고 최신 작성순이다.
+	 * 항목은 문의 행의 값(작성 때 복사한 이름 포함)만 써서 목록·개수 쿼리 두 번으로 끝난다.
+	 */
+	@Transactional(readOnly = true)
+	public Page<SellerInquiryResponse.Summary> getBusinessInquiries(Long businessId, Pageable pageable) {
+		return inquiryRepository.findByBusinessIdAndDeletedAtIsNull(businessId, latest(pageable))
+			.map(SellerInquiryResponse.Summary::from);
+	}
+
+	/** 우리 사업체 문의 하나. 다른 사업체의 문의·삭제한 문의는 없는 문의와 같은 404 다. */
+	@Transactional(readOnly = true)
+	public SellerInquiryResponse.Detail getBusinessInquiry(Long businessId, Long inquiryId) {
+		Inquiry inquiry = inquiryRepository.findByIdAndBusinessIdAndDeletedAtIsNull(inquiryId, businessId)
+			.orElseThrow(() -> new BusinessException(InquiryExceptionCode.INQUIRY_NOT_FOUND));
+		return SellerInquiryResponse.Detail.from(inquiry);
 	}
 
 	/**
@@ -92,10 +124,8 @@ public class InquiryService {
 	 */
 	@Transactional
 	public UserInquiryResponse.Detail updateForUser(Long userId, Long inquiryId, UserInquiryRequest.Update request) {
-		if (!request.category().isAllowedFor(AccountType.USER)) {
-			throw new BusinessException(InquiryExceptionCode.CATEGORY_NOT_ALLOWED);
-		}
-		ensureWaiting(findMine(userId, inquiryId));
+		ensureCategoryAllowed(AccountType.USER, request.category());
+		ensureWaiting(findMine(AccountType.USER, userId, inquiryId));
 
 		int updated = inquiryRepository.updateIfWaiting(inquiryId, request.category(), request.bookingId(),
 			request.title().strip(), request.content().strip(), toImageUrls(request.images()), LocalDateTime.now());
@@ -105,7 +135,7 @@ public class InquiryService {
 		}
 
 		// 조건부 UPDATE 가 영속성 컨텍스트를 비워서 바뀐 값을 다시 읽는다
-		Inquiry changed = findMine(userId, inquiryId);
+		Inquiry changed = findMine(AccountType.USER, userId, inquiryId);
 		recordHistory(changed, AccountType.USER, userId, InquiryAction.UPDATED);
 		return UserInquiryResponse.Detail.from(changed);
 	}
@@ -113,7 +143,7 @@ public class InquiryService {
 	/** 내 문의를 삭제(소프트 삭제)한다. 답변 대기일 때만 되고, 지우기 직전 내용을 삭제 이력(DELETED)으로 남긴다. */
 	@Transactional
 	public void deleteForUser(Long userId, Long inquiryId) {
-		Inquiry inquiry = findMine(userId, inquiryId);
+		Inquiry inquiry = findMine(AccountType.USER, userId, inquiryId);
 		ensureWaiting(inquiry);
 
 		if (inquiryRepository.deleteIfWaiting(inquiryId, LocalDateTime.now()) == 0) {
@@ -173,11 +203,39 @@ public class InquiryService {
 		return mapper.apply(answered, inquiryHistoryRepository.findByInquiryIdOrderByIdAsc(inquiryId));
 	}
 
-	/** 남의 문의·삭제한 문의는 없는 문의와 같은 404 다. */
-	private Inquiry findMine(Long userId, Long inquiryId) {
+	/**
+	 * 예매자·판매자 문의 작성의 공통 부분. 유형 확인 → 답변 대기로 저장 → 작성 이력(CREATED).
+	 * 작성자마다 다른 값(사업체, 예매)은 호출한 쪽이 builder 에 채워 넘겨서, 작성 규칙은 여기 한 곳에만 둔다.
+	 */
+	private Inquiry create(Inquiry.InquiryBuilder draft) {
+		Inquiry inquiry = draft.status(InquiryStatus.WAITING).build();
+		ensureCategoryAllowed(inquiry.getAuthorType(), inquiry.getCategory());
+
+		inquiryRepository.save(inquiry);
+		recordHistory(inquiry, inquiry.getAuthorType(), inquiry.getAuthorId(), InquiryAction.CREATED);
+		return inquiry;
+	}
+
+	/** 화면만 막으면 API 를 직접 부르는 요청이 다른 계정의 유형(예: 예매자가 정산)으로 쓸 수 있어서 서버에서도 막는다. */
+	private void ensureCategoryAllowed(AccountType authorType, InquiryCategory category) {
+		if (!category.isAllowedFor(authorType)) {
+			throw new BusinessException(InquiryExceptionCode.CATEGORY_NOT_ALLOWED);
+		}
+	}
+
+	/**
+	 * 내가 쓴 문의. 작성자 종류를 함께 거르는 이유는 예매자와 판매자 번호가 겹칠 수 있어서다.
+	 * 남의 문의·삭제한 문의는 없는 문의와 같은 404 다.
+	 */
+	private Inquiry findMine(AccountType authorType, Long authorId, Long inquiryId) {
 		return inquiryRepository
-			.findByIdAndAuthorTypeAndAuthorIdAndDeletedAtIsNull(inquiryId, AccountType.USER, userId)
+			.findByIdAndAuthorTypeAndAuthorIdAndDeletedAtIsNull(inquiryId, authorType, authorId)
 			.orElseThrow(() -> new BusinessException(InquiryExceptionCode.INQUIRY_NOT_FOUND));
+	}
+
+	/** 목록은 최신 작성순으로 고정한다. 클라이언트가 보낸 정렬은 쓰지 않고 페이지 번호와 크기만 쓴다. */
+	private Pageable latest(Pageable pageable) {
+		return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST);
 	}
 
 	/** 답변이 끝난 문의는 그 답변이 어떤 내용에 대한 것인지가 흐려지지 않게 고치거나 지울 수 없다. */
