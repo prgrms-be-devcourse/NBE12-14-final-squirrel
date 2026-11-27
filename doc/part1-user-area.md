@@ -308,8 +308,8 @@ seller_business (회사 1개)
 | FK | 사업체 번호 | `business_id` | Long | NOT NULL | 어느 회사의 초대인지 (seller_business) |
 | FK | 초대한 사람 | `invited_by` | Long | NOT NULL | 초대한 대표자 (seller_member) |
 |  | 초대 이메일 | `email` | String | NOT NULL | 초대받는 사람의 이메일 |
-|  | 토큰 | `token` | String | NOT NULL | 초대 링크에 들어가는 고유 값, 중복 불가 |
-|  | 만료일 | `expires_at` | LocalDateTime | NOT NULL | 링크 만료 시각 |
+|  | 토큰 | `token` | String | NOT NULL | 초대 링크 토큰의 SHA-256 해시, 중복 불가. 원문은 메일에만 있음 (DB가 읽혀도 링크를 만들 수 없게) |
+|  | 만료일 | `expires_at` | LocalDateTime | NOT NULL | 링크 만료 시각 (만든 뒤 72시간, 임시). 같은 회사가 같은 이메일로 다시 초대하면 이전 초대의 값을 지금으로 당겨 무효로 만듦 |
 |  | 사용일 | `used_at` | LocalDateTime | NULL | 링크를 사용한 시각. 값이 있으면 재사용 불가 |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 
@@ -319,6 +319,10 @@ seller_business (회사 1개)
 2. 담당자가 링크로 접속합니다 → 서버가 토큰이 **존재하는지, 만료되지 않았는지, 이미 쓰지 않았는지** 확인합니다.
 3. 담당자가 이름·휴대폰과 계정 정보를 입력합니다.
 4. `seller_member`(**담당자**, 사용 중)가 만들어지고, 초대의 `used_at`에 시각이 기록됩니다.
+
+- 이미 판매자 계정이 있는 이메일(비활성 담당자 포함)은 초대할 때 막습니다. 가입 이메일은 초대받은 이메일 그대로이고, 메일을 받은 것이 본인 확인이라 가입 전 이메일 인증은 하지 않습니다.
+- `used_at` 기록은 "아직 쓰지 않았고 만료되지 않은 초대만" 바꾸는 조건부 UPDATE이고, 계정 생성과 한 트랜잭션입니다. 같은 링크로 동시에 가입해도 한 번만 성공하고, 계정 생성이 실패하면 링크도 소모되지 않습니다.
+- API와 정책 수치는 `api-spec.md` AUTH-23~25에 있습니다. (2026-11-27)
 
 **담당자 비활성화**: 대표자가 담당자를 비활성화하면 `status`만 바뀝니다. 삭제하지 않으므로 그 사람의 과거 작업 이력이 남습니다. 대표자 본인은 비활성화할 수 없습니다.
 
