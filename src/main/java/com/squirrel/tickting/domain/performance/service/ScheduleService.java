@@ -13,6 +13,7 @@ import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,7 @@ public class ScheduleService {
 	 * 지금 예매할 수 있는 회차를 읽는다. 읽기만 하고 아무것도 바꾸지 않는다.
 	 * 없는 회차와 공개되지 않은(작성 중·취소된) 공연의 회차는 같은 404 다. (번호가 존재하는지 알려주지 않으려고)
 	 * 공개된 공연이라도 판매 기간 밖이거나 회차가 중지·연기·취소됐거나 이미 시작했으면 판매 중이 아니다.
+	 * 아직 시작하지 않았고 판매 종료 전인 회차가 일시 중지면 중지 전용 코드를 준다. (재개되면 살 수 있어서)
 	 *
 	 * 취소 규정은 지연 로딩이라 트랜잭션이 끝난 뒤에는 꺼낼 수 없어서 여기서 읽어 담는다.
 	 */
@@ -69,10 +71,20 @@ public class ScheduleService {
 
 		boolean saleOpen = !now.isBefore(performance.getSaleOpenAt()) && !now.isAfter(performance.getSaleCloseAt());
 		boolean scheduleOpen = schedule.getStatus() == ScheduleStatus.ON_SALE && schedule.getStartAt().isAfter(now);
+		if (schedule.getStatus() == ScheduleStatus.PAUSED && schedule.getStartAt().isAfter(now)
+			&& !now.isAfter(performance.getSaleCloseAt())) {
+			throw new BusinessException(BookingExceptionCode.SCHEDULE_SALE_PAUSED);
+		}
 		if (!saleOpen || !scheduleOpen) {
 			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE);
 		}
 		return performance;
+	}
+
+	/** 회차의 지금 판매 상태. 없는 회차면 비어 있다. 대기열이 일시 중지·취소를 알아보는 데 쓴다. */
+	@Transactional(readOnly = true)
+	public Optional<ScheduleStatus> findStatus(Long scheduleId) {
+		return performanceScheduleRepository.findById(scheduleId).map(PerformanceSchedule::getStatus);
 	}
 
 	/**

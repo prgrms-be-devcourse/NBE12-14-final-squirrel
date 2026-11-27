@@ -6,8 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
-import { dateTimeText, gradeLabel, won } from "@/lib/format";
+import { dateTimeText, gradeLabel, timeText, won } from "@/lib/format";
 import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
+import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
 
@@ -22,6 +23,7 @@ type PayView = {
   bookingNo: string;
   status: BookingStatus;
   performanceId: number;
+  scheduleId: number;
   title: string;
   startAt: string;
   seats: { id: number; zoneName: string; rowLabel: string; seatNumber: string; gradeName: string; price: number }[];
@@ -37,6 +39,7 @@ function fromDetail(b: BookingDetail): PayView {
     bookingNo: b.bookingNo,
     status: b.status,
     performanceId: b.performance.performanceId,
+    scheduleId: b.schedule.scheduleId,
     title: b.performance.title,
     startAt: b.schedule.startAt,
     seats: b.seats.map((s) => ({
@@ -91,6 +94,7 @@ export default function PayPage() {
         bookingNo: cache.booking.bookingNo,
         status: cache.booking.status,
         performanceId: cache.booking.performanceId,
+        scheduleId: cache.booking.scheduleId,
         title: cache.booking.performanceTitle,
         startAt: cache.booking.scheduleStartAt,
         seats: cache.booking.seats.map((s) => ({
@@ -110,6 +114,10 @@ export default function PayPage() {
       ? fromDetail(detail.data)
       : null;
   const performance = useApi<PerformanceDetail>(view ? `/api/v1/performances/${view.performanceId}` : null);
+  // 중지된 회차의 결제 화면에 들어왔거나, 결제를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
+  const [rejected, setRejected] = useState(false);
+  const paused =
+    rejected || performance.data?.schedules.find((s) => s.scheduleId === view?.scheduleId)?.status === "PAUSED";
 
   const now = useNow(1000);
   const [step, setStep] = useState<Step>("review");
@@ -238,7 +246,8 @@ export default function PayPage() {
       clearBooking(b.bookingId);
       router.push("/bookings");
     } catch (error) {
-      if (error instanceof ApiError) setMessage(errorText(error, "결제에 실패했습니다"));
+      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) setRejected(true);
+      else if (error instanceof ApiError) setMessage(errorText(error, "결제에 실패했습니다"));
       else if (isTossError(error)) {
         // 구매자가 결제창을 닫은 경우도 여기로 온다. 실패가 아니라 취소라서 안내만 한다.
         setMessage(error.code.includes("CANCEL") ? "결제를 취소했습니다" : error.message);
@@ -338,6 +347,15 @@ export default function PayPage() {
             남은 결제 시간 {minutes}:{String(seconds).padStart(2, "0")}
           </p>
 
+          {/* 결제창이 열려 있는 동안에는 띄우지 않는다. 승인은 서버가 막고 성공 화면이 알린다 */}
+          {paused && !busy && (
+            <SalePausedModal href={`/performances/${b.performanceId}`}>
+              지금은 결제할 수 없습니다.
+              {b.expiresAt &&
+                ` 선택한 좌석은 ${timeText(b.expiresAt)}까지 유지되며, 그 안에 재개되면 내 예매에서 결제할 수 있습니다`}
+            </SalePausedModal>
+          )}
+
           {step === "review" && (
             <>
               <section className="card space-y-4 p-6">
@@ -403,7 +421,7 @@ export default function PayPage() {
                   {message}
                 </p>
               )}
-              <button type="button" className="btn btn-primary btn-lg w-full" onClick={goPay}>
+              <button type="button" className="btn btn-primary btn-lg w-full" disabled={paused} onClick={goPay}>
                 결제 진행하기
               </button>
               <p className="text-center text-xs text-muted">내용을 확인한 뒤 누르면 결제 수단을 고를 수 있습니다</p>
@@ -431,7 +449,7 @@ export default function PayPage() {
               <button
                 type="button"
                 className="btn btn-primary btn-lg w-full"
-                disabled={busy || payUnavailable || (useToss && widgetState !== "ready")}
+                disabled={busy || paused || payUnavailable || (useToss && widgetState !== "ready")}
                 onClick={pay}
               >
                 {busy ? "결제 처리 중" : `${won(b.totalAmount)} 결제하기`}

@@ -63,6 +63,15 @@ public class ReadCache {
 		return loaded;
 	}
 
+	/** 저장한 값을 만료 전에 지운다. 지우지 못해도 요청은 성공시키고, 값은 만료되면 사라진다. */
+	public void evict(String name, String key) {
+		try {
+			redis.delete(KEY_PREFIX + name + ":" + key);
+		} catch (RuntimeException e) {
+			fail(name, "삭제", e);
+		}
+	}
+
 	private <T> T read(String name, String redisKey, TypeReference<T> type) {
 		try {
 			String json = redis.opsForValue().get(redisKey);

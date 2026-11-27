@@ -114,6 +114,8 @@
 | SLR-22 | 취소 규정 수정 | PUT `/api/v1/seller/cancel-policies/{cancelPolicyId}` | 구현됨 |
 | SLR-23 | 내 사업체 예매 목록 | GET `/api/v1/seller/bookings` | 구현됨 |
 | SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
+| SLR-26 | 회차 판매 일시 중지 | POST `/api/v1/seller/performances/{performanceId}/schedules/pause` | 구현됨 |
+| SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -537,7 +539,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 - 토큰은 헤더 **`X-Captcha-Token`**으로 보냅니다. 프론트는 요청 직전에 `grecaptcha.execute(사이트 키, { action: "queue_enter" })`로 토큰을 받습니다. 토큰은 한 번만 쓸 수 있고 약 2분 뒤 만료되므로 미리 받아 두지 않습니다. 다시 줄을 설 때(`QUEUE000` 뒤 재입장 포함)마다 새로 받습니다.
 - 서버는 구글 응답의 `success`만 보지 않고 **`action`이 `queue_enter`인지, `score`가 기준(`app.captcha.min-score`, 지금 0.5 임시) 이상인지**도 봅니다.
 - 상태 확인(`GET`)과 나가기(`DELETE`)는 토큰이 필요 없습니다. 상태 확인은 2~3초마다 불리기 때문입니다.
-- 확인 순서: 로그인·계정 종류(시큐리티, 401·403 `AUTH100`) → **캡챠(`CAPTCHA000`·`CAPTCHA001`)** → 회차(`BOOKING002`·`BOOKING004`). 캡챠는 대기열을 끈 상태에서도 확인합니다.
+- 확인 순서: 로그인·계정 종류(시큐리티, 401·403 `AUTH100`) → **캡챠(`CAPTCHA000`·`CAPTCHA001`)** → 회차(`BOOKING002`·`BOOKING012`·`BOOKING004`). 캡챠는 대기열을 끈 상태에서도 확인합니다.
 - 구글에 물어볼 수 없으면(연결 실패, 응답 3초 초과, 5xx) 통과시키지 않고 503 `CAPTCHA001`입니다. (임시 정책. 장애 동안 매크로가 들어오는 것보다 막는 쪽을 골랐고, 팀이 다시 정함)
 - 검증 구현은 `app.captcha.verifier`로 고릅니다. `recaptcha`는 구글에 실제로 묻고, `mock`(로컬·테스트·부하 테스트)은 토큰이 있으면 통과하고 `fail`이면 실패합니다. 키는 `.env`의 `RECAPTCHA_SECRET_KEY`(서버)와 프론트의 사이트 키입니다.
 
@@ -940,26 +942,35 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 }
 ```
 
-`saleStatus`: `UPCOMING` / `ON_SALE` / `SOLD_OUT` / `ENDED` (계산값). `PUBLISHED` 공연만 노출.
+`saleStatus`: `PAUSED` / `UPCOMING` / `ON_SALE` / `SOLD_OUT` / `ENDED` (계산값). `PUBLISHED` 공연만 노출.
 
 | `saleStatus` | 조건 (위에서부터 먼저 맞는 것) |
 |---|---|
 | `ENDED` | 판매 종료 시각이 지남, 또는 마지막 회차가 시작됨, 또는 취소되지 않은 회차가 없음 |
+| `PAUSED` | "판매 일시 중지". 아직 시작하지 않은 회차 중 일시 중지(`PAUSED`) 회차가 있고 판매 중(`ON_SALE`) 회차가 하나도 없음. 판매 오픈 전이어도 `PAUSED` |
 | `UPCOMING` | 판매 오픈 시각 전 |
-| `SOLD_OUT` | 아직 시작하지 않은 회차에 판매 가능(`AVAILABLE`) 좌석이 없음. 임시 점유(`HELD`)만 남아도 매진이고, 점유가 풀리면 다시 `ON_SALE` |
+| `SOLD_OUT` | 아직 시작하지 않은 판매 중(`ON_SALE`) 회차에 판매 가능(`AVAILABLE`) 좌석이 없음. 임시 점유(`HELD`)만 남아도 매진이고, 점유가 풀리면 다시 `ON_SALE` |
 | `ON_SALE` | 그 외 |
 
-종료된 공연도 목록에 남고 `ENDED`로 표시됩니다.
+| 아직 시작하지 않은 회차 | 목록 |
+|---|---|
+| 모두 중지 | `PAUSED` |
+| 판매 중(좌석 남음) + 중지 | `ON_SALE` |
+| 판매 중(매진) + 중지(좌석 남음) | `SOLD_OUT` |
+| 모두 중지, 판매 오픈 전 | `PAUSED` |
+| 모두 중지, 판매 종료 뒤 | `ENDED` |
+
+종료된 공연도 목록에 남고 `ENDED`로 표시됩니다. 일시 중지·재개(SLR-26·27)는 목록에서는 응답이 저장되는 시간(지금 5초)만큼 늦게 보일 수 있고(상세는 저장분을 지워 바로 반영), 그사이 점유와 결제는 서버가 막습니다.
 
 **에러**: 400 `COMMON000` 없는 `genre`·`sort` 값
 
 ### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개, 구현됨)
 
-- 응답은 Redis에 잠깐(지금 5초, 임시) 저장되어 몇 초 전 값일 수 있습니다. (PFM-01과 같음) 404는 저장하지 않습니다.
+- 응답은 Redis에 잠깐(지금 5초, 임시) 저장되어 몇 초 전 값일 수 있습니다. (PFM-01과 같음) 404는 저장하지 않습니다. 예외로 판매 일시 중지·재개(SLR-26·27)는 이 공연의 저장분을 지웁니다.
 - 공개(`PUBLISHED`)된 공연만 볼 수 있습니다. 작성 중·취소된 공연은 없는 공연과 같은 404입니다.
 - `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
   - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
-  - 일시 중지(`PAUSED`)·연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다.
+  - 시작 전의 일시 중지(`PAUSED`) 회차는 판매 종료가 아니면 `saleStatus`도 `PAUSED`입니다. 연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다. `pauseReason`은 `saleStatus`가 `PAUSED`인 회차에만 있고 그 밖은 `null`입니다. 화면은 값이 있을 때만 회차 아래에 사유를 보여 주고, 평소에는 사유 영역을 두지 않습니다. (2026-11-27 변경)
 - `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다. `name`은 등급 코드(SLR-08의 표)이고 화면 이름과 색은 프론트가 정합니다.
 - `cancelPolicy`: 공연이 고른 취소 규정의 구간입니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
 - `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다. `venue`·`seller`는 공연의 공연장·사업체를 읽기 전용 연관으로 꺼내므로 항상 있습니다. (행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
@@ -1006,7 +1017,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
         "scheduleId": 31,
         "startAt": "2026-12-20T19:00:00",
         "status": "ON_SALE",
-        "saleStatus": "UPCOMING"
+        "saleStatus": "UPCOMING",
+        "pauseReason": null
       }
     ],
     "grades": [
@@ -1202,7 +1214,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 |---|---|---|
 | 409 | `BOOKING000` | 이미 점유·판매된 좌석 (하나라도 점유할 수 없으면 전체 거절) |
 | 409 | `BOOKING001` | 1인 최대 매수 초과 (이미 가진 좌석 + 요청 좌석이 공연의 한도를 넘음) |
-| 400 | `BOOKING002` | 판매 중이 아닌 회차 (판매 기간 밖·회차 중지·연기·취소·이미 시작. 공연이 공개 상태가 아니면 `BOOKING004`) |
+| 400 | `BOOKING002` | 판매 중이 아닌 회차 (판매 기간 밖·연기·취소·이미 시작. 공연이 공개 상태가 아니면 `BOOKING004`) |
+| 409 | `BOOKING012` | 일시 중지한 회차 (아직 시작하지 않았고 판매 종료 전) |
 | 400 | `BOOKING003` | 판매 제외 좌석 (`BLOCKED`, `RESERVED`) |
 | 404 | `BOOKING004` | 없는 회차 (공연이 공개 상태가 아닌 것도 같은 404) |
 | 404 | `BOOKING005` | 없는 좌석 (다른 회차의 좌석도 같은 404) |
@@ -1212,6 +1225,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 락을 기다리는 시간과 만료 처리 규칙은 `part4` 4-7을 따른다. 만료된 좌석은 스케줄러(1분)가 풀어 줄 때까지 `BOOKING000`이다.
 
 `seats`는 요청한 `seatIds` 순서대로 내려간다. 락 대기 시간(`app.booking.lock-wait`, 1초)과 결제 제한 시간(`app.booking.hold-duration`, 7분)은 `application.yaml`의 설정값이다. 예매자 토큰만 호출할 수 있고(판매자·관리자 403), 예매자 번호는 토큰에서 꺼낸다.
+
+**판매 일시 중지 (2026-11-27)**: 아직 시작하지 않았고 판매 종료 전인 회차가 일시 중지면 409 `BOOKING012` "판매가 일시 중지된 회차입니다."입니다. 대기열 입장(`doc/queue-design.md`)도 같습니다. 판매가 끝났거나 시작한 회차는 `BOOKING002`입니다. 화면은 `BOOKING012`를 받으면 알림 창을 띄우고 확인하면 공연 상세로 보냅니다.
 
 ### BKG-02 결제 준비 — `POST /api/v1/bookings/{bookingId}/payments` (예매자)
 
@@ -1252,6 +1267,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 |---|---|---|
 | 404 | `BOOKING006` | 없는 예매 (남의 예매도 같은 404) |
 | 409 | `BOOKING007` | 결제 대기(`PENDING`)가 아니거나 결제 제한 시각이 지남. 공연이 공개 상태가 아니어도 같은 코드 |
+| 409 | `BOOKING012` | 예매의 회차가 일시 중지 |
 | 400 | `PAYMENT000` | 공연이 받지 않는 수령 방법 (현장 전용 공연의 `DELIVERY`, 배송 전용 공연의 `ONSITE`) |
 | 400 | `PAYMENT001` | `DELIVERY`인데 받는 사람 이름·연락처·주소 중 비어 있음 |
 | 400 | `COMMON000` | `receiveType`이 비었거나 알 수 없는 값 |
@@ -1261,6 +1277,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - `ONSITE`이면 받는 사람 정보는 무시하고 비웁니다.
 - 이 단계에서는 좌석 점유 시간을 늘리지 않습니다. (연장은 BKG-03 승인을 시작할 때 한 번)
 - 예매자 번호는 토큰에서 꺼냅니다. 락 대기 시간은 `app.payment.lock-wait`(1초) 설정값입니다.
+
+**판매 일시 중지 (2026-11-27)**: 예매의 회차가 일시 중지(`PAUSED`)면 409 `BOOKING012`, 메시지 "판매가 일시 중지된 회차라 결제할 수 없습니다."입니다. 결제 준비 건을 만들지 않고 수령 정보도 바꾸지 않습니다. 검사 순서는 예매 404 → 예매 상태·결제 제한 시각 → **회차 중지** → 공연 공개 → 수령 방법입니다. 점유한 좌석은 만료까지 유지되고, 그 안에 재개되면 다시 결제할 수 있습니다.
 
 ### BKG-03 결제 승인 — `POST /api/v1/payments/confirm` (예매자)
 
@@ -1299,6 +1317,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 | 404 | `PAYMENT002` | 없는 주문 ID (남의 결제도 같은 404) |
 | 400 | `PAYMENT004` | 요청 금액이 서버가 계산한 금액과 다름. 토스를 부르지 않고 결제는 준비(`READY`)로 남음 |
 | 409 | `BOOKING007` | 결제 제한 시각이 지났거나 예매가 결제 대기가 아님. 토스를 부르지 않고 결제는 준비로 남음 |
+| 409 | `BOOKING012` | 예매의 회차가 일시 중지. 토스를 부르지 않고 결제는 준비로 남음 |
 | 409 | `PAYMENT003` | 결제가 준비(`READY`) 상태가 아님. 이미 승인했거나 다른 승인 요청이 처리 중이거나 실패한 결제 |
 | 400 | `PAYMENT005` | 토스가 승인을 거절함. `message`에 토스가 준 사유(카드사 거절, 한도 초과 등)가 들어감. 결제는 `FAILED`, 예매·좌석은 점유 그대로 |
 | 502 | `PAYMENT006` | 승인 여부를 알 수 없음(통신 오류·시간 초과 등). 결제는 `PROCESSING`으로 남고 보정 작업이 토스에 조회해 확정함(구현됨, 2026-11-25: 승인을 시작한 지 5분이 지난 결제를 5분마다 조회). 확정되면 예매가 `PAID`가 되고, 그 사이 예매가 만료돼 좌석을 줄 수 없으면 자동 환불되어 `CANCELED`가 됨. 같은 결제를 다시 승인하면 `PAYMENT003` |
@@ -1311,6 +1330,12 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - 토스를 부르는 구간은 DB 트랜잭션과 락 밖입니다. 성공하면 결제 `DONE`, 예매 `PAID`, 좌석 `SOLD`를 한 트랜잭션으로 바꿉니다.
 - **결제 대행사 구현**은 `app.payment.gateway`로 고릅니다. `toss`(운영 기본)는 `.env`의 `TOSS_SECRET_KEY`가 필요하고, `mock`은 키 없이 흐름만 확인합니다(`prod` 프로필에서는 등록되지 않음). **로컬에서는 `.env`에 `PAYMENT_GATEWAY`를 반드시 넣어야 앱이 뜹니다.** 키 없이 돌리려면 `PAYMENT_GATEWAY=mock`, 실제 토스 테스트 결제를 쓰려면 `PAYMENT_GATEWAY=toss`와 `TOSS_SECRET_KEY`를 넣습니다. 결제창을 여는 클라이언트 키는 프론트가 읽습니다.
 - Mock 은 결제 키 접두사로 결과를 고릅니다. `reject_` 거절, `unavailable_` 결과 모름, `slow_` 느린 성공, 그 밖의 값은 성공입니다.
+
+**판매 일시 중지 (2026-11-27)**: 승인을 시작할 때 예매의 회차가 일시 중지면 409 `BOOKING012`, 메시지는 BKG-02와 같습니다. 토스를 부르지 않고 결제는 `READY`로 남으며 점유 시간을 늘리지 않습니다.
+
+- 검사 순서: 결제·예매 404 → 결제 상태(`PAYMENT003`) → 금액(`PAYMENT004`) → 예매 상태·결제 제한 시각 → **회차 중지**
+- 중지 **전에** 승인을 시작한 결제(`PROCESSING`)는 완료됩니다. 응답을 잃은 결제는 보정 작업이 나중에 확정합니다.
+- 승인 시작과 중지가 밀리초 단위로 겹치면 통과할 수 있습니다. (알고 감수, `seller-progress.md` DB 관련 TODO)
 
 ### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자, 구현됨)
 
@@ -1556,7 +1581,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
 
 ### 판매자 감사 로그 (공통)
 
-SLR-03·04·09·10·11·12·13은 변경할 때 `audit_log`에 한 줄을 남깁니다. 행위자는 `SELLER`, `actor_id`는 계정 번호, `business_id`는 사업체 번호입니다. 변경과 **한 트랜잭션**이라 로그를 남기지 못하면 변경도 취소됩니다(500). 거절된 요청과 **값이 그대로인 요청은 남기지 않습니다.** 대상·행동·전후 값은 각 API에 적습니다.
+SLR-03·04·09·10·11·12·13은 변경할 때 `audit_log`에 한 줄을 남깁니다. 행위자는 `SELLER`, `actor_id`는 계정 번호, `business_id`는 사업체 번호입니다. 변경과 **한 트랜잭션**이라 로그를 남기지 못하면 변경도 취소됩니다(500). 거절된 요청과 **값이 그대로인 요청은 남기지 않습니다.** 대상·행동·전후 값은 각 API에 적습니다. 판매 일시 중지·재개(SLR-26·27)와 취소 규정 생성·수정(SLR-21·22)도 남깁니다.
 
 ### SLR-01 공연장 목록 — `GET /api/v1/seller/venues` (구현됨)
 
@@ -1855,6 +1880,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 - 로그인한 판매자 사업체의 공연만 볼 수 있습니다. 다른 사업체의 공연이거나 없는 공연은 똑같이 404 `PERFORMANCE000`입니다.
 - 작성 중(`DRAFT`)인 공연은 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)가 `null`일 수 있습니다.
 - `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다.
+- `schedules` 항목의 `pauseReason`은 일시 중지 회차의 중지 사유이고 그 밖은 `null`입니다. 재개 확인 화면에서 씁니다. 예매자 공연 상세(PFM-02)에는 판매 상태가 `PAUSED`인 회차에만 같은 값을 줍니다.
 
 **응답 200**
 
@@ -2181,13 +2207,16 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 | 7 | (작성 중) 3시간 이내 | 400 `PERFORMANCE009` |
 | 8 | (공개) 회차가 모두 시작함 | 409 `PERFORMANCE010` |
 | 9 | (공개) 판매가 끝남 | 400 `PERFORMANCE405` |
-| 10 | (즉시 생성) 설정하지 않은(`UNSET`) 구역이 있음. 메시지에 구역 이름이 나옴 | 400 `PERFORMANCE403` |
-| 11 | (즉시 생성) 판매할(`ASSIGNED`) 구역이 없음 | 400 `PERFORMANCE404` |
-| 12 | 같은 공연장의 다른 회차와 시간 겹침 | 409 `PERFORMANCE007` |
-| 13 | (즉시 생성) 복사할 공연장 좌석이 없음(깨진 데이터) | 409 `PERFORMANCE503` |
+| 10 | (공개) 아직 시작하지 않은 판매 중·일시 중지 회차가 하나 이상 있고 모두 일시 중지 | 409 `PERFORMANCE018` |
+| 11 | (즉시 생성) 설정하지 않은(`UNSET`) 구역이 있음. 메시지에 구역 이름이 나옴 | 400 `PERFORMANCE403` |
+| 12 | (즉시 생성) 판매할(`ASSIGNED`) 구역이 없음 | 400 `PERFORMANCE404` |
+| 13 | 같은 공연장의 다른 회차와 시간 겹침 | 409 `PERFORMANCE007` |
+| 14 | (즉시 생성) 복사할 공연장 좌석이 없음(깨진 데이터) | 409 `PERFORMANCE503` |
 
 - 락은 공연 단위(`performance:{공연 번호}`)입니다. 같은 공연의 회차 수정(SLR-13)·공개(SLR-04)·공연 수정(SLR-03)·등급과 구역 수정(SLR-10·11)·좌석 생성(SLR-14)과 겹치면 하나씩 처리됩니다.
 - 감사 로그: `SCHEDULE` / `CREATE`, `target_id`는 회차 번호. 변경 전 값은 없고 변경 후 `performanceId`·`startAt`·`seatsGenerated`(판매 좌석을 바로 만들었는지)입니다.
+
+**일시 중지 중의 회차 추가 (2026-11-27)**: 공개 공연의 아직 시작하지 않은 회차(판매 중·일시 중지만 봄)가 모두 일시 중지면 회차를 추가할 수 없습니다(409 `PERFORMANCE018` "판매를 일시 중지한 공연에는 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요."). 화면은 이때 회차 추가 버튼을 끄고 이유를 보여 줍니다. 하나라도 판매 중이거나, 그런 회차가 없거나(시작·취소·연기 회차만 남음), 작성 중 공연이면 `ON_SALE`로 추가합니다.
 
 ### SLR-13 회차 수정 — `PUT /api/v1/seller/schedules/{scheduleId}` (구현됨)
 
@@ -2319,6 +2348,105 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
   }
 }
 ```
+
+### SLR-26 회차 판매 일시 중지 — `POST /api/v1/seller/performances/{performanceId}/schedules/pause` (구현됨)
+
+공개(`PUBLISHED`) 공연의 회차 판매를 모두 또는 골라서 일시 중지합니다. 재개(SLR-27)로 다시 열 수 있습니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 사업체 번호는 토큰에서 꺼냅니다. 공연에는 "중지" 상태가 없고 회차의 상태만 바꿉니다.
+
+**요청** (모두, 또는 골라서)
+
+```json
+{ "all": true, "reason": "좌석 점검" }
+```
+
+```json
+{ "scheduleIds": [31, 33], "reason": "좌석 점검" }
+```
+
+- `all: true`와 `scheduleIds` 중 **정확히 하나**를 보냅니다. `all: false`는 보내지 않은 것과 같습니다.
+- `scheduleIds`: 빈 목록과 빈 값(`null`)은 400, 같은 번호는 한 번으로 봅니다.
+- `reason`: 필수, 앞뒤 공백을 뺀 255자 이하. 예매자 공연 상세(PFM-02)에 보이므로 화면의 입력창에서 알립니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "performanceId": 12,
+    "changedScheduleIds": [31, 33],
+    "skipped": [
+      { "scheduleId": 32, "reason": "ALREADY_PAUSED" }
+    ]
+  }
+}
+```
+
+- 두 목록은 공연 일시가 빠른 순(같으면 회차 번호순)입니다.
+- **바꿀 수 있는 회차만 바꾸고** 나머지는 `skipped`에 이유와 함께 줍니다. `all: true`면 대상이 아닌 회차도 `skipped`에 나옵니다.
+
+| 회차 | 중지(SLR-26) | 재개(SLR-27) |
+|---|---|---|
+| 판매 중(`ON_SALE`), 시작 전 | 바꿈 | 건너뜀 `ALREADY_ON_SALE` |
+| 일시 중지(`PAUSED`), 시작 전 | 건너뜀 `ALREADY_PAUSED` (중지 사유도 그대로) | 바꿈 |
+| 취소(`CANCELED`) | 건너뜀 `CANCELED` | 건너뜀 `CANCELED` |
+| 연기(`POSTPONED`) | 건너뜀 `POSTPONED` | 건너뜀 `POSTPONED` |
+| 시작함(시작 시각이 지금 이전이거나 같음) | 건너뜀 `STARTED` | 건너뜀 `STARTED` |
+
+이유가 겹치면 `CANCELED` → `POSTPONED` → `STARTED` → `ALREADY_*` 순으로 하나만 줍니다.
+
+- 판매 오픈 전과 판매 종료 뒤에도 중지·재개할 수 있습니다.
+- 판매 좌석, `seatsGeneratedAt`, 점유, 예매, 공연 상태는 바꾸지 않습니다. 판매 좌석 자동 생성은 지금처럼 중지 회차도 만듭니다.
+
+**중지하면** (재개하면 모두 풀립니다)
+
+| 예매자 | 동작 |
+|---|---|
+| 새 대기열 입장, 좌석 점유 | 409 `BOOKING012` (대기열 확인은 최대 10초 늦게 반영) |
+| 대기 중 | 순번 유지, 입장만 멈춤 (`doc/queue-design.md`) |
+| 결제 준비·승인 | 409 `BOOKING012` (BKG-02·03) |
+| 중지 전에 승인을 시작한 결제 | 완료 |
+| 좌석 조회, 결제한 예매의 직접 취소 | 그대로 (취소 수수료는 평소 규정) |
+| 공연 목록·상세 | `PAUSED` (PFM-01·02). 상세의 저장분은 중지·재개 때 지워 바로 반영 |
+| 예매자 화면 | 좌석·결제 화면에 들어올 때, 예매·결제 버튼이 거절될 때, 새로 대기열에 들어갈 때 중지를 알면 알림 창을 띄우고, 확인(또는 닫기)하면 공연 상세로 보냄. 열어 둔 화면이 주기적으로 묻지는 않음. 이미 대기 중인 사람은 대기 화면에 남음 |
+
+**에러** (겹치면 위가 먼저. 취소된 공연에 다른 공연의 회차 번호를 보내면 `PERFORMANCE002`)
+
+| 순서 | 조건 | 코드 | 메시지 |
+|---|---|---|---|
+| 1 | 요청 형식 위반 | 400 `COMMON000` | 요청 검증 메시지 |
+| 2 | 없는 공연, 다른 사업체의 공연 | 404 `PERFORMANCE000` | 기본 |
+| 3 | 락을 1초 안에 잡지 못함 | 409 `COMMON004` | 기본(잠시 후 다시 시도) |
+| 4 | 취소된 공연 | 409 `PERFORMANCE002` | 취소된 공연의 회차는 중지하거나 재개할 수 없습니다. |
+| 5 | 작성 중 공연 | 409 `PERFORMANCE015` | 작성 중인 공연의 회차는 중지하거나 재개할 수 없습니다. |
+| 6 | 이 공연의 회차가 아닌 번호가 섞임(없는 번호 포함). 아무것도 바꾸지 않음 | 404 `PERFORMANCE008` | 기본 |
+| 7 | 바꿀 수 있는 회차가 하나도 없음 | 409 `PERFORMANCE016`(중지) / `PERFORMANCE017`(재개) | 중지할 수 있는 회차가 없습니다. / 재개할 수 있는 회차가 없습니다. |
+| 8 | 저장하는 순간 회차가 바뀜(락이 듣지 않은 경우). 전체를 되돌림 | 409 `COMMON004` | 기본 |
+
+- 락은 공연 단위(`performance:{공연 번호}`)라 회차 추가·수정, 공연 수정, 좌석 생성과 하나씩 처리됩니다. 바꿀 상태이고 아직 시작하지 않았을 때만 바꾸는 조건부 UPDATE를 함께 둡니다.
+- 좌석 점유(BKG-01)는 이 락을 잡지 않습니다. 중지 순간에 통과한 점유는 결제에서 막힙니다.
+- 감사 로그: **바뀐 회차마다 한 줄**, `SCHEDULE` / `PAUSE`, `target_id`는 회차 번호. 변경 전 `performanceId`·`status`, 변경 후 `performanceId`·`status`·`reason`. 변경과 한 트랜잭션이고 건너뛴 회차는 남기지 않습니다.
+
+### SLR-27 회차 판매 재개 — `POST /api/v1/seller/performances/{performanceId}/schedules/resume` (구현됨)
+
+일시 중지한 회차를 다시 판매 중으로 바꿉니다. 권한, 대상, 응답 모양, 검사 순서, 락은 SLR-26과 같습니다.
+
+**요청** (`reason` 없음)
+
+```json
+{ "all": true }
+```
+
+```json
+{ "scheduleIds": [31, 33] }
+```
+
+- **`all: true`는 말 그대로 모두입니다.** 따로 중지한 회차까지 재개합니다. 일부만 열려면 `scheduleIds`로 고릅니다.
+- 재개한 회차의 중지 사유는 비웁니다. 지난 사유는 감사 로그에 남습니다.
+- 사용이 중지된 공연장의 회차도 재개할 수 있습니다.
+- 감사 로그: `SCHEDULE` / `RESUME`, 변경 전 `performanceId`·`status`·`reason`(중지 사유), 변경 후 `performanceId`·`status`.
 
 ### SLR-15 회차 취소 — `POST /api/v1/seller/schedules/{scheduleId}/cancel`
 
@@ -2607,6 +2735,8 @@ Query: `page`, `size`
 | 400 | `PERFORMANCE101` | 구간끼리의 규칙 위반 (이유는 메시지로 구분) |
 | 409 | `PERFORMANCE104` | 같은 사업체에 같은 이름의 규정이 있음, 또는 기본 규정과 같은 이름 |
 
+**감사 로그**: `CANCEL_POLICY` / `CREATE`, `target_id`는 규정 번호. 변경 전 값은 없고 변경 후 `name`·`rules`입니다. 거절된 요청은 남기지 않습니다.
+
 ### SLR-22 취소 규정 수정 — `PUT /api/v1/seller/cancel-policies/{cancelPolicyId}` (구현됨)
 
 요청은 SLR-21과 같은 필드와 규칙이며, 이름과 규정 구간을 전체 교체합니다. 로그인한 사업체 소유 규정만 수정할 수 있습니다. 기본 규정과, 공개(`PUBLISHED`)되었거나 취소(`CANCELED`)된 공연에 적용 중인 규정은 수정할 수 없습니다. 작성 중(`DRAFT`) 공연만 쓰는 규정은 수정할 수 있고, 그 공연들에는 바뀐 내용이 적용됩니다. 삭제 API는 이번 범위에서 제공하지 않습니다.
@@ -2629,6 +2759,8 @@ Query: `page`, `size`
 | 409 | `PERFORMANCE103` | 공개되었거나 취소된 공연이 쓰는 규정 |
 | 409 | `PERFORMANCE104` | 같은 사업체의 다른 규정이나 기본 규정과 같은 이름 |
 | 409 | `COMMON004` | 같은 규정을 동시에 수정하거나 그 규정을 쓰는 공연을 공개하는 중이라 락(`cancel-policy:{규정 번호}`)을 1초 안에 잡지 못함 (잠시 후 다시 시도) |
+
+**감사 로그**: `CANCEL_POLICY` / `UPDATE`, `target_id`는 규정 번호. 변경 전·후에 **바뀐 항목만**(`name`, `rules`) 담고, 구간이 하나라도 바뀌면 `rules`는 목록 전체입니다. 값이 그대로면(구간을 보낸 순서만 다른 경우 포함) 200이고 남기지 않습니다. 거절된 요청(기본 규정, 남의 규정, 잠긴 규정 등)도 남기지 않습니다. 에러 순서, 락, 응답은 그대로입니다.
 
 ## 5. 관리자 (`/api/v1/admin/**`)
 

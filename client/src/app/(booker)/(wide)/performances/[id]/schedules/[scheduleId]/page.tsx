@@ -13,6 +13,7 @@ import { dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { BookingCreated, PerformanceDetail, Seat, Zone, ZoneSeats, ZoneSummary } from "@/lib/types";
 import { ArenaMap } from "@/components/arena-map";
 import { QueueGate } from "@/components/queue-gate";
+import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { ErrorBox, Loading } from "@/components/ui";
 
 type Picked = {
@@ -68,6 +69,9 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
   const p = performance.data;
   const schedule = p?.schedules.find((s) => String(s.scheduleId) === scheduleId);
+  // 중지된 회차에 다시 들어왔거나, 예매를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
+  const [rejected, setRejected] = useState(false);
+  const paused = rejected || schedule?.status === "PAUSED";
   const maxPerPerson = p?.sale.maxPerPerson ?? 4;
   const activeZone = zones.data?.zones.find((z) => z.zoneId === activeZoneId);
 
@@ -120,6 +124,10 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
       }
       if (error instanceof ApiError && error.code === "QUEUE000") {
         onNotAdmitted();
+        return;
+      }
+      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
+        setRejected(true);
         return;
       }
       setMessage(errorText(error, "예매에 실패했습니다"));
@@ -328,6 +336,11 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
               <dd className="text-2xl font-medium">{won(ticketTotal + feeTotal)}</dd>
             </div>
           </dl>
+          {paused && (
+            <SalePausedModal href={`/performances/${id}`}>
+              지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다
+            </SalePausedModal>
+          )}
           {message && <p className="text-sm text-accent-strong">{message}</p>}
           {account === null ? (
             <button type="button" className="btn btn-primary btn-lg w-full" onClick={toLogin}>
@@ -337,7 +350,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
             <button
               type="button"
               className="btn btn-primary btn-lg w-full"
-              disabled={picked.length === 0 || submitting}
+              disabled={paused || picked.length === 0 || submitting}
               onClick={book}
             >
               {submitting ? "좌석 확인 중" : "주문 확인으로"}

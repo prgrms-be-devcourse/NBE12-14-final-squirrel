@@ -17,7 +17,7 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	/**
 	 * 취소(CANCELED)된 공연을 고치려 함. 공연 취소는 모든 회차를 취소해 locked 가 false 가 되므로 따로 막는다.
 	 * 취소 이력의 회차 좌석에는 등급 이름이 없어서 이름을 고치면 이력이 다르게 보인다. 등급·구역 설정과 공연 수정이 함께 쓴다.
-	 * 회차 추가(SLR-12)·수정(SLR-13)과 판매 좌석 생성(SLR-14)도 취소된 공연을 막을 때 쓴다
+	 * 회차 추가(SLR-12)·수정(SLR-13), 판매 좌석 생성(SLR-14), 판매 일시 중지·재개(SLR-26·27)도 취소된 공연을 막을 때 쓴다
 	 */
 	PERFORMANCE_CANCELED("PERFORMANCE002", HttpStatus.CONFLICT, "취소된 공연은 수정할 수 없습니다."),
 	/**
@@ -63,6 +63,15 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	SCHEDULE_HAS_BOOKING("PERFORMANCE011", HttpStatus.CONFLICT, "결제 대기 중이거나 결제된 적 있는(취소 포함) 예매가 있어 일시를 바꿀 수 없습니다."),
 	/** 연기(POSTPONED)된 회차의 일시를 바꾸려 함. 새 일정은 연기 이력·상태와 함께 바뀌어야 해서 연기 기능이 맡는다 */
 	SCHEDULE_POSTPONED("PERFORMANCE012", HttpStatus.CONFLICT, "연기된 회차는 일시를 바꿀 수 없습니다."),
+	// 013·014 는 머지하지 않고 닫은 회차·공연 취소 브랜치가 쓰던 번호라 비워 둔다.
+	/** 작성 중(DRAFT) 공연의 회차 판매를 일시 중지·재개(SLR-26·27)하려 함. 아직 팔고 있지 않아 멈출 것이 없다 */
+	SCHEDULE_SALE_DRAFT_PERFORMANCE("PERFORMANCE015", HttpStatus.CONFLICT, "작성 중인 공연의 회차는 중지하거나 재개할 수 없습니다."),
+	/** 고른 회차(또는 모두) 중에 일시 중지할 수 있는 회차(판매 중이고 시작 전)가 하나도 없음 */
+	NO_SCHEDULE_TO_PAUSE("PERFORMANCE016", HttpStatus.CONFLICT, "중지할 수 있는 회차가 없습니다."),
+	/** 고른 회차(또는 모두) 중에 재개할 수 있는 회차(일시 중지이고 시작 전)가 하나도 없음 */
+	NO_SCHEDULE_TO_RESUME("PERFORMANCE017", HttpStatus.CONFLICT, "재개할 수 있는 회차가 없습니다."),
+	/** 시작 전 회차가 모두 일시 중지인 공개 공연에 회차를 추가하려 함 */
+	SCHEDULE_ADD_WHILE_PAUSED("PERFORMANCE018", HttpStatus.CONFLICT, "판매를 일시 중지한 공연에는 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */

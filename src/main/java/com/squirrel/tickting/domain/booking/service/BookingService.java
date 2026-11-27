@@ -7,6 +7,7 @@ import com.squirrel.tickting.domain.booking.infra.repository.BookingRepository;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingSeatRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import java.time.LocalDateTime;
@@ -75,6 +76,17 @@ public class BookingService {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE);
 		}
 		return booking;
+	}
+
+	/**
+	 * 판매가 일시 중지된 회차의 예매는 결제할 수 없다. 판매자가 중지한 뒤에는 돈이 들어오면 안 된다.
+	 * 좌석 점유는 그대로 두어 만료 전에 재개되면 이어서 결제한다. 회차를 지연 로딩으로 읽어서 호출한 쪽의 트랜잭션 안에서 부른다.
+	 */
+	@Transactional(readOnly = true)
+	public void validateScheduleNotPaused(Booking booking) {
+		if (booking.getSchedule().getStatus() == ScheduleStatus.PAUSED) {
+			throw new BusinessException(BookingExceptionCode.SCHEDULE_SALE_PAUSED, "판매가 일시 중지된 회차라 결제할 수 없습니다.");
+		}
 	}
 
 	/** 내 예매를 찾는다. 없거나 남의 예매면 비어 있다. 호출한 쪽이 "없는 결제" 같은 자기 도메인의 404 로 바꿔 답할 때 쓴다. */

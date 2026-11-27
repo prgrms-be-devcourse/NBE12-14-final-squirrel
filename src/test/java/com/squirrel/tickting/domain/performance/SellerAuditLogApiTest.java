@@ -30,7 +30,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * 판매자 변경 행동의 감사 로그(SLR-03·04·09·10·11·12·13). 무엇이 남는지, 바뀐 것이 없으면 남지 않는지,
+ * 판매자 변경 행동의 감사 로그(SLR-03·04·09·10·11·12·13·21·22·26·27). 무엇이 남는지, 바뀐 것이 없으면 남지 않는지,
  * 로그를 남기지 못하면 변경도 취소되는지 본다.
  */
 @Import(SellerAuditLogApiTest.SwitchableAuditConfig.class)
@@ -82,6 +82,9 @@ class SellerAuditLogApiTest extends IntegrationTestSupport {
 			jdbc.update("DELETE FROM " + table + " WHERE performance_id IN (" + mine + ")");
 		}
 		jdbc.update("DELETE FROM performance WHERE business_id = ?", MY_BUSINESS);
+		jdbc.update("DELETE FROM cancel_policy_rule WHERE policy_id IN "
+			+ "(SELECT id FROM cancel_policy WHERE business_id = ?)", MY_BUSINESS);
+		jdbc.update("DELETE FROM cancel_policy WHERE business_id = ?", MY_BUSINESS);
 		jdbc.update("DELETE FROM venue_zone WHERE venue_id IN (?, ?)", venueId, otherVenueId);
 		jdbc.update("DELETE FROM venue WHERE id IN (?, ?)", venueId, otherVenueId);
 	}
@@ -205,6 +208,123 @@ class SellerAuditLogApiTest extends IntegrationTestSupport {
 		expectFailure(HttpMethod.POST, performance + "/publish", null);
 
 		assertThat(state(performanceId)).isEqualTo(before);
+	}
+
+	@Test
+	@DisplayName("판매 중지·재개는 바뀐 회차마다 한 줄씩 남고, 재개 로그의 변경 전 값에 지운 중지 사유가 남는다")
+	void recordsPauseAndResume() throws Exception {
+		long performanceId = register(performanceBody(venueId));
+		jdbc.update("UPDATE performance SET status = 'PUBLISHED' WHERE id = ?", performanceId);
+		long first = insertSchedule(performanceId, daysLater(30), "ON_SALE");
+		long second = insertSchedule(performanceId, daysLater(31), "ON_SALE");
+		insertSchedule(performanceId, daysLater(32), "CANCELED");
+		String schedules = "/api/v1/seller/performances/" + performanceId + "/schedules";
+
+		send(HttpMethod.POST, schedules + "/pause", Map.of("all", true, "reason", "좌석 점검"))
+			.andExpect(status().isOk());
+
+		assertLatest(2, "SCHEDULE", second, "PAUSE");
+		assertThat(latest("before_value ->> 'status'")).isEqualTo("ON_SALE");
+		assertThat(latest("after_value ->> 'status'")).isEqualTo("PAUSED");
+		assertThat(latest("after_value ->> 'reason'")).isEqualTo("좌석 점검");
+		assertThat(latest("after_value ->> 'performanceId'")).isEqualTo(String.valueOf(performanceId));
+
+		send(HttpMethod.POST, schedules + "/resume", Map.of("scheduleIds", List.of(first)))
+			.andExpect(status().isOk());
+
+		assertLatest(3, "SCHEDULE", first, "RESUME");
+		assertThat(latest("before_value ->> 'reason'")).isEqualTo("좌석 점검");
+		assertThat(latest("after_value ->> 'status'")).isEqualTo("ON_SALE");
+	}
+
+	@Test
+	@DisplayName("취소 규정은 생성과 바뀐 항목만 남기고, 구간 순서만 바꿔 보내거나 거절된 요청은 남기지 않는다")
+	void recordsCancelPolicy() throws Exception {
+		String url = "/api/v1/seller/cancel-policies";
+		send(HttpMethod.POST, url, policyBody("감사 규정", 10)).andExpect(status().isCreated());
+		long policyId = jdbc.queryForObject("SELECT id FROM cancel_policy WHERE business_id = ?", Long.class,
+			MY_BUSINESS);
+		assertLatest(1, "CANCEL_POLICY", policyId, "CREATE");
+		assertThat(latest("before_value::text")).isNull();
+		assertThat(latest("after_value ->> 'name'")).isEqualTo("감사 규정");
+		assertThat(latest("jsonb_array_length(after_value -> 'rules')::text")).isEqualTo("2");
+
+		Map<String, Object> reordered = policyBody("감사 규정", 10);
+		reordered.put("rules", ((List<?>) reordered.get("rules")).reversed());
+		send(HttpMethod.PUT, url + "/" + policyId, reordered).andExpect(status().isOk());
+		long defaultPolicyId = jdbc.queryForObject(
+			"SELECT id FROM cancel_policy WHERE business_id IS NULL ORDER BY id LIMIT 1", Long.class);
+		send(HttpMethod.PUT, url + "/" + defaultPolicyId, policyBody("기본 규정 고치기", 10))
+			.andExpect(status().isConflict());
+		assertThat(count("audit_log")).isEqualTo(1);
+
+		send(HttpMethod.PUT, url + "/" + policyId, policyBody("바꾼 규정", 10)).andExpect(status().isOk());
+		assertLatest(2, "CANCEL_POLICY", policyId, "UPDATE");
+		assertThat(latest("before_value ->> 'name'")).isEqualTo("감사 규정");
+		assertThat(latest("jsonb_exists(after_value, 'rules')::text")).isEqualTo("false");
+
+		send(HttpMethod.PUT, url + "/" + policyId, policyBody("바꾼 규정", 20)).andExpect(status().isOk());
+		assertLatest(3, "CANCEL_POLICY", policyId, "UPDATE");
+		assertThat(latest("jsonb_exists(after_value, 'name')::text")).isEqualTo("false");
+		assertThat(latest("jsonb_array_length(before_value -> 'rules')::text")).isEqualTo("2");
+		assertThat(latest("after_value #>> '{rules,1,feeRate}'")).isEqualTo("20");
+	}
+
+	@Test
+	@DisplayName("감사 로그를 남기지 못하면 판매 중지·재개와 취소 규정 생성·수정도 취소된다")
+	void auditFailureRollsBackSaleAndCancelPolicy() throws Exception {
+		long performanceId = register(performanceBody(venueId));
+		jdbc.update("UPDATE performance SET status = 'PUBLISHED' WHERE id = ?", performanceId);
+		insertSchedule(performanceId, daysLater(30), "ON_SALE");
+		insertSchedule(performanceId, daysLater(31), "PAUSED");
+		String url = "/api/v1/seller/cancel-policies";
+		send(HttpMethod.POST, url, policyBody("감사 규정", 10)).andExpect(status().isCreated());
+		long policyId = jdbc.queryForObject("SELECT id FROM cancel_policy WHERE business_id = ?", Long.class,
+			MY_BUSINESS);
+		List<List<Map<String, Object>>> before = state(performanceId);
+		List<Map<String, Object>> policies = policyRows();
+		AUDIT_FAILS.set(true);
+
+		String schedules = "/api/v1/seller/performances/" + performanceId + "/schedules";
+		expectFailure(HttpMethod.POST, schedules + "/pause", Map.of("all", true, "reason", "점검"));
+		expectFailure(HttpMethod.POST, schedules + "/resume", Map.of("all", true));
+		expectFailure(HttpMethod.POST, url, policyBody("새 규정", 10));
+		expectFailure(HttpMethod.PUT, url + "/" + policyId, policyBody("바꾼 규정", 20));
+
+		assertThat(state(performanceId)).isEqualTo(before);
+		assertThat(policyRows()).isEqualTo(policies);
+	}
+
+	private List<Map<String, Object>> policyRows() {
+		return jdbc.queryForList("""
+			SELECT p.id, p.name, r.days_from, r.days_to, r.fee_rate, r.cancelable
+			FROM cancel_policy p JOIN cancel_policy_rule r ON r.policy_id = p.id
+			WHERE p.business_id = ? ORDER BY p.id, r.days_from
+			""", MY_BUSINESS);
+	}
+
+	private static Map<String, Object> policyBody(String name, int nearFeeRate) {
+		Map<String, Object> near = new LinkedHashMap<>();
+		near.put("daysFrom", 0);
+		near.put("daysTo", 6);
+		near.put("feeRate", nearFeeRate);
+		near.put("cancelable", true);
+		Map<String, Object> far = new LinkedHashMap<>();
+		far.put("daysFrom", 7);
+		far.put("daysTo", null);
+		far.put("feeRate", 0);
+		far.put("cancelable", true);
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("name", name);
+		body.put("rules", List.of(near, far));
+		return body;
+	}
+
+	private long insertSchedule(long performanceId, LocalDateTime startAt, String scheduleStatus) {
+		return jdbc.queryForObject("""
+			INSERT INTO performance_schedule (performance_id, start_at, status, created_at, updated_at)
+			VALUES (?, ?, ?, NOW(), NOW()) RETURNING id
+			""", Long.class, performanceId, startAt, scheduleStatus);
 	}
 
 	private void expectFailure(HttpMethod method, String url, Object body) throws Exception {

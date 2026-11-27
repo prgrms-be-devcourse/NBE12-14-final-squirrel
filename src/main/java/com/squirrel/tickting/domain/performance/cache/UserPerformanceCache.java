@@ -32,6 +32,7 @@ public class UserPerformanceCache {
 
 	/** 지역은 사용자가 마음대로 정하는 값이다. 실제 지역 이름보다 훨씬 긴 값은 캐시 키로 쓰지 않는다. */
 	private static final int MAX_CACHED_REGION_LENGTH = 20;
+	private static final String DETAIL = "performance-detail";
 
 	private final ReadCache readCache;
 	private final PerformanceCacheProperties properties;
@@ -54,9 +55,14 @@ public class UserPerformanceCache {
 	}
 
 	public UserPerformanceResponse.Detail getPublishedDetail(Long performanceId) {
-		return readCache.getOrLoad("performance-detail", String.valueOf(performanceId),
+		return readCache.getOrLoad(DETAIL, String.valueOf(performanceId),
 			properties.effective(properties.detailTtl()), new TypeReference<UserPerformanceResponse.Detail>() {
 			}, () -> userPerformanceService.getPublishedDetail(performanceId));
+	}
+
+	/** 판매 중지·재개는 상세에 바로 보여야 해서 저장분을 지운다. 중지되면 화면이 예매자를 상세로 보내기 때문이다. */
+	public void evictDetail(Long performanceId) {
+		readCache.evict(DETAIL, String.valueOf(performanceId));
 	}
 
 	public UserPerformanceResponse.ZoneSummary getZoneSummary(Long scheduleId) {

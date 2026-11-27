@@ -28,8 +28,10 @@ import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -206,7 +208,7 @@ public class SellerPerformanceService {
 	 * 내 공연에 회차를 하나 추가한다. 공개 공연이고 판매 오픈이 가까우면 같은 트랜잭션에서 판매 좌석까지 만들고,
 	 * 좌석을 만들 수 없으면 회차도 남기지 않는다. (회차만 남으면 판매자는 성공으로 알고 예매자에게는 매진으로 보인다)
 	 * 호출한 쪽(파사드)이 공연 락을 잡고 트랜잭션을 연 상태에서 부른다.
-	 * 검사 순서: 공연 한 행(취소) → 공연장 → 새 회차의 시각 → (공개) 기존 회차 → 판매 종료 → (즉시 생성) 구역 설정 → 같은 공연장 겹침.
+	 * 검사 순서: 공연 한 행(취소) → 공연장 → 새 회차의 시각 → (공개) 기존 회차 → 판매 종료 → 일시 중지 → (즉시 생성) 구역 설정 → 같은 공연장 겹침.
 	 * 앞에서 막히면 뒤의 쿼리는 나가지 않는다. 처리량은 추정이고 측정하지 않았다.
 	 * 지난 시각은 요청 DTO 가 막으므로 여기서 다시 보지 않는다.
 	 */
@@ -270,6 +272,7 @@ public class SellerPerformanceService {
 	/**
 	 * 공개된 공연에 회차를 더할 수 있는 상태인가. 취소되지 않은 회차가 모두 시작했으면 끝난 공연이고, 판매가 끝났으면 새 회차를 팔 수 없다.
 	 * 둘 다면 앞의 것을 알린다. 끝난 공연은 판매 종료를 늘릴 수 없어서 안내가 달라야 한다.
+	 * 아직 시작하지 않은 회차를 모두 일시 중지한 동안에도 더할 수 없다. 멈춘 공연이 새 회차로 다시 팔리지 않게 한다.
 	 */
 	private void validateStillOnSale(Performance performance, LocalDateTime now) {
 		List<PerformanceSchedule> schedules = performanceScheduleRepository
@@ -281,6 +284,114 @@ public class SellerPerformanceService {
 			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSED,
 				"판매가 끝난 공연에는 회차를 추가할 수 없습니다. 판매 종료 일시를 먼저 늘려 주세요.");
 		}
+		if (isEveryUpcomingSchedulePaused(schedules, now)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_ADD_WHILE_PAUSED);
+		}
+	}
+
+	/** 아직 시작하지 않은 판매 중·일시 중지 회차가 하나 이상 있고 모두 일시 중지인가. 시작했거나 연기된 회차는 보지 않는다. */
+	private boolean isEveryUpcomingSchedulePaused(List<PerformanceSchedule> schedules, LocalDateTime now) {
+		List<ScheduleStatus> upcoming = schedules.stream()
+			.filter(schedule -> schedule.getStartAt().isAfter(now))
+			.map(PerformanceSchedule::getStatus)
+			.filter(status -> status == ScheduleStatus.ON_SALE || status == ScheduleStatus.PAUSED)
+			.toList();
+		return !upcoming.isEmpty() && upcoming.stream().allMatch(status -> status == ScheduleStatus.PAUSED);
+	}
+
+	/** 중지·재개 대상을 고르는 방식. DB 를 보지 않는 검사라 조회보다 먼저 한다. all 이 false 면 보내지 않은 것과 같다. */
+	public void validateScheduleSelection(Boolean all, List<Long> scheduleIds) {
+		if (Boolean.TRUE.equals(all) == (scheduleIds != null)) {
+			throw new BusinessException(CommonExceptionCode.INVALID_INPUT, "all: true와 scheduleIds 중 하나만 보내 주세요.");
+		}
+	}
+
+	/** 고른 회차(scheduleIds 가 null 이면 모두)의 판매를 일시 중지한다. 호출 조건과 검사 순서는 changeScheduleSale 과 같다. */
+	@Transactional
+	public ScheduleSaleChange pauseSchedules(Long businessId, Long performanceId,
+		SellerPerformanceRequest.SchedulePause request) {
+		return changeScheduleSale(businessId, performanceId, request.scheduleIds(), ScheduleStatus.ON_SALE,
+			ScheduleStatus.PAUSED, request.reason(), PerformanceExceptionCode.NO_SCHEDULE_TO_PAUSE);
+	}
+
+	/** 일시 중지한 회차를 다시 판매 중으로 바꾸고 중지 사유를 비운다. "모두"는 따로 중지한 회차까지 모두다. */
+	@Transactional
+	public ScheduleSaleChange resumeSchedules(Long businessId, Long performanceId,
+		SellerPerformanceRequest.ScheduleResume request) {
+		return changeScheduleSale(businessId, performanceId, request.scheduleIds(), ScheduleStatus.PAUSED,
+			ScheduleStatus.ON_SALE, null, PerformanceExceptionCode.NO_SCHEDULE_TO_RESUME);
+	}
+
+	/**
+	 * 상태가 from 이고 아직 시작하지 않은 회차만 to 로 바꾸고, 나머지는 이유와 함께 건너뛴다.
+	 * 호출한 쪽(파사드)이 공연 락을 잡고 트랜잭션을 연 상태에서 부른다.
+	 * 검사 순서: 공연 한 행(취소 → 작성 중) → 이 공연의 회차 목록(남의 번호 404 → 바꿀 것 없음) → 조건부 UPDATE.
+	 * 바뀐 행이 대상보다 적으면 락이 듣지 않아 그 사이 바뀐 것이라 전체를 되돌리고 COMMON004 로 답한다.
+	 */
+	private ScheduleSaleChange changeScheduleSale(Long businessId, Long performanceId, List<Long> scheduleIds,
+		ScheduleStatus from, ScheduleStatus to, String reason, ExceptionCode noTargetCode) {
+		// 현재 시각은 한 번만 읽어 대상 분류와 UPDATE 에 같은 값을 쓴다.
+		LocalDateTime now = LocalDateTime.now();
+		Performance performance = getMineEntity(businessId, performanceId);
+		if (performance.getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED,
+				"취소된 공연의 회차는 중지하거나 재개할 수 없습니다.");
+		}
+		if (performance.getStatus() == PerformanceStatus.DRAFT) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_SALE_DRAFT_PERFORMANCE);
+		}
+
+		List<PerformanceSchedule> schedules = performanceScheduleRepository.findByPerformanceIdOrderByStartAt(performanceId)
+			.stream()
+			.sorted(Comparator.comparing(PerformanceSchedule::getStartAt).thenComparing(PerformanceSchedule::getId))
+			.toList();
+		if (scheduleIds != null) {
+			Set<Long> requested = new HashSet<>(scheduleIds);
+			schedules = schedules.stream().filter(schedule -> requested.contains(schedule.getId())).toList();
+			if (schedules.size() != requested.size()) {
+				throw new BusinessException(PerformanceExceptionCode.SELLER_SCHEDULE_NOT_FOUND);
+			}
+		}
+
+		List<PerformanceSchedule> changed = new ArrayList<>();
+		List<SellerPerformanceResponse.SkippedSchedule> skipped = new ArrayList<>();
+		for (PerformanceSchedule schedule : schedules) {
+			SellerPerformanceResponse.SkipReason skipReason = findSkipReason(schedule, from, now);
+			if (skipReason == null) {
+				changed.add(schedule);
+			} else {
+				skipped.add(new SellerPerformanceResponse.SkippedSchedule(schedule.getId(), skipReason));
+			}
+		}
+		if (changed.isEmpty()) {
+			throw new BusinessException(noTargetCode);
+		}
+
+		List<Long> changedIds = changed.stream().map(PerformanceSchedule::getId).toList();
+		if (performanceScheduleRepository.updateSaleStatus(changedIds, from, to, reason, now) != changedIds.size()) {
+			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+		}
+		return new ScheduleSaleChange(
+			new SellerPerformanceResponse.ScheduleSaleChanged(performanceId, changedIds, skipped), changed);
+	}
+
+	/** 바꾸지 않는 이유. 바꿀 수 있으면 null 이다. */
+	private SellerPerformanceResponse.SkipReason findSkipReason(PerformanceSchedule schedule, ScheduleStatus from,
+		LocalDateTime now) {
+		if (schedule.getStatus() == ScheduleStatus.CANCELED) {
+			return SellerPerformanceResponse.SkipReason.CANCELED;
+		}
+		if (schedule.getStatus() == ScheduleStatus.POSTPONED) {
+			return SellerPerformanceResponse.SkipReason.POSTPONED;
+		}
+		if (!schedule.getStartAt().isAfter(now)) {
+			return SellerPerformanceResponse.SkipReason.STARTED;
+		}
+		if (schedule.getStatus() == from) {
+			return null;
+		}
+		return from == ScheduleStatus.ON_SALE ? SellerPerformanceResponse.SkipReason.ALREADY_PAUSED
+			: SellerPerformanceResponse.SkipReason.ALREADY_ON_SALE;
 	}
 
 	/**
@@ -849,5 +960,12 @@ public class SellerPerformanceService {
 		if (distinctOrders != images.size()) {
 			throw new BusinessException(CommonExceptionCode.INVALID_INPUT, "이미지 순서(sortOrder)가 중복되었습니다.");
 		}
+	}
+
+	/**
+	 * 중지·재개 결과. changed 는 바꾼 회차이고, 일괄 UPDATE 라 바꾸기 전 상태와 중지 사유가 남아 있어 감사 로그에 쓴다.
+	 */
+	public record ScheduleSaleChange(SellerPerformanceResponse.ScheduleSaleChanged response,
+		List<PerformanceSchedule> changed) {
 	}
 }

@@ -20,7 +20,7 @@ export type AccountType = "USER" | "SELLER" | "ADMIN";
 export type LoginResult = { accountType: AccountType; role: string | null };
 
 export type Genre = "CONCERT" | "MUSICAL" | "PLAY" | "CLASSIC" | "ETC";
-export type SaleStatus = "UPCOMING" | "ON_SALE" | "SOLD_OUT" | "ENDED";
+export type SaleStatus = "PAUSED" | "UPCOMING" | "ON_SALE" | "SOLD_OUT" | "ENDED";
 export type ReceiveType = "ONSITE" | "DELIVERY" | "BOTH";
 
 export type Term = {
@@ -94,6 +94,7 @@ export type PerformanceDetail = {
     startAt: string;
     status: string;
     saleStatus: SaleStatus;
+    pauseReason: string | null;
   }[];
   grades: { gradeId: number; name: string; price: number }[];
   cancelPolicy: CancelRule[];
@@ -284,7 +285,18 @@ export type SellerSchedule = {
   startAt: string;
   status: ScheduleStatus;
   seatsGeneratedAt: string | null;
+  // 일시 중지 회차의 중지 사유. 판매자 응답에만 있다
+  pauseReason: string | null;
 };
+
+// 회차 판매 일시 중지·재개(SLR-26·27) 결과
+export type ScheduleSaleChanged = {
+  performanceId: number;
+  changedScheduleIds: number[];
+  skipped: { scheduleId: number; reason: ScheduleSkipReason }[];
+};
+
+export type ScheduleSkipReason = "CANCELED" | "POSTPONED" | "STARTED" | "ALREADY_PAUSED" | "ALREADY_ON_SALE";
 
 export type SellerPerformanceDetail = {
   performanceId: number;
@@ -443,4 +455,6 @@ export type QueueStatus = {
   position: number | null;
   waitingCount: number | null;
   expiresAt: string | null;
+  // 판매가 일시 중지되어 새로 입장시키지 않는 중이다
+  paused: boolean;
 };
