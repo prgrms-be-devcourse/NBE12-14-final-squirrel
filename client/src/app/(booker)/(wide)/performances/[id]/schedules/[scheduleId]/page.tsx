@@ -13,6 +13,7 @@ import { dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
 import type { BookingCreated, PerformanceDetail, Seat, Zone, ZoneSeats, ZoneSummary } from "@/lib/types";
 import { ArenaMap } from "@/components/arena-map";
 import { QueueGate } from "@/components/queue-gate";
+import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { ErrorBox, Loading } from "@/components/ui";
 
 type Picked = {
@@ -70,8 +71,10 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
   const p = performance.data;
   const schedule = p?.schedules.find((s) => String(s.scheduleId) === scheduleId);
+  // 다시 읽기 전에 예매를 눌러 서버가 거절한 경우도 중지로 본다.
+  const [rejected, setRejected] = useState(false);
   const paused =
-    (latest ?? p)?.schedules.find((s) => String(s.scheduleId) === scheduleId)?.status === "PAUSED";
+    rejected || (latest ?? p)?.schedules.find((s) => String(s.scheduleId) === scheduleId)?.status === "PAUSED";
   const maxPerPerson = p?.sale.maxPerPerson ?? 4;
   const activeZone = zones.data?.zones.find((z) => z.zoneId === activeZoneId);
 
@@ -124,6 +127,10 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
       }
       if (error instanceof ApiError && error.code === "QUEUE000") {
         onNotAdmitted();
+        return;
+      }
+      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
+        setRejected(true);
         return;
       }
       setMessage(errorText(error, "예매에 실패했습니다"));
@@ -333,9 +340,9 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
             </div>
           </dl>
           {paused && (
-            <p role="status" className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">
-              판매가 일시 중지되어 지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다
-            </p>
+            <SalePausedModal href={`/performances/${id}`}>
+              지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다
+            </SalePausedModal>
           )}
           {message && <p className="text-sm text-accent-strong">{message}</p>}
           {account === null ? (

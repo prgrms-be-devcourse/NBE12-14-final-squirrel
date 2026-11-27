@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { CAPTCHA_HEADER, getCaptchaToken } from "@/lib/captcha";
 import type { QueueStatus } from "@/lib/types";
+import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Loading } from "@/components/ui";
 
 // 대기열 입구. 서버는 회차마다 정원만큼만 들여보내고, 입장하지 않으면 구역·좌석 조회와 좌석 점유가 403(QUEUE000)이다.
@@ -18,6 +19,7 @@ type Phase =
   | { kind: "entering" }
   | { kind: "waiting"; position: number; waitingCount: number; paused: boolean }
   | { kind: "admitted" }
+  | { kind: "salePaused" }
   | { kind: "error"; message: string; retryable: boolean };
 
 export function QueueGate({
@@ -74,6 +76,11 @@ export function QueueGate({
       waitingRef.current = false;
       if (error instanceof ApiError && error.status === 401) {
         toLogin();
+        return;
+      }
+      // 새로 줄을 서려는데 중지된 회차다. 이미 기다리는 사람은 오류가 아니라 paused 상태를 받아 순번을 지킨다.
+      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
+        setPhase({ kind: "salePaused" });
         return;
       }
       setPhase({
@@ -134,6 +141,9 @@ export function QueueGate({
 
   if (phase.kind === "admitted") return <>{children(reenter)}</>;
   if (phase.kind === "entering") return <Loading label="대기열에 입장하는 중" />;
+  if (phase.kind === "salePaused") {
+    return <SalePausedModal href={backHref}>지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다</SalePausedModal>;
+  }
 
   return (
     <div className="mx-auto max-w-md py-12">

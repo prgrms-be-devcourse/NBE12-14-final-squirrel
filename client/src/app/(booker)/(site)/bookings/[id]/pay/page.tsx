@@ -6,8 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, errorText, useApi, usePolledApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
-import { dateTimeText, gradeLabel, won } from "@/lib/format";
+import { dateTimeText, gradeLabel, timeText, won } from "@/lib/format";
 import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
+import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
 
@@ -116,7 +117,10 @@ export default function PayPage() {
   const performance = useApi<PerformanceDetail>(performancePath);
   // 결제하는 동안 판매자가 판매를 중지하거나 재개할 수 있어 다시 읽는다. 막는 것은 서버다.
   const latest = usePolledApi<PerformanceDetail>(performancePath, 10_000);
+  // 다시 읽기 전에 결제를 눌러 서버가 거절한 경우도 중지로 본다.
+  const [rejected, setRejected] = useState(false);
   const paused =
+    rejected ||
     (latest ?? performance.data)?.schedules.find((s) => s.scheduleId === view?.scheduleId)?.status === "PAUSED";
 
   const now = useNow(1000);
@@ -246,7 +250,8 @@ export default function PayPage() {
       clearBooking(b.bookingId);
       router.push("/bookings");
     } catch (error) {
-      if (error instanceof ApiError) setMessage(errorText(error, "결제에 실패했습니다"));
+      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) setRejected(true);
+      else if (error instanceof ApiError) setMessage(errorText(error, "결제에 실패했습니다"));
       else if (isTossError(error)) {
         // 구매자가 결제창을 닫은 경우도 여기로 온다. 실패가 아니라 취소라서 안내만 한다.
         setMessage(error.code.includes("CANCEL") ? "결제를 취소했습니다" : error.message);
@@ -346,10 +351,13 @@ export default function PayPage() {
             남은 결제 시간 {minutes}:{String(seconds).padStart(2, "0")}
           </p>
 
-          {paused && (
-            <p role="status" className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">
-              판매가 일시 중지되어 지금은 결제할 수 없습니다. 남은 시간 안에 재개되면 결제할 수 있습니다
-            </p>
+          {/* 결제창이 열려 있는 동안에는 띄우지 않는다. 승인은 서버가 막고 성공 화면이 알린다 */}
+          {paused && !busy && (
+            <SalePausedModal href={`/performances/${b.performanceId}`}>
+              지금은 결제할 수 없습니다.
+              {b.expiresAt &&
+                ` 선택한 좌석은 ${timeText(b.expiresAt)}까지 유지되며, 그 안에 재개되면 내 예매에서 결제할 수 있습니다`}
+            </SalePausedModal>
           )}
 
           {step === "review" && (

@@ -5,9 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api } from "@/lib/api";
-import { clearBooking } from "@/lib/booking-cache";
+import { clearBooking, loadBooking } from "@/lib/booking-cache";
 import { dateTimeText, won } from "@/lib/format";
-import type { PaymentConfirmed } from "@/lib/types";
+import type { BookingDetail, PaymentConfirmed } from "@/lib/types";
+import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Loading } from "@/components/ui";
 
 type Failure = { code: string; message: string };
@@ -21,6 +22,8 @@ export default function PaySuccessPage() {
   const params = useSearchParams();
   const [failure, setFailure] = useState<Failure | null>(null);
   const [done, setDone] = useState<PaymentConfirmed | null>(null);
+  // 판매 중지로 승인이 거절되면 보낼 공연 번호
+  const [pausedPerformanceId, setPausedPerformanceId] = useState<number | null>(null);
   // 개발 모드(StrictMode)에서 효과가 두 번 돌아도 승인은 한 번만 보낸다. 새로고침으로 다시 오면 서버가 409 로 막는다.
   const started = useRef(false);
 
@@ -47,6 +50,15 @@ export default function PaySuccessPage() {
         if (error instanceof ApiError && error.status === 401) {
           router.push("/login");
           return;
+        }
+        if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
+          const cached = loadBooking(id);
+          if (cached) setPausedPerformanceId(cached.performanceId);
+          else
+            // 다른 탭에서 결제한 경우다. 읽지 못하면 아래 실패 화면이 그대로 알린다.
+            api<BookingDetail>(`/api/v1/bookings/${id}`)
+              .then((booking) => setPausedPerformanceId(booking.performance.performanceId))
+              .catch(() => {});
         }
         setFailure(
           error instanceof ApiError
@@ -99,6 +111,11 @@ export default function PaySuccessPage() {
       <p role="alert" className="text-sm text-secondary">
         {shown.message}
       </p>
+      {pausedPerformanceId !== null && (
+        <SalePausedModal href={`/performances/${pausedPerformanceId}`}>
+          결제되지 않았습니다. 좌석 점유 시간 안에 재개되면 내 예매에서 다시 결제할 수 있습니다
+        </SalePausedModal>
+      )}
       <div className="flex justify-center gap-2">
         <Link href="/bookings" className="btn">
           내 예매 보기
