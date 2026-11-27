@@ -26,7 +26,27 @@ const FALLBACK_SHAPE = (name: string): ZoneShape => ({
   rows: "horizontal",
 });
 
+// 좌석을 어디서 읽고 무엇을 고를 수 있는지. 판매자 보류석 화면이 바꿔 끼우고, 주지 않으면 예매자 화면의 동작이다.
+export type ArenaMapMode = {
+  seatsPath: (scheduleId: string, zoneId: number) => string;
+  seatLook: (seat: Seat) => { pickable: boolean; className: string; note: string };
+  zoneStatus: (zone: Zone) => { text: string; dimmed: boolean };
+  legend: React.ReactNode;
+};
+
+const BOOKER_MODE: ArenaMapMode = {
+  seatsPath: (scheduleId, zoneId) => `/api/v1/schedules/${scheduleId}/zones/${zoneId}/seats`,
+  seatLook: (seat) =>
+    seat.status === "AVAILABLE"
+      ? { pickable: true, className: "arena-seat", note: "" }
+      : { pickable: false, className: "arena-seat arena-seat-off", note: " · 선택 불가" },
+  zoneStatus: (zone) =>
+    zone.remaining === 0 ? { text: "매진", dimmed: true } : { text: `${zone.remaining}석 남음`, dimmed: false },
+  legend: <Legend />,
+};
+
 type Props = {
+  mode?: ArenaMapMode;
   layout: VenueLayout;
   zones: Zone[];
   scheduleId: string;
@@ -36,7 +56,7 @@ type Props = {
   version: number;
 };
 
-export function ArenaMap({ layout, zones, scheduleId, pickedIds, onToggle, version }: Props) {
+export function ArenaMap({ mode = BOOKER_MODE, layout, zones, scheduleId, pickedIds, onToggle, version }: Props) {
   const [view, setView] = useState<string[] | null>(null);
   const [zoom, setZoom] = useState(1);
 
@@ -105,6 +125,7 @@ export function ArenaMap({ layout, zones, scheduleId, pickedIds, onToggle, versi
                 shape={shape}
                 zone={zoneByName.get(name)}
                 scheduleId={scheduleId}
+                mode={mode}
                 venueCenterX={layout.viewBox[0] + layout.viewBox[2] / 2}
                 pickedIds={pickedIds}
                 onToggle={onToggle}
@@ -114,7 +135,7 @@ export function ArenaMap({ layout, zones, scheduleId, pickedIds, onToggle, versi
           </svg>
         </div>
         <p className="mt-2 text-xs text-muted">확대하면 좌석을 누르기 쉽습니다</p>
-        <Legend />
+        {mode.legend}
       </section>
     );
   }
@@ -139,14 +160,14 @@ export function ArenaMap({ layout, zones, scheduleId, pickedIds, onToggle, versi
             const zone = zoneByName.get(name);
             if (!zone) return null;
             const unsold = zone.price === null;
-            const soldOut = zone.remaining === 0;
+            const { text, dimmed } = mode.zoneStatus(zone);
             const [cx, cy] = centroid(shape.points);
             return (
               <g
                 key={name}
                 role="button"
                 tabIndex={unsold ? -1 : 0}
-                aria-label={`${name} ${unsold ? "판매 제외" : `${gradeLabel(zone.grade)} ${soldOut ? "매진" : `${zone.remaining}석 남음`}`}`}
+                aria-label={`${name} ${unsold ? "판매 제외" : `${gradeLabel(zone.grade)} ${text}`}`}
                 className="arena-zone"
                 data-disabled={unsold || undefined}
                 onClick={() => !unsold && open(name)}
@@ -159,12 +180,12 @@ export function ArenaMap({ layout, zones, scheduleId, pickedIds, onToggle, versi
               >
                 <title>
                   {name}
-                  {unsold ? " · 판매 제외" : ` · ${gradeLabel(zone.grade)} ${won(zone.price!)} · ${soldOut ? "매진" : `${zone.remaining}석 남음`}`}
+                  {unsold ? " · 판매 제외" : ` · ${gradeLabel(zone.grade)} ${won(zone.price!)} · ${text}`}
                 </title>
                 <polygon
                   points={shape.points.map((p) => p.join(",")).join(" ")}
                   fill={unsold ? "#aab0bf" : gradeMapColor(zone.grade)}
-                  opacity={soldOut ? 0.4 : 1}
+                  opacity={dimmed ? 0.4 : 1}
                 />
                 <text x={cx} y={cy + 5} className="arena-zone-label">
                   {shape.label}
@@ -234,6 +255,7 @@ function ZoneLayer({
   shape,
   zone,
   scheduleId,
+  mode,
   venueCenterX,
   pickedIds,
   onToggle,
@@ -243,12 +265,13 @@ function ZoneLayer({
   shape: ZoneShape;
   zone: Zone | undefined;
   scheduleId: string;
+  mode: ArenaMapMode;
   venueCenterX: number;
   pickedIds: Set<number>;
   onToggle: (seat: Seat, zone: Zone) => void;
   version: number;
 }) {
-  const path = zone ? `/api/v1/schedules/${scheduleId}/zones/${zone.zoneId}/seats` : null;
+  const path = zone ? mode.seatsPath(scheduleId, zone.zoneId) : null;
   const seats = useApi<ZoneSeats>(path, version > 0 ? { v: version } : undefined);
   const laid = useMemo(
     () => (seats.data ? layoutZoneSeats(shape, seats.data.seats, venueCenterX) : null),
@@ -288,18 +311,18 @@ function ZoneLayer({
         ))}
         {laid?.seats.map(({ seat, x, y }) => {
           const chosen = pickedIds.has(seat.seatId);
-          const available = seat.status === "AVAILABLE";
+          const look = mode.seatLook(seat);
           return (
             <circle
               key={seat.seatId}
               cx={x}
               cy={y}
               r={laid.pitch * 0.42}
-              className={chosen ? "arena-seat arena-seat-picked" : available ? "arena-seat" : "arena-seat arena-seat-off"}
-              onClick={() => zone && (available || chosen) && onToggle(seat, zone)}
+              className={chosen ? "arena-seat arena-seat-picked" : look.className}
+              onClick={() => zone && (look.pickable || chosen) && onToggle(seat, zone)}
             >
               <title>
-                {name} {seat.row} {seat.number}번{available || chosen ? "" : " · 선택 불가"}
+                {name} {seat.row} {seat.number}번{chosen ? "" : look.note}
               </title>
             </circle>
           );
