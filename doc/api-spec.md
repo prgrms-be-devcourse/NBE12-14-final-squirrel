@@ -85,6 +85,9 @@
 | PFM-02 | 공연 상세 | GET `/api/v1/performances/{performanceId}` | 구현됨 |
 | PFM-03 | 구역 요약 | GET `/api/v1/schedules/{scheduleId}/zones` | 구현됨 |
 | PFM-04 | 구역 좌석 상세 | GET `/api/v1/schedules/{scheduleId}/zones/{zoneId}/seats` | 구현됨 |
+| QUE-01 | 대기열 입장 (예매하기) | POST `/api/v1/schedules/{scheduleId}/queue` | 구현됨 |
+| QUE-02 | 내 대기열 상태 | GET `/api/v1/schedules/{scheduleId}/queue` | 구현됨 |
+| QUE-03 | 대기열 나가기 | DELETE `/api/v1/schedules/{scheduleId}/queue` | 구현됨 |
 | BKG-01 | 좌석 점유·예매 생성 | POST `/api/v1/schedules/{scheduleId}/bookings` | 구현됨 |
 | BKG-02 | 결제 준비 | POST `/api/v1/bookings/{bookingId}/payments` | 구현됨 |
 | BKG-03 | 결제 승인 | POST `/api/v1/payments/confirm` | 구현됨 |
@@ -1154,6 +1157,26 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 **에러**: 404 `PERFORMANCE200` 볼 수 없는 회차 · 404 `PERFORMANCE201` 그 회차 공연장의 구역이 아님(없는 구역 포함) · 404 `PERFORMANCE202` 판매 좌석을 아직 만들지 않은 회차 · 400 `COMMON000` 번호가 숫자가 아님
 
 ---
+
+### QUE-01~03 대기열 (예매자, 구현됨)
+
+회차를 고르고 예매하기를 누르면 줄을 서고, 입장한 예매자만 구역 요약·구역 좌석 조회·좌석 점유(PFM-03·04, BKG-01)를 쓸 수 있습니다. 입장하지 않고 부르면 403 `QUEUE000`입니다. 자세한 동작(Redis, 입장 시간, 설정)은 `doc/queue-design.md`에 있습니다.
+
+| ID | 메서드 · URL | 핵심 |
+| --- | --- | --- |
+| QUE-01 | POST `/api/v1/schedules/{scheduleId}/queue` | 줄을 선다. 자리가 있으면 바로 `ADMITTED`, 없으면 `WAITING`과 순번. 이미 줄에 있으면 현재 상태를 그대로 준다. 헤더 `X-Captcha-Token`(reCAPTCHA v3)이 필요하다 (1장 "예매하기(대기열 입장)의 캡챠") |
+| QUE-02 | GET `/api/v1/schedules/{scheduleId}/queue` | 내 상태. 대기 중이면 2~3초마다 부른다. 30초 동안 부르지 않으면 줄에서 밀려난다 |
+| QUE-03 | DELETE `/api/v1/schedules/{scheduleId}/queue` | 줄에서 나가거나 입장 자리를 반납한다. 줄에 없어도 성공 |
+
+**응답 200** (`data`, 세 API 공통)
+
+```json
+{ "status": "WAITING", "position": 3, "waitingCount": 120, "expiresAt": null }
+```
+
+- `status`: `WAITING`(대기, `position`·`waitingCount`) / `ADMITTED`(입장, `expiresAt`까지 좌석을 고를 수 있음) / `NONE`(줄에도 입장 목록에도 없음. 다시 입장)
+
+**에러** (QUE-01): 401 `AUTH200` · 403 `AUTH100` 예매자가 아님 · 403 `CAPTCHA000` · 503 `CAPTCHA001` · 400 `BOOKING002` 지금 예매할 수 없는 회차 · 409 `BOOKING012` 판매 일시 중지 · 404 `BOOKING004` 없는 회차
 
 ## 3. 예매·결제·취소 (예매자)
 
