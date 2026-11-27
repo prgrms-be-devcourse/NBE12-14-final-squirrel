@@ -27,7 +27,10 @@ public enum SellerExceptionCode implements ExceptionCode {
 	/** 관리자가 조회·처리하려는 사업체가 없음 */
 	BUSINESS_NOT_FOUND("SELLER006", HttpStatus.NOT_FOUND, "존재하지 않는 사업체입니다."),
 	/** 승인·반려는 승인 대기(PENDING) 사업체에만 할 수 있다. 이미 처리된 사업체에 다시 요청함 */
-	BUSINESS_ALREADY_REVIEWED("SELLER007", HttpStatus.CONFLICT, "이미 처리된 사업체입니다.");
+	BUSINESS_ALREADY_REVIEWED("SELLER007", HttpStatus.CONFLICT, "이미 처리된 사업체입니다."),
+
+	/** 담당자 초대 링크가 없거나, 만료됐거나, 이미 썼거나, 같은 이메일로 다시 초대해서 무효가 됨 */
+	INVITATION_INVALID("SELLER008", HttpStatus.BAD_REQUEST, "만료되었거나 이미 사용한 초대 링크입니다. 대표에게 다시 초대를 요청해 주세요.");
 
 	private final String code;
 	private final HttpStatus status;
