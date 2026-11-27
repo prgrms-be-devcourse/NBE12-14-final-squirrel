@@ -116,6 +116,10 @@
 | SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
 | SLR-26 | 회차 판매 일시 중지 | POST `/api/v1/seller/performances/{performanceId}/schedules/pause` | 구현됨 |
 | SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
+| SLR-28 | 문의 유형 목록 (판매자) | GET `/api/v1/seller/inquiries/categories` | 구현됨 |
+| SLR-29 | 문의 작성 (판매자) | POST `/api/v1/seller/inquiries` | 구현됨 |
+| SLR-30 | 사업체 문의 목록 | GET `/api/v1/seller/inquiries` | 구현됨 |
+| SLR-31 | 사업체 문의 상세 | GET `/api/v1/seller/inquiries/{inquiryId}` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -3198,7 +3202,7 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 
 ## 7. 문의 (`/api/v1/inquiries/**`, 예매자)
 
-설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-10~12), 판매자 문의는 다음 PR입니다.
+설계(테이블, 유형, 이력, PR 순서)는 `doc/inquiry-design.md`에 있습니다. 예매자만 쓸 수 있고(판매자·관리자 토큰은 403 `AUTH100`), 남의 문의는 없는 문의와 같은 404입니다. 관리자 답변은 5장(ADM-10~12), 판매자 문의는 7-1장(SLR-28~31)입니다.
 
 ### INQ-01 문의 유형 목록 — `GET /api/v1/inquiries/categories` (예매자, 구현됨)
 
@@ -3361,6 +3365,94 @@ Query: `page`, `size` (기본·최대 20). 최신 작성순 고정이고 삭제�
 ```
 
 **에러**: 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는·남의·이미 삭제한 문의 · 409 `INQUIRY002` 답변이 끝난 문의(동시에 지운 요청이 먼저 끝난 경우도)
+
+## 7-1. 판매자 문의 (`/api/v1/seller/inquiries/**`, 판매자)
+
+판매자(대표·담당자)만 쓸 수 있습니다. (예매자·관리자 토큰은 403 `AUTH100`) 사업체 번호와 작성자는 세션에서 꺼내고 요청으로 받지 않습니다. **같은 사업체의 문의는 대표·담당자 누가 썼든 함께 봅니다.** 다른 사업체의 문의는 없는 문의와 같은 404입니다. 수정·삭제(작성자 본인만)는 다음 PR입니다.
+
+### SLR-28 문의 유형 목록 — `GET /api/v1/seller/inquiries/categories` (판매자, 구현됨)
+
+판매자가 고를 수 있는 유형만 줍니다. 응답 모양은 INQ-01과 같습니다. **값은 임시**입니다.
+
+```json
+"data": [
+  { "code": "PERFORMANCE", "name": "공연 등록·수정" },
+  { "code": "SETTLEMENT", "name": "정산" },
+  { "code": "BUSINESS", "name": "사업체·계정" },
+  { "code": "ETC", "name": "기타" }
+]
+```
+
+### SLR-29 문의 작성 — `POST /api/v1/seller/inquiries` (판매자, 구현됨)
+
+**요청**
+
+```json
+{
+  "category": "SETTLEMENT",
+  "title": "정산 금액이 예상과 달라요",
+  "content": "11월 공연 정산 금액이 판매 현황과 다릅니다.",
+  "images": [
+    { "url": "https://{버킷 주소}/public/seller_inquiry/seller-3/3f2a9c1e.jpg" }
+  ]
+}
+```
+
+| 필드 | 규칙 |
+| --- | --- |
+| `category` | 필수. SLR-28의 값만 (예매자 유형이면 400 `INQUIRY000`) |
+| `title` | 필수, 100자 이하, 앞뒤 공백 제거 (임시) |
+| `content` | 필수, 2,000자 이하, 앞뒤 공백 제거 (임시) |
+| `images` | 선택, 최대 3장(임시). `url`은 이미지 업로드(IMG-01, `purpose=SELLER_INQUIRY`)의 `imageUrl` 값만 (우리 저장소 주소가 아니면 400 `COMMON000`). 보낸 순서대로 저장 |
+
+- 예매는 고르지 않습니다. 답변 대기(`WAITING`)로 만들고 작성 이력(`CREATED`)을 함께 남깁니다.
+- 작성자 이름·이메일은 판매자 계정에서 복사해 두고, 사업체 번호를 함께 저장해 같은 사업체가 봅니다.
+
+**응답 201**: INQ-02와 같음 (`inquiryId`, `status`, `createdAt`)
+
+**에러**: 400 `COMMON000` 형식 오류 · 400 `INQUIRY000` 고를 수 없는 유형 · 401 `AUTH200` · 403 `AUTH100` 판매자가 아님 · 404 `SELLER009` 삭제된 계정
+
+### SLR-30 사업체 문의 목록 — `GET /api/v1/seller/inquiries` (판매자, 구현됨)
+
+Query: `page`, `size` (기본·최대 20). 우리 사업체의 문의를 최신 작성순으로 줍니다. 삭제한 문의는 나오지 않습니다.
+
+```json
+"content": [
+  {
+    "inquiryId": 52,
+    "category": { "code": "SETTLEMENT", "name": "정산" },
+    "title": "정산 금액이 예상과 달라요",
+    "status": "WAITING",
+    "authorId": 3,
+    "authorName": "김대표",
+    "createdAt": "2026-11-28T10:00:00",
+    "answeredAt": null
+  }
+]
+```
+
+- `authorName`은 작성 때 복사한 이름입니다. 항목은 문의 행의 값만 써서 목록·개수 쿼리 두 번으로 끝납니다.
+
+### SLR-31 사업체 문의 상세 — `GET /api/v1/seller/inquiries/{inquiryId}` (판매자, 구현됨)
+
+```json
+"data": {
+  "inquiryId": 52,
+  "category": { "code": "SETTLEMENT", "name": "정산" },
+  "title": "정산 금액이 예상과 달라요",
+  "content": "11월 공연 정산 금액이 판매 현황과 다릅니다.",
+  "imageUrls": ["https://{버킷 주소}/public/seller_inquiry/seller-3/3f2a9c1e.jpg"],
+  "status": "ANSWERED",
+  "authorId": 3,
+  "authorName": "김대표",
+  "answer": "정산 내역을 확인해 다시 안내드리겠습니다.",
+  "answeredAt": "2026-11-28T14:00:00",
+  "createdAt": "2026-11-28T10:00:00",
+  "updatedAt": "2026-11-28T14:00:00"
+}
+```
+
+**에러**: 401 `AUTH200` · 403 `AUTH100` · 404 `INQUIRY001` 없는·다른 사업체의·삭제한 문의
 
 ---
 
