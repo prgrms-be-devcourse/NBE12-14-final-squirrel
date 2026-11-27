@@ -17,6 +17,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -65,4 +66,9 @@ public class PerformanceSchedule extends BaseTimeEntity {
 	@OneToMany(mappedBy = "schedule")
 	@OrderBy("id DESC")
 	private List<SchedulePostponement> postponements;
+
+	/** 가장 최근 연기 이력. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
+	public Optional<SchedulePostponement> findLatestPostponement() {
+		return postponements.stream().findFirst();
+	}
 }

@@ -116,6 +116,8 @@
 | SLR-24 | 내 사업체 예매 상세 | GET `/api/v1/seller/bookings/{bookingId}` | 구현됨 |
 | SLR-26 | 회차 판매 일시 중지 | POST `/api/v1/seller/performances/{performanceId}/schedules/pause` | 구현됨 |
 | SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
+| SLR-28 | 회차 연기 | POST `/api/v1/seller/schedules/{scheduleId}/postpone` | 구현됨 (화면 전) |
+| SLR-29 | 연기 회차 새 일정 확정 | POST `/api/v1/seller/schedules/{scheduleId}/postpone/confirm` | 구현됨 (화면 전) |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -283,7 +285,7 @@ Query: `type`(선택) `SERVICE` / `PRIVACY` / `WITHDRAW`. 종류별 최신 버�
 `deleted_at` 기록, 개인정보 비식별 처리, 지금 세션 삭제. 요청 본문은 없습니다.
 
 - **진행 중인 예매가 있으면 탈퇴할 수 없습니다(409 `USER003`).** 예매를 취소하거나 공연이 시작된 뒤에 탈퇴합니다. 결제했거나 결제 중인 예매가 주인 없이 남으면 환불·문의를 받을 수 없기 때문입니다.
-  - 진행 중인 예매: 결제 제한 시각이 남은 결제 대기(`PENDING`), 공연이 시작하지 않은 결제 완료·일부 취소(`PAID`, `PARTIAL_CANCELED`)
+  - 진행 중인 예매: 결제 제한 시각이 남은 결제 대기(`PENDING`), 공연이 시작하지 않은 결제 완료·일부 취소(`PAID`, `PARTIAL_CANCELED`), 일정 미정으로 연기된(`POSTPONED`) 회차의 결제 완료·일부 취소 (2026-11-27. 원래 일시가 지나도 받을 수 있는 환불이 남아 있습니다)
   - 기준은 회차 시작 시각(연기되면 바뀐 시각)입니다. 공연 당일은 취소 불가 구간이라 시작한 뒤에는 취소·환불로 돈이 오갈 일이 없어서, 공연 중이어도 탈퇴할 수 있습니다.
   - 만료(`EXPIRED`), 전체 취소(`CANCELED`), 제한 시각이 지난 결제 대기는 막지 않습니다.
 - 개인정보는 설계 1부 "탈퇴 시 처리" 표대로 지웁니다. (email `deleted-{id}@withdrawn.invalid`, 이름·닉네임 `탈퇴회원`, phone `-`, 사진 NULL, 비밀번호는 로그인할 수 없는 값) 같은 이메일·본인인증으로 다시 가입할 수 있습니다.
@@ -942,11 +944,13 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 }
 ```
 
-`saleStatus`: `PAUSED` / `UPCOMING` / `ON_SALE` / `SOLD_OUT` / `ENDED` (계산값). `PUBLISHED` 공연만 노출.
+`saleStatus`: `POSTPONED` / `PAUSED` / `UPCOMING` / `ON_SALE` / `SOLD_OUT` / `ENDED` (계산값). `PUBLISHED` 공연만 노출.
 
 | `saleStatus` | 조건 (위에서부터 먼저 맞는 것) |
 |---|---|
-| `ENDED` | 판매 종료 시각이 지남, 또는 마지막 회차가 시작됨, 또는 취소되지 않은 회차가 없음 |
+| `ENDED` | 판매 종료 시각이 지남, 또는 취소되지 않은 회차가 없음 |
+| `POSTPONED` | "연기". 아직 시작하지 않은 판매 중·일시 중지 회차가 없고 일정 미정 연기(`POSTPONED`) 회차가 있음. 원래 일시가 지났어도 `POSTPONED` (2026-11-27) |
+| `ENDED` | 마지막 회차가 시작됨 |
 | `PAUSED` | "판매 일시 중지". 아직 시작하지 않은 회차 중 일시 중지(`PAUSED`) 회차가 있고 판매 중(`ON_SALE`) 회차가 하나도 없음. 판매 오픈 전이어도 `PAUSED` |
 | `UPCOMING` | 판매 오픈 시각 전 |
 | `SOLD_OUT` | 아직 시작하지 않은 판매 중(`ON_SALE`) 회차에 판매 가능(`AVAILABLE`) 좌석이 없음. 임시 점유(`HELD`)만 남아도 매진이고, 점유가 풀리면 다시 `ON_SALE` |
@@ -960,17 +964,21 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 | 모두 중지, 판매 오픈 전 | `PAUSED` |
 | 모두 중지, 판매 종료 뒤 | `ENDED` |
 
-종료된 공연도 목록에 남고 `ENDED`로 표시됩니다. 일시 중지·재개(SLR-26·27)는 목록에서는 응답이 저장되는 시간(지금 5초)만큼 늦게 보일 수 있고(상세는 저장분을 지워 바로 반영), 그사이 점유와 결제는 서버가 막습니다.
+종료된 공연도 목록에 남고 `ENDED`로 표시됩니다. 일시 중지·재개(SLR-26·27)와 연기·확정(SLR-28·29)은 목록에서는 응답이 저장되는 시간(지금 5초)만큼 늦게 보일 수 있고(상세는 저장분을 지워 바로 반영), 그사이 점유와 결제는 서버가 막습니다.
 
 **에러**: 400 `COMMON000` 없는 `genre`·`sort` 값
 
 ### PFM-02 공연 상세 — `GET /api/v1/performances/{performanceId}` (공개, 구현됨)
 
-- 응답은 Redis에 잠깐(지금 5초, 임시) 저장되어 몇 초 전 값일 수 있습니다. (PFM-01과 같음) 404는 저장하지 않습니다. 예외로 판매 일시 중지·재개(SLR-26·27)는 이 공연의 저장분을 지웁니다.
+- 응답은 Redis에 잠깐(지금 5초, 임시) 저장되어 몇 초 전 값일 수 있습니다. (PFM-01과 같음) 404는 저장하지 않습니다. 예외로 판매 일시 중지·재개(SLR-26·27)와 연기·확정(SLR-28·29)은 이 공연의 저장분을 지웁니다.
 - 공개(`PUBLISHED`)된 공연만 볼 수 있습니다. 작성 중·취소된 공연은 없는 공연과 같은 404입니다.
 - `schedules`: 취소된 회차는 빠지고 공연 일시가 빠른 순입니다. (공연 목록의 첫·마지막 회차 일시와 같은 기준)
   - `saleStatus`는 회차마다 PFM-01과 같은 규칙으로 계산합니다. (마지막 회차 자리에 그 회차의 시작 일시, 남은 좌석은 그 회차의 `AVAILABLE`)
-  - 시작 전의 일시 중지(`PAUSED`) 회차는 판매 종료가 아니면 `saleStatus`도 `PAUSED`입니다. 연기(`POSTPONED`)는 `saleStatus`에 섞지 않고 `status`로 내려갑니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다. `pauseReason`은 `saleStatus`가 `PAUSED`인 회차에만 있고 그 밖은 `null`입니다. 화면은 값이 있을 때만 회차 아래에 사유를 보여 주고, 평소에는 사유 영역을 두지 않습니다. (2026-11-27 변경)
+  - 시작 전의 일시 중지(`PAUSED`) 회차는 판매 종료가 아니면 `saleStatus`도 `PAUSED`입니다. 일정 미정 연기(`POSTPONED`) 회차는 판매 종료가 아니면 `saleStatus`도 `POSTPONED`입니다. (2026-11-27 변경. 처음에는 `saleStatus`에 섞지 않았는데, 목록과 같은 규칙을 쓰고 원래 일시가 지난 회차가 "판매 종료"로 보이지 않게 했습니다) 날짜를 바꿔 연기한 회차는 평소 판매 상태 그대로입니다. 화면은 `status`가 `ON_SALE`이 아니면 그 상태를 먼저 보여 줍니다. `pauseReason`은 `saleStatus`가 `PAUSED`인 회차에만 있고 그 밖은 `null`입니다. 화면은 값이 있을 때만 회차 아래에 사유를 보여 주고, 평소에는 사유 영역을 두지 않습니다. (2026-11-27 변경)
+  - `postponement`: 가장 최근 연기의 안내입니다. 일정 미정이면 늘, 날짜를 바꾼 연기면 `freeCancelUntil` 전까지 있고 그 밖은 `null`입니다. `newStartAt`·`freeCancelUntil`은 일정 미정이면 `null`입니다(확정 전까지 마감 없음). 화면은 일정 미정 회차에 일시 대신 "일정 미정(원래 …)"을 보여 줍니다.
+    ```json
+    { "oldStartAt": "2026-12-20T19:00:00", "newStartAt": null, "reason": "출연자 건강 문제로 연기합니다", "freeCancelUntil": null }
+    ```
 - `grades`: 구역에 지정(`ASSIGNED`)된 등급만, 비싼 순(가격이 같으면 번호순)입니다. 어느 구역에도 붙지 않은 등급은 나오지 않습니다. `name`은 등급 코드(SLR-08의 표)이고 화면 이름과 색은 프론트가 정합니다.
 - `cancelPolicy`: 공연이 고른 취소 규정의 구간입니다. 공연에서 먼 구간부터(`daysFrom` 큰 순).
 - `commonGuide`의 각 안내는 관리자가 아직 넣지 않았으면 `null`입니다. `venue`·`seller`는 공연의 공연장·사업체를 읽기 전용 연관으로 꺼내므로 항상 있습니다. (행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
@@ -1018,7 +1026,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
         "startAt": "2026-12-20T19:00:00",
         "status": "ON_SALE",
         "saleStatus": "UPCOMING",
-        "pauseReason": null
+        "pauseReason": null,
+        "postponement": null
       }
     ],
     "grades": [
@@ -1214,8 +1223,9 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 |---|---|---|
 | 409 | `BOOKING000` | 이미 점유·판매된 좌석 (하나라도 점유할 수 없으면 전체 거절) |
 | 409 | `BOOKING001` | 1인 최대 매수 초과 (이미 가진 좌석 + 요청 좌석이 공연의 한도를 넘음) |
-| 400 | `BOOKING002` | 판매 중이 아닌 회차 (판매 기간 밖·연기·취소·이미 시작. 공연이 공개 상태가 아니면 `BOOKING004`) |
+| 400 | `BOOKING002` | 판매 중이 아닌 회차 (판매 기간 밖·취소·이미 시작. 공연이 공개 상태가 아니면 `BOOKING004`) |
 | 409 | `BOOKING012` | 일시 중지한 회차 (아직 시작하지 않았고 판매 종료 전) |
+| 409 | `BOOKING013` | 일정 미정으로 연기한 회차 (판매 기간·원래 일시와 상관없음) |
 | 400 | `BOOKING003` | 판매 제외 좌석 (`BLOCKED`, `RESERVED`) |
 | 404 | `BOOKING004` | 없는 회차 (공연이 공개 상태가 아닌 것도 같은 404) |
 | 404 | `BOOKING005` | 없는 좌석 (다른 회차의 좌석도 같은 404) |
@@ -1227,6 +1237,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 `seats`는 요청한 `seatIds` 순서대로 내려간다. 락 대기 시간(`app.booking.lock-wait`, 1초)과 결제 제한 시간(`app.booking.hold-duration`, 7분)은 `application.yaml`의 설정값이다. 예매자 토큰만 호출할 수 있고(판매자·관리자 403), 예매자 번호는 토큰에서 꺼낸다.
 
 **판매 일시 중지 (2026-11-27)**: 아직 시작하지 않았고 판매 종료 전인 회차가 일시 중지면 409 `BOOKING012` "판매가 일시 중지된 회차입니다."입니다. 대기열 입장(`doc/queue-design.md`)도 같습니다. 판매가 끝났거나 시작한 회차는 `BOOKING002`입니다. 화면은 `BOOKING012`를 받으면 알림 창을 띄우고 확인하면 공연 상세로 보냅니다.
+
+**회차 연기 (2026-11-27)**: 일정 미정(`POSTPONED`) 회차는 409 `BOOKING013` "연기된 회차라 지금은 예매할 수 없습니다."이고 대기열 입장도 같습니다. 날짜를 바꿔 연기한 회차는 판매 상태 그대로라 점유할 수 있습니다. 화면의 `BOOKING013` 알림 창은 아직 없습니다(다음 PR).
 
 ### BKG-02 결제 준비 — `POST /api/v1/bookings/{bookingId}/payments` (예매자)
 
@@ -1267,6 +1279,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 |---|---|---|
 | 404 | `BOOKING006` | 없는 예매 (남의 예매도 같은 404) |
 | 409 | `BOOKING007` | 결제 대기(`PENDING`)가 아니거나 결제 제한 시각이 지남. 공연이 공개 상태가 아니어도 같은 코드 |
+| 409 | `BOOKING013` | 예매의 회차가 일정 미정 연기이거나, 예매한 뒤에 회차가 연기됨 |
 | 409 | `BOOKING012` | 예매의 회차가 일시 중지 |
 | 400 | `PAYMENT000` | 공연이 받지 않는 수령 방법 (현장 전용 공연의 `DELIVERY`, 배송 전용 공연의 `ONSITE`) |
 | 400 | `PAYMENT001` | `DELIVERY`인데 받는 사람 이름·연락처·주소 중 비어 있음 |
@@ -1279,6 +1292,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - 예매자 번호는 토큰에서 꺼냅니다. 락 대기 시간은 `app.payment.lock-wait`(1초) 설정값입니다.
 
 **판매 일시 중지 (2026-11-27)**: 예매의 회차가 일시 중지(`PAUSED`)면 409 `BOOKING012`, 메시지 "판매가 일시 중지된 회차라 결제할 수 없습니다."입니다. 결제 준비 건을 만들지 않고 수령 정보도 바꾸지 않습니다. 검사 순서는 예매 404 → 예매 상태·결제 제한 시각 → **회차 중지** → 공연 공개 → 수령 방법입니다. 점유한 좌석은 만료까지 유지되고, 그 안에 재개되면 다시 결제할 수 있습니다.
+
+**회차 연기 (2026-11-27)**: 예매의 회차가 일정 미정(`POSTPONED`)이거나 예매가 가장 최근 연기보다 먼저 생겼으면 409 `BOOKING013`, 메시지 "공연 일정이 바뀌어 결제할 수 없습니다. 바뀐 일정을 확인한 뒤 다시 예매해 주세요."입니다. 확정이나 재개 뒤에도 그 예매는 결제할 수 없습니다. 중지(`BOOKING012`)와 겹치면 `BOOKING013`이 먼저입니다. 점유한 좌석은 만료(7분)까지 유지됩니다.
 
 ### BKG-03 결제 승인 — `POST /api/v1/payments/confirm` (예매자)
 
@@ -1317,6 +1332,7 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 | 404 | `PAYMENT002` | 없는 주문 ID (남의 결제도 같은 404) |
 | 400 | `PAYMENT004` | 요청 금액이 서버가 계산한 금액과 다름. 토스를 부르지 않고 결제는 준비(`READY`)로 남음 |
 | 409 | `BOOKING007` | 결제 제한 시각이 지났거나 예매가 결제 대기가 아님. 토스를 부르지 않고 결제는 준비로 남음 |
+| 409 | `BOOKING013` | 예매의 회차가 일정 미정 연기이거나, 예매한 뒤에 회차가 연기됨. 토스를 부르지 않고 결제는 준비로 남음 |
 | 409 | `BOOKING012` | 예매의 회차가 일시 중지. 토스를 부르지 않고 결제는 준비로 남음 |
 | 409 | `PAYMENT003` | 결제가 준비(`READY`) 상태가 아님. 이미 승인했거나 다른 승인 요청이 처리 중이거나 실패한 결제 |
 | 400 | `PAYMENT005` | 토스가 승인을 거절함. `message`에 토스가 준 사유(카드사 거절, 한도 초과 등)가 들어감. 결제는 `FAILED`, 예매·좌석은 점유 그대로 |
@@ -1336,6 +1352,8 @@ Query: `genre`(`CONCERT/MUSICAL/PLAY/CLASSIC/ETC`), `sort`(`LATEST`), `region`, 
 - 검사 순서: 결제·예매 404 → 결제 상태(`PAYMENT003`) → 금액(`PAYMENT004`) → 예매 상태·결제 제한 시각 → **회차 중지**
 - 중지 **전에** 승인을 시작한 결제(`PROCESSING`)는 완료됩니다. 응답을 잃은 결제는 보정 작업이 나중에 확정합니다.
 - 승인 시작과 중지가 밀리초 단위로 겹치면 통과할 수 있습니다. (알고 감수, `seller-progress.md` DB 관련 TODO)
+
+**회차 연기 (2026-11-27)**: 승인을 시작할 때도 BKG-02와 같은 조건이면 409 `BOOKING013`이고 토스를 부르지 않으며 점유 시간을 늘리지 않습니다. 검사 순서는 위의 **회차 중지** 자리에서 연기 → 중지입니다. 연기 **전에** 승인을 시작한 결제는 완료되고, 그 예매는 연기 무료 취소 대상입니다.
 
 ### BKG-04 내 예매 목록 — `GET /api/v1/bookings` (예매자, 구현됨)
 
@@ -1358,7 +1376,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
 - 최신 예매순(`createdAt` 내림차순)이고, 같은 시각이면 번호가 큰 예매가 먼저라 페이지를 넘겨도 순서가 바뀌지 않습니다. 정렬은 고정이라 `sort`를 보내도 무시합니다.
 - `size` 기본 20, 최대 20. 크기가 20을 넘으면 에러가 아니라 20으로 줄어듭니다.
 - `seatCount`와 `totalAmount`는 **처음 예매 기준**입니다. 일부 취소해도 취소된 좌석까지 세고, 금액도 처음 결제 금액 그대로입니다. (둘의 기준을 맞추려는 것. 남은 좌석과 환불 금액은 상세 BKG-05에서 봅니다)
-- `performanceTitle`·`posterUrl`·`scheduleStartAt`은 예매 때 복사한 값이 아니라 지금 값입니다. 회차가 연기되면 바뀐 일시가 보이고, 예매한 뒤 공연이 취소돼도 내역에 남습니다. 공연·회차는 예매의 읽기 전용 연관에서 꺼내므로 항상 있습니다. (행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
+- `performanceTitle`·`posterUrl`·`scheduleStartAt`은 예매 때 복사한 값이 아니라 지금 값입니다. 회차가 연기되면 바뀐 일시가 보이고(일정 미정이면 원래 일시이고 `scheduleStatus`가 `POSTPONED`라서 화면은 "일정 미정"으로 보여 줍니다), 예매한 뒤 공연이 취소돼도 내역에 남습니다. 공연·회차는 예매의 읽기 전용 연관에서 꺼내므로 항상 있습니다. (행이 없는 깨진 데이터는 `null`이 아니라 500 입니다)
 
 **응답 200**
 
@@ -1376,6 +1394,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
         "performanceTitle": "가상 콘서트",
         "posterUrl": "https://cdn.example.com/posters/12.jpg",
         "scheduleStartAt": "2026-12-20T19:00:00",
+        "scheduleStatus": "ON_SALE",
         "seatCount": 2,
         "totalAmount": 312000,
         "createdAt": "2026-11-25T20:03:41"
@@ -1405,6 +1424,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
 - `cancelable`, `currentFeeRate`는 **예매 취소(BKG-06)와 같은 계산**으로 정합니다. 화면에 보인 수수료율과 실제 환불이 어긋나지 않게 한 클래스(`CancelPolicyCalculator`)에서만 계산합니다. 기준은 BKG-06의 "취소 가능 여부와 수수료율"을 봅니다.
   - `cancelable`: 지금 취소할 수 있으면 `true`. 결제 완료·일부 취소가 아니거나 취소 불가 기간이면 `false`입니다.
   - `currentFeeRate`: 지금 취소하면 적용되는 수수료율(%). 취소할 수 없으면 `null`입니다.
+  - `postponeFreeCancel`: 공연 연기로 지금 수수료 없이 취소할 수 있을 때만 `{ "until": 마감 }`이고 그 밖은 `null`입니다. 일정 미정이면 `until`이 `null`입니다(일정 확정 전까지). 관리자 예매 상세(ADM-09)에도 같은 값이 갑니다.
 
 **응답 200**
 
@@ -1475,6 +1495,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
     ],
     "cancelable": true,
     "currentFeeRate": 0,
+    "postponeFreeCancel": null,
     "expiresAt": null,
     "createdAt": "2026-11-25T20:03:41",
     "canceledAt": null
@@ -1526,7 +1547,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
 아래 순서로 판정합니다. BKG-05의 `cancelable`, `currentFeeRate`도 같은 계산입니다.
 
 1. 결제 완료(`PAID`)·일부 취소(`PARTIAL_CANCELED`)가 아니면 취소할 수 없습니다. (409 `BOOKING008`)
-2. **연기 무료 취소** 대상이면 수수료 0%로 취소할 수 있습니다. 공연 당일이거나 새 일정이 미정이어도 됩니다. 대상은 가장 최근 연기 이력의 `free_cancel_until`이 지나지 않았고, 예매가 그 연기보다 먼저 생긴 경우입니다. (3부)
+2. **연기 무료 취소** 대상이면 수수료 0%로 취소할 수 있습니다. 공연 당일이거나 원래 일시가 지났어도 됩니다. 대상은 예매가 가장 최근 연기보다 먼저 생겼고, 그 연기가 일정 미정이거나 `free_cancel_until`이 지나지 않은 경우입니다. (일정 미정이면 마감 없음, 3부) 이때 환불 사유 종류는 `POSTPONE_CANCEL`이고 그 밖의 본인 취소는 `USER_CANCEL`입니다.
 3. 회차가 이미 시작했으면 취소할 수 없습니다. 당일 취소를 허용한 규정이어도 시작한 뒤에는 막습니다. (400 `BOOKING009`)
 4. 예매 때 복사한 취소 규정에서 **남은 일수**가 들어가는 구간을 찾습니다. `cancelable=false` 구간(기본 규정의 당일)이거나 맞는 구간이 없으면 400 `BOOKING009`입니다.
 
@@ -1581,7 +1602,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
 
 ### 판매자 감사 로그 (공통)
 
-SLR-03·04·09·10·11·12·13은 변경할 때 `audit_log`에 한 줄을 남깁니다. 행위자는 `SELLER`, `actor_id`는 계정 번호, `business_id`는 사업체 번호입니다. 변경과 **한 트랜잭션**이라 로그를 남기지 못하면 변경도 취소됩니다(500). 거절된 요청과 **값이 그대로인 요청은 남기지 않습니다.** 대상·행동·전후 값은 각 API에 적습니다. 판매 일시 중지·재개(SLR-26·27)와 취소 규정 생성·수정(SLR-21·22)도 남깁니다.
+SLR-03·04·09·10·11·12·13은 변경할 때 `audit_log`에 한 줄을 남깁니다. 행위자는 `SELLER`, `actor_id`는 계정 번호, `business_id`는 사업체 번호입니다. 변경과 **한 트랜잭션**이라 로그를 남기지 못하면 변경도 취소됩니다(500). 거절된 요청과 **값이 그대로인 요청은 남기지 않습니다.** 대상·행동·전후 값은 각 API에 적습니다. 판매 일시 중지·재개(SLR-26·27), 연기·확정(SLR-28·29), 취소 규정 생성·수정(SLR-21·22)도 남깁니다.
 
 ### SLR-01 공연장 목록 — `GET /api/v1/seller/venues` (구현됨)
 
@@ -1881,6 +1902,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 - 작성 중(`DRAFT`)인 공연은 판매 필드(`saleOpenAt`, `saleCloseAt`, `maxPerPerson`, `receiveType`, `bookingFee`)가 `null`일 수 있습니다.
 - `images`는 `sortOrder` 순, `schedules`는 공연 일시가 빠른 순이며 취소·연기된 회차도 포함합니다. 공연장은 사용 중지된 곳도 이름이 보입니다.
 - `schedules` 항목의 `pauseReason`은 일시 중지 회차의 중지 사유이고 그 밖은 `null`입니다. 재개 확인 화면에서 씁니다. 예매자 공연 상세(PFM-02)에는 판매 상태가 `PAUSED`인 회차에만 같은 값을 줍니다.
+- `schedules` 항목의 `postponement`는 그 회차의 가장 최근 연기이고 연기한 적이 없으면 `null`입니다. 마감이 지나도 보입니다. 모양은 SLR-28 응답의 `postponement`와 같습니다.
 
 **응답 200**
 
@@ -1921,7 +1943,9 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
         "scheduleId": 31,
         "startAt": "2026-12-20T19:00:00",
         "status": "ON_SALE",
-        "seatsGeneratedAt": "2026-11-24T20:00:12"
+        "seatsGeneratedAt": "2026-11-24T20:00:12",
+        "pauseReason": null,
+        "postponement": null
       }
     ],
     "createdAt": "2026-11-13T10:20:00",
@@ -2251,7 +2275,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 |---|---|
 | 판매 중(`ON_SALE`)·일시 중지(`PAUSED`)이고 아직 시작하지 않음 | 가능 |
 | 이미 시작함(시작 시각이 지금 이전이거나 같음) | 불가 |
-| 연기(`POSTPONED`) | 불가 (새 일정은 연기 이력·상태와 함께 바뀌어야 함) |
+| 일정 미정 연기(`POSTPONED`) | 불가 (새 일정 확정 SLR-29) |
 | 취소(`CANCELED`) 회차, 취소된 공연의 회차 | 불가 |
 
 - **예매**: 그 회차에 결제 대기·결제 완료·일부 취소·전체 취소 예매가 하나라도 있으면 바꿀 수 없습니다. 만료(`EXPIRED`)만 있으면 바꿀 수 있습니다. 결제 제한 시각이 지났어도 만료 처리 전인 결제 대기는 막습니다(만료 처리 주기 약 1분). 판매 중이든 판매 종료 뒤든 같습니다.
@@ -2271,7 +2295,7 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 
 **같은 공연장의 시간 겹침**: 회차 추가(SLR-12)와 같은 기준·메시지이고, 바꾸는 회차 자신은 빼고 봅니다.
 
-**바뀌지 않는 것**: 회차 상태, 판매 좌석과 `seatsGeneratedAt`, 등급·가격·구역 잠금. 좌석을 새로 만들지 않습니다. 연기 이력은 남기지 않습니다.
+**바뀌지 않는 것**: 회차 상태, 판매 좌석과 `seatsGeneratedAt`, 등급·가격·구역 잠금. 좌석을 새로 만들지 않습니다. 연기 이력은 남기지 않습니다. 예매가 있는 회차의 날짜는 연기(SLR-28)로 바꿉니다.
 
 **감사 로그**: `SCHEDULE` / `UPDATE`, `target_id`는 회차 번호. 전후 모두 `performanceId`·`startAt`이라 바꾸기 전 일시가 남습니다.
 
@@ -2284,12 +2308,12 @@ Query: `status`(`DRAFT/PUBLISHED/CANCELED`), `page`, `size`
 | 3 | 락을 1초 안에 잡지 못함 | 409 `COMMON004` | 기본(잠시 후 다시 시도) |
 | 4 | 취소된 공연 | 409 `PERFORMANCE002` | 기본 |
 | 5 | 취소된 회차 | 409 `PERFORMANCE501` | 취소된 회차는 일시를 바꿀 수 없습니다. |
-| 6 | 연기된 회차 | 409 `PERFORMANCE012` | 연기된 회차는 일시를 바꿀 수 없습니다. |
+| 6 | 일정 미정 연기 회차 | 409 `PERFORMANCE012` | 연기된 회차는 일시를 바꿀 수 없습니다. 새 일정 확정으로 정해 주세요. |
 | 7 | 이미 시작한 회차 | 400 `PERFORMANCE502` | 이미 시작한 회차는 일시를 바꿀 수 없습니다. |
 | - | 지금과 같은 일시면 여기서 200 | | |
 | 8 | 판매 오픈보다 늦지 않음 | 400 `PERFORMANCE407` | SLR-12와 같음(오픈 일시 포함) |
 | 9 | (작성 중) 3시간 이내 | 400 `PERFORMANCE009` | 작성 중인 공연의 회차는 지금부터 3시간 뒤의 일시로만 바꿀 수 있습니다. |
-| 10 | (공개) 만료가 아닌 예매가 있음 | 409 `PERFORMANCE011` | 결제 대기 중이거나 결제된 적 있는(취소 포함) 예매가 있어 일시를 바꿀 수 없습니다. |
+| 10 | (공개) 만료가 아닌 예매가 있음 | 409 `PERFORMANCE011` | 결제 대기 중이거나 결제된 적 있는(취소 포함) 예매가 있어 일시를 바꿀 수 없습니다. 예매가 있는 회차는 연기로 바꿔 주세요. |
 | 11 | (공개) 판매 종료가 마지막 회차 시작보다 늦어짐 | 400 `PERFORMANCE408` | 판매 종료 일시는 마지막 회차 시작보다 늦을 수 없습니다. 판매 종료 일시를 `yyyy-MM-dd HH:mm` 이전으로 먼저 앞당겨 주세요. |
 | 12 | 같은 공연장의 다른 회차와 시간 겹침 | 409 `PERFORMANCE007` | SLR-12와 같음 |
 | - | 저장하는 순간 회차 상태·일시가 다른 작업으로 바뀜(락이 듣지 않은 경우) | 409 `COMMON004` | 기본. 다시 요청하면 위의 정확한 에러가 나옵니다 |
@@ -2447,6 +2471,104 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 - 재개한 회차의 중지 사유는 비웁니다. 지난 사유는 감사 로그에 남습니다.
 - 사용이 중지된 공연장의 회차도 재개할 수 있습니다.
 - 감사 로그: `SCHEDULE` / `RESUME`, 변경 전 `performanceId`·`status`·`reason`(중지 사유), 변경 후 `performanceId`·`status`.
+
+### SLR-28 회차 연기 — `POST /api/v1/seller/schedules/{scheduleId}/postpone` (구현됨, 화면 전)
+
+이미 표를 산 사람이 있는 회차의 날짜를 바꿉니다. 판매자(대표·담당자) 토큰만 쓸 수 있고 예매자·관리자 토큰은 403, 토큰이 없으면 401입니다. 다른 사업체의 회차는 없는 회차와 같은 404 `PERFORMANCE008`입니다. (2026-11-27)
+
+**요청** (일정 미정)
+
+```json
+{ "reason": "출연자 건강 문제로 연기합니다", "newStartAt": null }
+```
+
+**요청** (새 일정과 함께)
+
+```json
+{ "reason": "공연장 사정으로 일정 변경", "newStartAt": "2026-12-27T19:00:00", "freeCancelUntil": "2026-12-20T23:59:00" }
+```
+
+- `reason` 필수, 앞뒤 공백을 뺀 255자 이하. 예매자 공연 상세에 보입니다.
+- `newStartAt` 선택. 없으면 일정 미정입니다.
+- `freeCancelUntil` 선택이고 `newStartAt`이 있을 때만 받습니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "scheduleId": 31,
+    "status": "POSTPONED",
+    "startAt": "2026-12-20T19:00:00",
+    "postponement": {
+      "postponementId": 5,
+      "oldStartAt": "2026-12-20T19:00:00",
+      "newStartAt": null,
+      "reason": "출연자 건강 문제로 연기합니다",
+      "freeCancelUntil": null,
+      "createdAt": "2026-11-27T10:00:00"
+    }
+  }
+}
+```
+
+| | 일정 미정 | 새 일정 |
+|---|---|---|
+| 회차 `status` | `POSTPONED` (중지 사유는 비움) | 그대로 (판매 중·일시 중지) |
+| 회차 `startAt` | 원래 일시 | 새 일시 |
+| 대기열·점유 | 409 `BOOKING013`, 대기하던 사람은 줄에서 뺌 | 그대로 |
+| 결제 | 409 `BOOKING013` | 연기 전에 만든 결제 대기 예매만 409 `BOOKING013` |
+| 연기 전 예매의 취소 | 확정 전까지 수수료 0% | `freeCancelUntil`까지 0%, 그 뒤에는 새 일시 기준 규정 |
+
+- **연기할 수 있는 회차**: 공개(`PUBLISHED`) 공연의 아직 시작하지 않은 판매 중·일시 중지 회차. 판매 오픈 전, 판매 종료 뒤, 공연 당일(시작 전)에도 되고 예매가 없어도 됩니다. 날짜를 바꿔 연기한 회차는 다시 연기할 수 있습니다(이력이 쌓임).
+- **새 일시 조건**: 회차 수정(SLR-13)의 공개 공연 조건과 같습니다. 앞당길 수 있고, 지금 일시와 같으면 거절합니다.
+- **무료 취소 마감** (새 일정이 있을 때)
+  - 비우면 `min(max(지금 + 14일, 안 지난 이전 마감), 새 일시)`
+  - 보내면 `min(max(지금 + 7일(임시), 안 지난 이전 마감), 새 일시)` 이상, 새 일시 이하
+  - 서버가 계산한 값은 분 단위로 자릅니다.
+  - 일정 미정이면 이력에 연기일 + 14일을 저장하지만(`NOT NULL`) 판단에 쓰지 않고 응답에는 `null`입니다.
+- 예매를 한꺼번에 바꾸지 않습니다. 알림(메일·문자)은 보내지 않습니다.
+
+**에러** (위가 먼저)
+
+| 순서 | 조건 | 코드 | 메시지 |
+|---|---|---|---|
+| 1 | 요청 형식: 사유 없음·255자 초과, 지난 `newStartAt`·`freeCancelUntil`, `newStartAt` 없이 `freeCancelUntil` | 400 `COMMON000` | 검증 메시지 |
+| 2 | `freeCancelUntil`이 `newStartAt`보다 늦음 | 400 `PERFORMANCE022` | 무료 취소 마감은 새 공연 일시보다 늦을 수 없습니다. |
+| 3 | 없는 회차, 다른 사업체의 회차 | 404 `PERFORMANCE008` | 기본 |
+| 4 | 락을 1초 안에 잡지 못함 | 409 `COMMON004` | 기본 |
+| 5 | 취소된 공연 | 409 `PERFORMANCE002` | 기본 |
+| 6 | 작성 중 공연 | 409 `PERFORMANCE019` | 작성 중인 공연의 회차는 연기하지 않고 일시를 수정해 주세요. |
+| 7 | 취소된 회차 | 409 `PERFORMANCE501` | 취소된 회차는 연기할 수 없습니다. |
+| 8 | 일정 미정으로 연기된 회차 | 409 `PERFORMANCE020` | 일정 미정으로 연기된 회차입니다. 새 일정을 확정해 주세요. |
+| 9 | 이미 시작한 회차 | 400 `PERFORMANCE502` | 이미 시작한 회차는 연기할 수 없습니다. |
+| 10 | (새 일정) 지금 일시와 같음 | 400 `PERFORMANCE023` | 지금 공연 일시와 같은 일시로는 연기할 수 없습니다. |
+| 11 | (새 일정) 판매 오픈보다 늦지 않음 | 400 `PERFORMANCE407` | SLR-13과 같음 |
+| 12 | (새 일정) 판매 종료가 마지막 회차보다 늦어짐 | 400 `PERFORMANCE408` | SLR-13과 같음 |
+| 13 | (새 일정) 같은 공연장 겹침(자기 회차 제외) | 409 `PERFORMANCE007` | SLR-13과 같음 |
+| 14 | (새 일정) 마감이 하한보다 이름 | 400 `PERFORMANCE022` | 무료 취소 마감은 `yyyy-MM-dd HH:mm` 이후여야 합니다. |
+| 15 | 저장 순간 회차가 바뀜(조건부 UPDATE 0행) | 409 `COMMON004` | 기본 |
+
+- 락은 공연 단위(`performance:{공연 번호}`)이고, 판매 중·일시 중지이며 시작 전일 때만 바꾸는 조건부 UPDATE를 함께 둡니다. 좌석 점유와 결제 승인은 이 락을 잡지 않아 같은 순간에 통과한 요청은 막지 못합니다. (알고 감수, `seller-progress.md` DB 관련 TODO)
+- 커밋 뒤 공연 상세 저장분을 지웁니다. 대기열의 회차 상태 기억은 최대 10초 늦습니다.
+- 감사 로그: `SCHEDULE` / `POSTPONE`. 변경 전 `performanceId`·`status`·`startAt`, 변경 후 `performanceId`·`status`·`startAt`(미정이면 `null`)·`reason`·`freeCancelUntil`(미정이면 `null`). 이력 저장과 한 트랜잭션입니다.
+
+### SLR-29 연기 회차 새 일정 확정 — `POST /api/v1/seller/schedules/{scheduleId}/postpone/confirm` (구현됨, 화면 전)
+
+일정 미정(`POSTPONED`) 회차의 새 일시를 정하고 **판매 중(`ON_SALE`)**으로 바꿉니다. 중지한 상태에서 연기했어도 판매가 열립니다. 권한·404·락·응답 모양은 SLR-28과 같습니다.
+
+```json
+{ "newStartAt": "2027-01-10T19:00:00", "freeCancelUntil": "2027-01-03T23:59:00" }
+```
+
+- `newStartAt` 필수. 원래 일시를 다시 골라도 되고, 원래 일시가 지났어도 확정할 수 있습니다.
+- `freeCancelUntil` 선택. 기본·상한·하한은 SLR-28과 같되 **이전 마감은 보지 않습니다**(미정이었으므로).
+- 연기 때 만든 이력의 `new_start_at`·`free_cancel_until`을 채웁니다. 새 이력을 만들지 않아 연기 전에 산 사람이 그대로 무료 취소 대상입니다.
+- 에러 순서: 400 `COMMON000` → 400 `PERFORMANCE022`(마감 > 새 일시) → 404 `PERFORMANCE008` → 409 `COMMON004`(락) → 409 `PERFORMANCE002` → 409 `PERFORMANCE501`(취소된 회차는 새 일정을 확정할 수 없습니다.) → 409 `PERFORMANCE021`(일정 미정으로 연기된 회차만 새 일정을 확정할 수 있습니다.) → 400 `PERFORMANCE407` → 400 `PERFORMANCE408` → 409 `PERFORMANCE007` → 400 `PERFORMANCE022`(하한) → 409 `COMMON004`(0행)
+- 감사 로그: `SCHEDULE` / `POSTPONE_CONFIRM`, 전후 항목은 SLR-28과 같습니다.
 
 ### SLR-15 회차 취소 — `POST /api/v1/seller/schedules/{scheduleId}/cancel`
 

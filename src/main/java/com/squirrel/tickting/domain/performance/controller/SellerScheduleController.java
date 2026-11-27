@@ -103,6 +103,44 @@ public class SellerScheduleController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 연기할 수 있다. */
+	@Operation(summary = "회차 연기",
+		description = "공개(PUBLISHED) 공연의 아직 시작하지 않은 판매 중·일시 중지 회차를 연기한다. newStartAt 을 비우면 일정 미정(POSTPONED)이 되어 "
+			+ "대기열 입장·좌석 점유·결제가 막히고, 넣으면 상태는 그대로 두고 공연 일시만 바꾼다(앞당기기도 된다). 연기 전에 만든 결제 대기 예매는 결제할 수 없다. "
+			+ "예매는 바꾸지 않고, 연기 전에 예매한 사람이 직접 취소하면 수수료가 없다. 일정 미정이면 확정 전까지, 날짜를 바꾸면 freeCancelUntil 까지다. "
+			+ "사유(reason)는 필수이고 예매자 공연 상세에 보인다. freeCancelUntil 은 newStartAt 이 있을 때만 보내며, 비우면 14일 뒤(남은 이전 마감이 "
+			+ "더 늦으면 그때, 새 일시를 넘지 않음)다. 보내면 새 일시 이하이고 7일 뒤(남은 이전 마감이 더 늦으면 그때, 새 일시가 이르면 새 일시) 이상이어야 한다. "
+			+ "취소된 공연·작성 중 공연·취소 회차·일정 미정 회차는 409, 이미 시작한 회차·지금과 같은 일시·판매 오픈 이전·판매 종료가 마지막 회차보다 "
+			+ "늦어지는 일시·마감 범위 밖은 400, 같은 공연장 시간 겹침은 409다. 다른 사업체의 회차이거나 없는 회차는 404 다. "
+			+ "같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/schedules/{scheduleId}/postpone")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.SchedulePostponed>> postponeSchedule(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SchedulePostpone request
+	) {
+		SellerPerformanceResponse.SchedulePostponed response = sellerPerformanceFacade.postponeSchedule(
+			account.getBusinessId(), account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 확정할 수 있다. */
+	@Operation(summary = "연기 회차 새 일정 확정",
+		description = "일정 미정(POSTPONED)인 회차의 새 공연 일시를 정하고 판매 중으로 바꾼다. 중지한 상태에서 연기했어도 판매 중이 된다. "
+			+ "원래 일시를 다시 골라도 된다. 연기 전에 예매한 사람은 freeCancelUntil 까지 수수료 없이 취소할 수 있고, 비우면 14일 뒤(새 일시를 넘지 않음)다. "
+			+ "보내면 새 일시 이하이고 7일 뒤(새 일시가 이르면 새 일시) 이상이어야 한다. 새 일시의 조건과 404·409 COMMON004 는 회차 연기와 같고, "
+			+ "일정 미정 회차가 아니면 409 PERFORMANCE021 이다.")
+	@PostMapping("/schedules/{scheduleId}/postpone/confirm")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.SchedulePostponed>> confirmPostponement(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SchedulePostponeConfirm request
+	) {
+		SellerPerformanceResponse.SchedulePostponed response = sellerPerformanceFacade.confirmPostponement(
+			account.getBusinessId(), account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 만들 수 있다. */
 	@Operation(summary = "판매 좌석 생성",
 		description = "한 회차의 판매 좌석을 공연장 좌석에서 복사해 만든다. 작성 중(DRAFT) 공연은 판매 오픈·종료·1인 최대 매수·수령 방법·예매 수수료가 "

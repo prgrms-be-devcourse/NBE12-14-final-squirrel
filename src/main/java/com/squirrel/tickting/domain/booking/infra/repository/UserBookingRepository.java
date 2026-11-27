@@ -45,7 +45,8 @@ public interface UserBookingRepository extends Repository<Booking, Long> {
 	/**
 	 * 탈퇴를 막아야 하는 진행 중인 예매가 있는지. 결제 제한 시각이 남은 결제 대기 예매, 또는 공연이 시작하지 않은 결제 완료·일부 취소 예매다.
 	 * 공연 당일은 취소 불가 구간이라 시작한 뒤에는 취소·환불로 돈이 오갈 일이 없어서 시작 시각까지만 막는다.
-	 * 회차가 연기되면 시작 시각이 바뀌므로 연기된 회차의 예매는 다시 진행 중이 된다.
+	 * 회차가 날짜를 바꿔 연기되면 시작 시각이 바뀌므로 그 회차의 예매는 다시 진행 중이 된다. 일정 미정(POSTPONED)이면
+	 * 원래 시작 시각이 지나도 진행 중이다. 탈퇴하면 받을 수 있는 환불을 잃는다.
 	 * 결제 대기는 7분이 지나면 주기 작업이 만료로 바꾸는데, 그 전이라도 제한 시각이 지났으면 이미 결제할 수 없어서 막지 않는다.
 	 */
 	@Query("""
@@ -55,7 +56,8 @@ public interface UserBookingRepository extends Repository<Booking, Long> {
 		  AND ((b.status = com.squirrel.tickting.domain.booking.type.BookingStatus.PENDING AND b.expiresAt > :now)
 		    OR (b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
 		                     com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
-		        AND b.schedule.startAt > :now))
+		        AND (b.schedule.startAt > :now
+		          OR b.schedule.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.POSTPONED)))
 		""")
 	boolean existsOngoing(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 

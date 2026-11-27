@@ -34,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -360,6 +361,58 @@ public class SellerPerformanceFacade {
 		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
 		userPerformanceCache.evictDetail(performanceId);
 		return response;
+	}
+
+	/**
+	 * 회차를 연기하고 감사 로그를 남긴다. 공연 락은 회차 추가·수정·중지, 공연 수정, 좌석 생성과 같은 이름이다.
+	 * 좌석 점유와 결제 승인은 이 락을 잡지 않아, 확인을 막 통과한 요청은 막지 못한다. (알고 감수, doc/seller-progress.md TODO)
+	 * 대기열(Redis)은 건드리지 않는다.
+	 * 검사 순서: 요청 형식·마감(DB 전) → 회차 조회 404(락 밖) → 락 → 서비스의 검사.
+	 */
+	public SellerPerformanceResponse.SchedulePostponed postponeSchedule(Long businessId, Long actorId, Long scheduleId,
+		SellerPerformanceRequest.SchedulePostpone request) {
+		sellerPerformanceService.validateFreeCancelUntil(request.newStartAt(), request.freeCancelUntil());
+		return changePostponement(businessId, actorId, scheduleId, "POSTPONE",
+			() -> sellerPerformanceService.postpone(businessId, actorId, scheduleId, request));
+	}
+
+	/** 일정 미정으로 연기한 회차의 새 일정을 확정하고 감사 로그를 남긴다. 락과 검사 순서는 연기와 같다. */
+	public SellerPerformanceResponse.SchedulePostponed confirmPostponement(Long businessId, Long actorId,
+		Long scheduleId, SellerPerformanceRequest.SchedulePostponeConfirm request) {
+		sellerPerformanceService.validateFreeCancelUntil(request.newStartAt(), request.freeCancelUntil());
+		return changePostponement(businessId, actorId, scheduleId, "POSTPONE_CONFIRM",
+			() -> sellerPerformanceService.confirmPostponement(businessId, scheduleId, request));
+	}
+
+	private SellerPerformanceResponse.SchedulePostponed changePostponement(Long businessId, Long actorId,
+		Long scheduleId, String action, Supplier<SellerPerformanceService.PostponementChange> change) {
+		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
+		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
+		SellerPerformanceResponse.SchedulePostponed response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				SellerPerformanceService.PostponementChange changed = change.get();
+				saveHistory(businessId, actorId, TARGET_SCHEDULE, scheduleId, action,
+					Map.of("performanceId", changed.performanceId(), "status", changed.previousStatus(),
+						"startAt", changed.previousStartAt()),
+					postponementValues(changed));
+				return changed.response();
+			}));
+		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
+	}
+
+	/** 연기·확정 로그의 바꾼 뒤 값. 일정 미정이면 일시와 마감이 null 이라 Map.of 를 쓰지 않는다. */
+	private Map<String, Object> postponementValues(SellerPerformanceService.PostponementChange changed) {
+		SellerPerformanceResponse.Postponement postponement = changed.response().postponement();
+		Map<String, Object> values = new LinkedHashMap<>();
+		values.put("performanceId", changed.performanceId());
+		values.put("status", changed.response().status());
+		values.put("startAt", postponement.newStartAt());
+		values.put("reason", postponement.reason());
+		values.put("freeCancelUntil", postponement.freeCancelUntil());
+		return values;
 	}
 
 	/** 중지·재개 로그의 전후 값. 사유가 없는 쪽에는 reason 을 넣지 않는다. */

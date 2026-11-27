@@ -51,4 +51,25 @@ public class SchedulePostponement extends CreatedTimeEntity {
 	/** 연기를 처리한 판매자 계정 번호 (seller_member) */
 	@Column(nullable = false)
 	private Long changedBy;
+
+	/** 새 일정이 미정이던 연기의 새 일시와 무료 취소 마감을 정한다. 이력은 새로 쌓지 않아 연기 전에 산 사람이 그대로 대상이다. */
+	public void confirm(LocalDateTime newStartAt, LocalDateTime freeCancelUntil) {
+		this.newStartAt = newStartAt;
+		this.freeCancelUntil = freeCancelUntil;
+	}
+
+	/** 사용자에게 알려 줄 무료 취소 마감. 미정이면 마감이 없어 null 이다. (컬럼은 NOT NULL 이라 값이 있지만 쓰지 않는다) */
+	public LocalDateTime findDeadline() {
+		return newStartAt == null ? null : freeCancelUntil;
+	}
+
+	/** 무료 취소 기간인가. 새 일정이 미정인 동안은 마감이 없다. */
+	public boolean isFreeCancelOpen(LocalDateTime now) {
+		return newStartAt == null || !now.isAfter(freeCancelUntil);
+	}
+
+	/** 이 연기보다 먼저 생긴 예매인가. 연기 뒤에 예매한 사람은 바뀐 일정을 알고 산 것이다. */
+	public boolean isAnnouncedAfter(LocalDateTime bookedAt) {
+		return bookedAt.isBefore(getCreatedAt());
+	}
 }

@@ -33,12 +33,13 @@ public class CancelPolicyCalculator {
 	/**
 	 * 취소 판정 결과.
 	 *
-	 * @param cancelable 지금 사용자가 취소할 수 있는가
-	 * @param feeRate    지금 취소하면 적용되는 수수료율(%). 취소할 수 없으면 null
+	 * @param cancelable       지금 사용자가 취소할 수 있는가
+	 * @param feeRate          지금 취소하면 적용되는 수수료율(%). 취소할 수 없으면 null
+	 * @param freePostponement 연기 때문에 무료면 그 연기 이력, 아니면 null
 	 */
-	public record Quote(boolean cancelable, Integer feeRate) {
+	public record Quote(boolean cancelable, Integer feeRate, SchedulePostponement freePostponement) {
 
-		private static final Quote NOT_CANCELABLE = new Quote(false, null);
+		private static final Quote NOT_CANCELABLE = new Quote(false, null, null);
 	}
 
 	/**
@@ -46,7 +47,7 @@ public class CancelPolicyCalculator {
 	 *
 	 * 순서:
 	 *   1. 결제 완료·일부 취소가 아니면 취소할 수 없다.
-	 *   2. 연기 무료 취소 대상이면 수수료 0% 로 취소할 수 있다. 새 일정이 미정이거나 원래 일시가 지났어도 된다.
+	 *   2. 연기 무료 취소 대상이면 수수료 0% 로 취소할 수 있다. 새 일정이 미정이면 마감 없이, 원래 일시가 지났어도 된다.
 	 *   3. 회차가 이미 시작했으면 취소할 수 없다. (당일을 취소 가능으로 둔 규정이어도 시작 뒤에는 막는다)
 	 *   4. 예매 때 복사한 규정에서 남은 일수가 들어가는 구간을 찾는다. 맞는 구간이 없으면 취소할 수 없다.
 	 */
@@ -55,8 +56,9 @@ public class CancelPolicyCalculator {
 			return Quote.NOT_CANCELABLE;
 		}
 		PerformanceSchedule schedule = booking.getSchedule();
-		if (isFreeCancel(booking, schedule, now)) {
-			return new Quote(true, 0);
+		SchedulePostponement freePostponement = findFreePostponement(booking, schedule, now);
+		if (freePostponement != null) {
+			return new Quote(true, 0, freePostponement);
 		}
 		if (!now.isBefore(schedule.getStartAt())) {
 			return Quote.NOT_CANCELABLE;
@@ -66,7 +68,7 @@ public class CancelPolicyCalculator {
 		return readRules(booking).stream()
 			.filter(rule -> rule.daysFrom() <= daysBefore && (rule.daysTo() == null || daysBefore <= rule.daysTo()))
 			.findFirst()
-			.map(rule -> rule.cancelable() ? new Quote(true, rule.feeRate()) : Quote.NOT_CANCELABLE)
+			.map(rule -> rule.cancelable() ? new Quote(true, rule.feeRate(), null) : Quote.NOT_CANCELABLE)
 			.orElse(Quote.NOT_CANCELABLE);
 	}
 
@@ -76,16 +78,14 @@ public class CancelPolicyCalculator {
 	}
 
 	/**
-	 * 연기 무료 취소 대상인가. 가장 최근 연기 이력만 보고, 무료 취소 기한이 지나지 않았고
-	 * 예매가 그 연기보다 먼저 생긴 경우만이다. (연기 소식을 알고 예매한 사람은 대상이 아니다)
+	 * 이 예매를 무료로 취소할 수 있게 하는 연기 이력. 없으면 null 이다. 가장 최근 연기 이력만 보고, 무료 취소 기간이고
+	 * (일정 미정이면 마감 없음) 예매가 그 연기보다 먼저 생긴 경우만이다. (연기 소식을 알고 예매한 사람은 대상이 아니다)
 	 */
-	private static boolean isFreeCancel(Booking booking, PerformanceSchedule schedule, LocalDateTime now) {
-		List<SchedulePostponement> postponements = schedule.getPostponements();
-		if (postponements.isEmpty()) {
-			return false;
-		}
-		SchedulePostponement latest = postponements.getFirst();
-		return !now.isAfter(latest.getFreeCancelUntil()) && booking.getCreatedAt().isBefore(latest.getCreatedAt());
+	private static SchedulePostponement findFreePostponement(Booking booking, PerformanceSchedule schedule,
+		LocalDateTime now) {
+		return schedule.findLatestPostponement()
+			.filter(latest -> latest.isFreeCancelOpen(now) && latest.isAnnouncedAfter(booking.getCreatedAt()))
+			.orElse(null);
 	}
 
 	private List<Rule> readRules(Booking booking) {

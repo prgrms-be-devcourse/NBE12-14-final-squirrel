@@ -284,6 +284,30 @@ class QueueApiTest extends BookingTestSupport {
 		queueStatus(third, show).andExpect(jsonPath("$.data.status").value("NONE"));
 	}
 
+	@Test
+	@DisplayName("대기 중 회차가 일정 미정으로 연기되면 409 BOOKING013 으로 알리고 줄에서 빼며, 새 사람도 거절한다")
+	void postponedScheduleRemovesWaitingUser() throws Exception {
+		Show show = show(2);
+		User first = signup("first");
+		User second = signup("second");
+		User third = signup("third");
+		User late = signup("late");
+		enter(first, show);
+		enter(second, show);
+		enter(third, show);
+
+		changeScheduleStatus(show, "POSTPONED");
+		leave(first, show);
+
+		queueStatus(third, show)
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING013"));
+		queueStatus(third, show).andExpect(jsonPath("$.data.status").value("NONE"));
+		enter(late, show)
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING013"));
+	}
+
 	// ---------------------------------------------------------------- 호출 도우미
 
 	/** 판매자가 상태를 바꾸고, 대기열이 기억한 회차 상태가 만료된 상황을 만든다. */

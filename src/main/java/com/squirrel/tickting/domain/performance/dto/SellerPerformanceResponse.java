@@ -3,6 +3,7 @@ package com.squirrel.tickting.domain.performance.dto;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.entity.SchedulePostponement;
 import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
 import com.squirrel.tickting.domain.performance.type.Genre;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
@@ -208,13 +209,53 @@ public class SellerPerformanceResponse {
 		@Schema(description = "판매 좌석을 만든 시각. 아직 안 만들었으면 null", nullable = true)
 		LocalDateTime seatsGeneratedAt,
 		@Schema(description = "일시 중지(PAUSED) 회차의 중지 사유. 그 밖은 null", nullable = true)
-		String pauseReason
+		String pauseReason,
+		@Schema(description = "가장 최근 연기. 연기한 적이 없으면 null", nullable = true)
+		Postponement postponement
 	) {
 
+		/** 연기 이력은 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
 		public static Schedule from(PerformanceSchedule schedule) {
 			return new Schedule(schedule.getId(), schedule.getStartAt(), schedule.getStatus(),
-				schedule.getSeatsGeneratedAt(), schedule.getPauseReason());
+				schedule.getSeatsGeneratedAt(), schedule.getPauseReason(),
+				schedule.findLatestPostponement().map(Postponement::from).orElse(null));
 		}
+	}
+
+	@Schema(name = "SellerPerformanceSchedulePostponement", description = "회차 연기 이력")
+	public record Postponement(
+		@Schema(description = "연기 번호")
+		Long postponementId,
+		@Schema(description = "원래 공연 일시")
+		LocalDateTime oldStartAt,
+		@Schema(description = "새 공연 일시. 일정 미정이면 null", nullable = true)
+		LocalDateTime newStartAt,
+		@Schema(description = "연기 사유")
+		String reason,
+		@Schema(description = "무료 취소 마감. 일정 미정이면 null(확정 전까지)", nullable = true)
+		LocalDateTime freeCancelUntil,
+		@Schema(description = "연기한 일시. 이보다 먼저 생긴 예매가 무료 취소 대상이다")
+		LocalDateTime createdAt
+	) {
+
+		public static Postponement from(SchedulePostponement postponement) {
+			return new Postponement(postponement.getId(), postponement.getOldStartAt(), postponement.getNewStartAt(),
+				postponement.getReason(), postponement.findDeadline(), postponement.getCreatedAt());
+		}
+	}
+
+	/** 회차 연기(SLR-28)·새 일정 확정(SLR-29) 결과. */
+	@Schema(name = "SellerPerformanceSchedulePostponed", description = "회차 연기·새 일정 확정 결과")
+	public record SchedulePostponed(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "바꾼 뒤의 회차 상태. 일정 미정이면 POSTPONED", example = "POSTPONED")
+		ScheduleStatus status,
+		@Schema(description = "바꾼 뒤의 공연 일시. 일정 미정이면 원래 일시")
+		LocalDateTime startAt,
+		@Schema(description = "이번에 만들거나 확정한 연기 이력")
+		Postponement postponement
+	) {
 	}
 
 	/** 판매 일시 중지(SLR-26)·재개(SLR-27) 결과. 두 목록은 공연 일시가 빠른 순(같으면 회차 번호순)이다. */
