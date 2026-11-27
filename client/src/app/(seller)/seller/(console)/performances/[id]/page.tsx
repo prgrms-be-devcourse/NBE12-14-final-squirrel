@@ -125,18 +125,8 @@ export default function SellerPerformanceDetailPage() {
     );
   }
 
-  // 공개 공연에 회차를 더하기 전에 어떤 상태로 추가되는지 알린다. 상태는 서버가 정한다.
-  function addScheduleNotice(): string | undefined {
-    if (!published) return undefined;
-    if (switchable.length > 0) {
-      return switchable.every((s) => s.status === "PAUSED")
-        ? "모든 회차가 중지 상태라 중지 상태로 추가됩니다."
-        : undefined;
-    }
-    return p?.schedules.some((s) => s.status === "CANCELED" && new Date(s.startAt).getTime() > openedAt)
-      ? "판매 중 상태로 추가됩니다. 판매 기간이면 바로 예매할 수 있습니다."
-      : undefined;
-  }
+  // 공개 공연이 통째로 멈춘 동안에는 회차를 더하지 못한다. 막는 것은 서버다.
+  const allPaused = published && switchable.length > 0 && switchable.every((s) => s.status === "PAUSED");
 
   function saveZones() {
     const assignments = Object.entries(zoneEdits).map(([zoneId, value]) => ({
@@ -240,7 +230,11 @@ export default function SellerPerformanceDetailPage() {
       <Panel
         className="mt-6"
         title="회차"
-        sub="판매 좌석을 만들어야 예매가 시작됩니다"
+        sub={
+          allPaused
+            ? "모든 회차가 판매 중지 상태라 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요"
+            : "판매 좌석을 만들어야 예매가 시작됩니다"
+        }
         actions={
           !canceled && (
             <>
@@ -272,7 +266,7 @@ export default function SellerPerformanceDetailPage() {
                   })}
                 </>
               )}
-              <button type="button" className="btn" onClick={() => setModal({ kind: "schedule" })}>
+              <button type="button" className="btn" disabled={allPaused} onClick={() => setModal({ kind: "schedule" })}>
                 <Plus size={16} strokeWidth={1.5} />
                 회차 추가
               </button>
@@ -445,22 +439,15 @@ export default function SellerPerformanceDetailPage() {
       {modal?.kind === "schedule" && (
         <ScheduleModal
           busy={busy}
-          notice={addScheduleNotice()}
           onClose={() => setModal(null)}
-          onSubmit={(startAt) =>
-            run(
-              () => api<SellerSchedule>(`${base}/schedules`, { method: "POST", body: { startAt } }),
-              (added) => (added.status === "PAUSED" ? "회차를 중지 상태로 추가했습니다" : "회차를 추가했습니다"),
-            )
-          }
+          onSubmit={(startAt) => run(() => api(`${base}/schedules`, { method: "POST", body: { startAt } }), "회차를 추가했습니다")}
         />
       )}
       {modal?.kind === "pause" && (
         <ReasonModal
           title={modal.scheduleIds === null ? "모든 회차 판매 중지" : "선택한 회차 판매 중지"}
           description="중지하면 대기열 입장, 좌석 선택, 결제가 막힙니다. 이미 승인 중인 결제는 완료될 수 있습니다. 판매 중이고 시작 전인 회차만 중지합니다"
-          label="중지 사유 (선택, 입력하면 예매자 공연 상세에 보입니다)"
-          optional
+          label="중지 사유 (예매자 공연 상세에 보입니다)"
           maxLength={255}
           submitLabel="중지하기"
           busy={busy}
@@ -542,12 +529,10 @@ export default function SellerPerformanceDetailPage() {
 
 function ScheduleModal({
   busy,
-  notice,
   onClose,
   onSubmit,
 }: {
   busy: boolean;
-  notice?: string;
   onClose: () => void;
   onSubmit: (startAt: string) => void;
 }) {
@@ -565,7 +550,6 @@ function ScheduleModal({
         <Field label="공연 일시" hint="같은 공연장의 다른 회차와 시간이 겹치면 추가할 수 없습니다">
           <input className="input" type="datetime-local" value={value} onChange={(e) => setValue(e.target.value)} required />
         </Field>
-        {notice && <p className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">{notice}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn" onClick={onClose}>
             닫기
@@ -635,7 +619,6 @@ function ReasonModal({
   description,
   label = "취소 사유",
   maxLength,
-  optional,
   submitLabel = "취소하기",
   busy,
   onClose,
@@ -645,7 +628,6 @@ function ReasonModal({
   description: string;
   label?: string;
   maxLength?: number;
-  optional?: boolean;
   submitLabel?: string;
   busy: boolean;
   onClose: () => void;
@@ -657,7 +639,7 @@ function ReasonModal({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (optional || reason.trim()) onSubmit(reason.trim());
+          if (reason.trim()) onSubmit(reason.trim());
         }}
         className="space-y-5"
       >
@@ -668,7 +650,7 @@ function ReasonModal({
             value={reason}
             maxLength={maxLength}
             onChange={(e) => setReason(e.target.value)}
-            required={!optional}
+            required
           />
         </Field>
         <div className="flex justify-end gap-2">

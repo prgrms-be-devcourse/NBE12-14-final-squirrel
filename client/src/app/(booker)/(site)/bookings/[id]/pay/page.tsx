@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { ANONYMOUS, loadTossPayments, type TossPaymentsWidgets } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useRef, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
-import { ApiError, api, errorText, useApi, usePolledApi } from "@/lib/api";
+import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
 import { dateTimeText, gradeLabel, timeText, won } from "@/lib/format";
 import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
@@ -113,15 +113,11 @@ export default function PayPage() {
     : detail.data
       ? fromDetail(detail.data)
       : null;
-  const performancePath = view ? `/api/v1/performances/${view.performanceId}` : null;
-  const performance = useApi<PerformanceDetail>(performancePath);
-  // 결제하는 동안 판매자가 판매를 중지하거나 재개할 수 있어 다시 읽는다. 막는 것은 서버다.
-  const latest = usePolledApi<PerformanceDetail>(performancePath, 10_000);
-  // 다시 읽기 전에 결제를 눌러 서버가 거절한 경우도 중지로 본다.
+  const performance = useApi<PerformanceDetail>(view ? `/api/v1/performances/${view.performanceId}` : null);
+  // 중지된 회차의 결제 화면에 들어왔거나, 결제를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
   const [rejected, setRejected] = useState(false);
   const paused =
-    rejected ||
-    (latest ?? performance.data)?.schedules.find((s) => s.scheduleId === view?.scheduleId)?.status === "PAUSED";
+    rejected || performance.data?.schedules.find((s) => s.scheduleId === view?.scheduleId)?.status === "PAUSED";
 
   const now = useNow(1000);
   const [step, setStep] = useState<Step>("review");

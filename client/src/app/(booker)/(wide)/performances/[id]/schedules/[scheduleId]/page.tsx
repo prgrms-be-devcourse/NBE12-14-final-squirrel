@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
-import { ApiError, api, errorText, useApi, usePolledApi } from "@/lib/api";
+import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
 import { getVenueLayout } from "@/lib/venue-layouts";
 import { saveBooking } from "@/lib/booking-cache";
@@ -45,8 +45,6 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
   const performance = useApi<PerformanceDetail>(`/api/v1/performances/${id}`);
   const zones = useApi<ZoneSummary>(`/api/v1/schedules/${scheduleId}/zones`);
-  // 좌석을 고르는 동안 판매자가 판매를 중지하거나 재개할 수 있어 공연 상세를 다시 읽는다. 막는 것은 서버다.
-  const latest = usePolledApi<PerformanceDetail>(`/api/v1/performances/${id}`, 10_000);
 
   // 도면이 있는 공연장은 구역 지도(묶음 단위 좌석 화면)로, 없으면 층별 구역 격자로 그린다.
   const layout = getVenueLayout(zones.data?.layoutKey);
@@ -71,10 +69,9 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
   const p = performance.data;
   const schedule = p?.schedules.find((s) => String(s.scheduleId) === scheduleId);
-  // 다시 읽기 전에 예매를 눌러 서버가 거절한 경우도 중지로 본다.
+  // 중지된 회차에 다시 들어왔거나, 예매를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
   const [rejected, setRejected] = useState(false);
-  const paused =
-    rejected || (latest ?? p)?.schedules.find((s) => String(s.scheduleId) === scheduleId)?.status === "PAUSED";
+  const paused = rejected || schedule?.status === "PAUSED";
   const maxPerPerson = p?.sale.maxPerPerson ?? 4;
   const activeZone = zones.data?.zones.find((z) => z.zoneId === activeZoneId);
 
