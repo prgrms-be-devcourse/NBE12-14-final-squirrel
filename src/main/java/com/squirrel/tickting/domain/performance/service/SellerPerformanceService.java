@@ -51,13 +51,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class SellerPerformanceService {
 
 	/**
-	 * 판매 오픈까지 이만큼 남아야 공개할 수 있다. (임시)
-	 * 판매 좌석은 오픈 24시간 전부터 스케줄러가 1시간마다 만든다. 공개 뒤 오픈 전에 스케줄러가 최소 두 번 돌아
-	 * 첫 생성이 실패해도 다시 만들 수 있게 한 값이다. 스케줄러 주기가 바뀌면 이 값도 다시 정한다.
-	 * 작성 중 공연에 추가하거나 일시를 바꾸는 회차도 이보다 뒤여야 한다. 더 이른 회차가 있으면 공개 조건을 채울 수 없다.
-	 */
-	private static final Duration PUBLISH_LEAD_TIME = Duration.ofHours(3);
-	/**
 	 * 회차가 끝난 뒤 같은 공연장의 다음 회차까지 비워 두는 시간. 관객 입·퇴장과 무대 정리용이다. (임시, 팀과 상의해 정함)
 	 * 하루 두 번 하는 공연이 막히지 않게 2시간 대신 1시간으로 했다. 실제 공연장의 기준은 확인하지 않았다.
 	 */
@@ -264,7 +257,7 @@ public class SellerPerformanceService {
 			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_BEFORE_SALE_OPEN,
 				"회차는 판매 오픈 일시(" + SCHEDULE_TIME_FORMAT.format(saleOpenAt) + ")보다 늦게 시작해야 합니다.");
 		}
-		if (performance.getStatus() == PerformanceStatus.DRAFT && !startAt.isAfter(now.plus(PUBLISH_LEAD_TIME))) {
+		if (performance.getStatus() == PerformanceStatus.DRAFT && !startAt.isAfter(now.plus(properties.publishLeadTime()))) {
 			throw new BusinessException(PerformanceExceptionCode.DRAFT_SCHEDULE_TOO_SOON, tooSoonMessage);
 		}
 	}
@@ -704,7 +697,7 @@ public class SellerPerformanceService {
 		if (!performance.getSaleCloseAt().isAfter(now)) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSED);
 		}
-		if (!performance.getSaleOpenAt().isAfter(now.plus(PUBLISH_LEAD_TIME))) {
+		if (!performance.getSaleOpenAt().isAfter(now.plus(properties.publishLeadTime()))) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_OPEN_TOO_SOON);
 		}
 	}
@@ -840,7 +833,7 @@ public class SellerPerformanceService {
 			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSED);
 		}
 		// 판매 오픈 전에 오픈을 옮기는 경우만 공개 때와 같은 기준(3시간)을 본다. 오픈을 그대로 두면 이미 통과한 값이다.
-		if (openChanged && !request.saleOpenAt().isAfter(now.plus(PUBLISH_LEAD_TIME))) {
+		if (openChanged && !request.saleOpenAt().isAfter(now.plus(properties.publishLeadTime()))) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_OPEN_TOO_SOON);
 		}
 	}
