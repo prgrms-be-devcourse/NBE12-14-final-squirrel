@@ -154,13 +154,14 @@ public class SellerPerformanceRequest {
 		@Schema(description = "중지할 회차 번호. all 이 true 면 보내지 않는다", example = "[31, 33]")
 		List<@NotNull(message = "회차 번호를 입력해 주세요.") Long> scheduleIds,
 
+		@NotBlank(message = "중지 사유를 입력해 주세요.")
 		@Size(max = 255, message = "중지 사유는 255자 이하로 입력해 주세요.")
-		@Schema(description = "중지 사유(선택). 입력하면 예매자 공연 상세에도 보인다", example = "좌석 점검")
+		@Schema(description = "중지 사유. 예매자 공연 상세에도 보인다", example = "좌석 점검")
 		String reason
 	) {
 
 		public SchedulePause {
-			reason = trimToNull(reason);
+			reason = trim(reason);
 		}
 	}
 

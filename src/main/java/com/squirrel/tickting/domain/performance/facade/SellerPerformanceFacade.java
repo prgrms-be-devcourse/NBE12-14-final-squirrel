@@ -309,7 +309,7 @@ public class SellerPerformanceFacade {
 					performanceId, request.startAt());
 				saveHistory(businessId, actorId, TARGET_SCHEDULE, created.scheduleId(), ACTION_CREATE, null,
 					Map.of("performanceId", performanceId, "startAt", created.startAt(),
-						"status", created.status(), "seatsGenerated", created.seatsGeneratedAt() != null));
+						"seatsGenerated", created.seatsGeneratedAt() != null));
 				return created;
 			}));
 	}

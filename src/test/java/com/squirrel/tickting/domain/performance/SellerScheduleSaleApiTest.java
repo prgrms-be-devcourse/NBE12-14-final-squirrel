@@ -121,8 +121,8 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 	}
 
 	@Test
-	@DisplayName("시작 전 회차가 모두 중지면 새 회차도 중지 상태로, 하나라도 판매 중이면 판매 중으로 추가한다")
-	void addsScheduleWithPausedState() throws Exception {
+	@DisplayName("시작 전 회차가 모두 중지면 회차 추가는 409 PERFORMANCE018 이고 늘지 않으며, 하나라도 판매 중이면 추가된다")
+	void rejectsAddingScheduleWhilePaused() throws Exception {
 		Show show = show(1);
 		// 판매 오픈이 가까우면 회차를 추가할 때 좌석까지 만들어 구역 설정이 필요하므로 오픈을 멀리 둔다.
 		jdbc.update("UPDATE performance SET sale_open_at = ? WHERE id = ?", now.plusDays(2), show.performanceId());
@@ -130,15 +130,15 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 		insertSchedule(show, now.minusHours(1), "ON_SALE", null);
 		insertSchedule(show, now.plusDays(13), "CANCELED", null);
 		pause(show, Map.of("all", true, "reason", "점검")).andExpect(status().isOk());
+		long before = count("performance_schedule");
 
 		addSchedule(show, now.plusDays(20))
-			.andExpect(status().isCreated())
-			.andExpect(jsonPath("$.data.status").value("PAUSED"));
-		Long added = jdbc.queryForObject("SELECT max(id) FROM performance_schedule", Long.class);
-		// 자동으로 만든 문구는 예매자에게 보이므로 사유를 비운다.
-		assertThat(schedule(added)).isEqualTo("PAUSED:null");
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("PERFORMANCE018"));
+		assertThat(count("performance_schedule")).isEqualTo(before);
 
-		resume(show, Map.of("scheduleIds", List.of(added))).andExpect(status().isOk());
+		resume(show, Map.of("all", true)).andExpect(status().isOk());
+		insertSchedule(show, now.plusDays(14), "PAUSED", "장비 점검");
 		addSchedule(show, now.plusDays(25))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.data.status").value("ON_SALE"));
@@ -171,19 +171,16 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 	}
 
 	@Test
-	@DisplayName("중지 사유는 선택이고, 입력한 사유만 중지 중인 회차의 공연 상세에 보이며 판매가 끝나거나 재개하면 보이지 않는다")
-	void showsOptionalPauseReason() throws Exception {
+	@DisplayName("중지 사유는 필수이고 중지 중인 회차의 공연 상세에만 보이며, 판매가 끝나거나 재개하면 보이지 않는다")
+	void showsPauseReasonOnlyWhilePaused() throws Exception {
 		Show show = show(1);
 		insertSellerBusiness();
-		Long blank = insertSchedule(show, now.plusDays(20), "ON_SALE", null);
+		insertSchedule(show, now.plusDays(20), "ON_SALE", null);
 		String url = "/api/v1/performances/" + show.performanceId();
 
+		pause(show, Map.of("all", true, "reason", "   ")).andExpect(status().isBadRequest());
+		assertThat(schedule(show.scheduleId())).isEqualTo("ON_SALE:null");
 		pause(show, Map.of("scheduleIds", List.of(show.scheduleId()), "reason", "좌석 점검")).andExpect(status().isOk());
-		pause(show, Map.of("scheduleIds", List.of(blank), "reason", "   ")).andExpect(status().isOk());
-		assertThat(schedule(blank)).isEqualTo("PAUSED:null");
-		resume(show, Map.of("scheduleIds", List.of(blank))).andExpect(status().isOk());
-		pause(show, Map.of("scheduleIds", List.of(blank))).andExpect(status().isOk());
-		assertThat(schedule(blank)).isEqualTo("PAUSED:null");
 
 		mockMvc.perform(get(url))
 			.andExpect(jsonPath("$.data.schedules[0].pauseReason").value("좌석 점검"))
@@ -204,7 +201,7 @@ class SellerScheduleSaleApiTest extends BookingTestSupport {
 		String key = "tickting:cache:performance-detail:" + show.performanceId();
 
 		redis.opsForValue().set(key, "{}");
-		pause(show, Map.of("all", true)).andExpect(status().isOk());
+		pause(show, Map.of("all", true, "reason", "점검")).andExpect(status().isOk());
 		assertThat(redis.hasKey(key)).isFalse();
 
 		redis.opsForValue().set(key, "{}");

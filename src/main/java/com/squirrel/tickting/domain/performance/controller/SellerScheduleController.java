@@ -37,7 +37,7 @@ public class SellerScheduleController {
 			+ "겹친 회차가 내 사업체 것이면 메시지에 공연명과 일시를 알려 준다. "
 			+ "공개 공연이고 판매 오픈 24시간 전부터는 판매 좌석을 바로 만든다. 만든 순간부터 그 공연의 등급·가격·구역을 고칠 수 없고 되돌릴 수 없으며, "
 			+ "설정하지 않은 구역이 있거나 판매 구역이 없으면 400이고 회차도 추가되지 않는다. "
-			+ "공개 공연의 아직 시작하지 않은 회차가 모두 일시 중지면 새 회차도 일시 중지(PAUSED)로 추가한다. "
+			+ "공개 공연의 아직 시작하지 않은 회차가 모두 일시 중지면 409 PERFORMANCE018 이고 추가하지 않는다. "
 			+ "다른 사업체의 공연이거나 없는 공연은 404 다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
 	@PostMapping("/performances/{performanceId}/schedules")
 	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleCreated>> addSchedule(
@@ -72,7 +72,7 @@ public class SellerScheduleController {
 	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 중지할 수 있다. */
 	@Operation(summary = "회차 판매 일시 중지",
 		description = "공개(PUBLISHED) 공연의 회차 판매를 모두(all: true) 또는 골라서(scheduleIds) 일시 중지한다. 둘 중 하나만 보낸다. "
-			+ "중지 사유(reason)는 필수다. 판매 중이고 아직 시작하지 않은 회차만 바꾸고 나머지는 skipped 에 이유와 함께 준다. "
+			+ "중지 사유(reason)는 필수이고 예매자 공연 상세에 보인다. 판매 중이고 아직 시작하지 않은 회차만 바꾸고 나머지는 skipped 에 이유와 함께 준다. "
 			+ "중지하면 대기열 입장·좌석 점유·결제 준비와 승인이 막힌다. 중지 전에 승인을 시작한 결제는 완료된다. "
 			+ "취소된 공연·작성 중 공연·바꿀 회차가 하나도 없으면 409, 다른 사업체의 공연(404)이나 이 공연의 회차가 아닌 번호가 섞이면(404) "
 			+ "아무것도 바꾸지 않는다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")

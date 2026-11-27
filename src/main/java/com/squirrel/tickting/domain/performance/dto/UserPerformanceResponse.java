@@ -220,7 +220,7 @@ public class UserPerformanceResponse {
 		ScheduleStatus status,
 		@Schema(description = "판매 상태 (계산값). 판매 기간·회차 시작 일시·일시 중지 여부·남은 좌석으로 정한다")
 		SaleStatus saleStatus,
-		@Schema(description = "판매 일시 중지 사유. saleStatus 가 PAUSED 이고 판매자가 입력한 경우만 있고, 그 밖은 null", example = "좌석 점검")
+		@Schema(description = "판매 일시 중지 사유. saleStatus 가 PAUSED 인 회차에만 있고, 그 밖은 null", example = "좌석 점검")
 		String pauseReason
 	) {
 

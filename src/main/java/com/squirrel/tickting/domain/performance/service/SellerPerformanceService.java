@@ -208,10 +208,9 @@ public class SellerPerformanceService {
 	 * 내 공연에 회차를 하나 추가한다. 공개 공연이고 판매 오픈이 가까우면 같은 트랜잭션에서 판매 좌석까지 만들고,
 	 * 좌석을 만들 수 없으면 회차도 남기지 않는다. (회차만 남으면 판매자는 성공으로 알고 예매자에게는 매진으로 보인다)
 	 * 호출한 쪽(파사드)이 공연 락을 잡고 트랜잭션을 연 상태에서 부른다.
-	 * 검사 순서: 공연 한 행(취소) → 공연장 → 새 회차의 시각 → (공개) 기존 회차 → 판매 종료 → (즉시 생성) 구역 설정 → 같은 공연장 겹침.
+	 * 검사 순서: 공연 한 행(취소) → 공연장 → 새 회차의 시각 → (공개) 기존 회차 → 판매 종료 → 일시 중지 → (즉시 생성) 구역 설정 → 같은 공연장 겹침.
 	 * 앞에서 막히면 뒤의 쿼리는 나가지 않는다. 처리량은 추정이고 측정하지 않았다.
 	 * 지난 시각은 요청 DTO 가 막으므로 여기서 다시 보지 않는다.
-	 * 공개 공연의 아직 시작하지 않은 회차가 모두 일시 중지면 새 회차도 일시 중지로 추가한다. 멈춘 공연이 새 회차로 다시 팔리지 않게 한다.
 	 */
 	@Transactional
 	public SellerPerformanceResponse.ScheduleCreated addSchedule(Long businessId, Long performanceId,
@@ -229,7 +228,9 @@ public class SellerPerformanceService {
 			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE);
 		}
 		validateNewStartAt(performance, startAt, now, PerformanceExceptionCode.DRAFT_SCHEDULE_TOO_SOON.getMessage());
-		boolean addsPaused = published && isEveryUpcomingSchedulePaused(validateStillOnSale(performance, now), now);
+		if (published) {
+			validateStillOnSale(performance, now);
+		}
 		// 작성 중 공연은 좌석을 만들면 공개 전에 등급·가격·구역이 잠기므로 만들지 않는다.
 		boolean generatesSeats = isSeatGenerationDue(performance, now);
 		if (generatesSeats) {
@@ -243,7 +244,7 @@ public class SellerPerformanceService {
 		PerformanceSchedule schedule = performanceScheduleRepository.save(PerformanceSchedule.builder()
 			.performance(performance)
 			.startAt(startAt)
-			.status(addsPaused ? ScheduleStatus.PAUSED : ScheduleStatus.ON_SALE)
+			.status(ScheduleStatus.ON_SALE)
 			.build());
 		if (generatesSeats) {
 			createSeats(schedule.getId(), performance, now);
@@ -271,9 +272,9 @@ public class SellerPerformanceService {
 	/**
 	 * 공개된 공연에 회차를 더할 수 있는 상태인가. 취소되지 않은 회차가 모두 시작했으면 끝난 공연이고, 판매가 끝났으면 새 회차를 팔 수 없다.
 	 * 둘 다면 앞의 것을 알린다. 끝난 공연은 판매 종료를 늘릴 수 없어서 안내가 달라야 한다.
-	 * 읽은 회차(취소 제외)는 새 회차의 상태를 정할 때 다시 읽지 않고 쓰도록 돌려준다.
+	 * 아직 시작하지 않은 회차를 모두 일시 중지한 동안에도 더할 수 없다. 멈춘 공연이 새 회차로 다시 팔리지 않게 한다.
 	 */
-	private List<PerformanceSchedule> validateStillOnSale(Performance performance, LocalDateTime now) {
+	private void validateStillOnSale(Performance performance, LocalDateTime now) {
 		List<PerformanceSchedule> schedules = performanceScheduleRepository
 			.findByPerformanceIdAndStatusNotOrderByStartAt(performance.getId(), ScheduleStatus.CANCELED);
 		if (!schedules.isEmpty() && !schedules.getLast().getStartAt().isAfter(now)) {
@@ -283,7 +284,9 @@ public class SellerPerformanceService {
 			throw new BusinessException(PerformanceExceptionCode.SALE_CLOSED,
 				"판매가 끝난 공연에는 회차를 추가할 수 없습니다. 판매 종료 일시를 먼저 늘려 주세요.");
 		}
-		return schedules;
+		if (isEveryUpcomingSchedulePaused(schedules, now)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_ADD_WHILE_PAUSED);
+		}
 	}
 
 	/** 아직 시작하지 않은 판매 중·일시 중지 회차가 하나 이상 있고 모두 일시 중지인가. 시작했거나 연기된 회차는 보지 않는다. */

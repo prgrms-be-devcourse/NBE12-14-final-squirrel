@@ -70,6 +70,8 @@ public enum PerformanceExceptionCode implements ExceptionCode {
 	NO_SCHEDULE_TO_PAUSE("PERFORMANCE016", HttpStatus.CONFLICT, "중지할 수 있는 회차가 없습니다."),
 	/** 고른 회차(또는 모두) 중에 재개할 수 있는 회차(일시 중지이고 시작 전)가 하나도 없음 */
 	NO_SCHEDULE_TO_RESUME("PERFORMANCE017", HttpStatus.CONFLICT, "재개할 수 있는 회차가 없습니다."),
+	/** 시작 전 회차가 모두 일시 중지인 공개 공연에 회차를 추가하려 함 */
+	SCHEDULE_ADD_WHILE_PAUSED("PERFORMANCE018", HttpStatus.CONFLICT, "판매를 일시 중지한 공연에는 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요."),
 
 	// 취소 규정은 100번대를 쓴다. (공연 본체는 0xx)
 	/** 없는 취소 규정이거나 다른 사업체의 규정. 서비스 기본 규정과 내 사업체 규정만 볼 수 있고, 남의 규정은 없는 것과 같은 404로 답한다 */
