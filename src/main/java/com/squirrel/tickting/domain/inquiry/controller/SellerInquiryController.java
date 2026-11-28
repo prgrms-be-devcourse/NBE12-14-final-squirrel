@@ -21,16 +21,18 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 판매자 문의. 대표·담당자 모두 쓸 수 있다. (SecurityConfig 의 /api/v1/seller/**)
- * 같은 사업체의 문의는 누가 썼든 함께 본다. 작성자·사업체 번호는 요청이 아니라 세션에서 꺼낸다.
+ * 같은 사업체의 문의는 누가 썼든 함께 보고, 고치고 지우는 것은 작성자 본인만 한다. 작성자·사업체 번호는 요청이 아니라 세션에서 꺼낸다.
  */
 @Tag(name = "SellerInquiry", description = "판매자 문의 API")
 @RestController
@@ -84,5 +86,30 @@ public class SellerInquiryController {
 	) {
 		return ResponseEntity.ok(ApiResponse.success(
 			inquiryService.getBusinessInquiry(account.getBusinessId(), inquiryId)));
+	}
+
+	/** 수정·삭제는 같은 사업체라도 작성자 본인만 한다. 다른 계정이 쓴 문의는 없는 문의와 같은 404 다. */
+	@Operation(summary = "문의 수정",
+		description = "내가 쓴 문의를 답변 대기일 때만 통째로 바꾼다. 답변이 끝났으면 409, 다른 계정이 쓴 문의·삭제한 문의는 404 다.")
+	@PutMapping("/{inquiryId}")
+	public ResponseEntity<ApiResponse<SellerInquiryResponse.Detail>> update(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@Parameter(description = "문의 번호")
+		@PathVariable Long inquiryId,
+		@Valid @RequestBody SellerInquiryRequest.Update request
+	) {
+		return ResponseEntity.ok(ApiResponse.success(inquiryService.updateForSeller(account.getId(), inquiryId, request)));
+	}
+
+	@Operation(summary = "문의 삭제",
+		description = "내가 쓴 문의를 답변 대기일 때만 지운다. 목록·상세에서 사라지고 이력은 남는다. 답변이 끝났으면 409 다.")
+	@DeleteMapping("/{inquiryId}")
+	public ResponseEntity<ApiResponse<Void>> delete(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@Parameter(description = "문의 번호")
+		@PathVariable Long inquiryId
+	) {
+		inquiryService.deleteForSeller(account.getId(), inquiryId);
+		return ResponseEntity.ok(ApiResponse.noContentSuccess());
 	}
 }

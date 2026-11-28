@@ -2,8 +2,10 @@ package com.squirrel.tickting.domain.inquiry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -88,6 +90,36 @@ class SellerInquiryApiTest extends IntegrationTestSupport {
 			.content(objectMapper.writeValueAsString(body)));
 	}
 
+	private ResultActions update(Cookie session, Long inquiryId, Map<String, Object> body) throws Exception {
+		return mockMvc.perform(put(INQUIRIES + "/" + inquiryId)
+			.cookie(session)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(objectMapper.writeValueAsString(body)));
+	}
+
+	private ResultActions remove(Cookie session, Long inquiryId) throws Exception {
+		return mockMvc.perform(delete(INQUIRIES + "/" + inquiryId).cookie(session));
+	}
+
+	private Long createdId(Cookie session, Map<String, Object> body) throws Exception {
+		MvcResult created = create(session, body).andExpect(status().isCreated()).andReturn();
+		return Long.parseLong(read(created, "$.data.inquiryId"));
+	}
+
+	private List<String> historyActions(Long inquiryId) {
+		return jdbc.queryForList("SELECT action FROM inquiry_history WHERE inquiry_id = ? ORDER BY id", String.class,
+			inquiryId);
+	}
+
+	private Map<String, Object> changedBody() {
+		Map<String, Object> body = new HashMap<>();
+		body.put("category", "PERFORMANCE");
+		body.put("title", "바꾼 제목");
+		body.put("content", "바꾼 내용");
+		body.put("images", List.of());
+		return body;
+	}
+
 	@Test
 	@DisplayName("대표가 쓴 문의는 작성자 이름·이메일·사업체가 저장되고 작성 이력이 남으며, 같은 사업체 담당자가 목록·상세에서 본다")
 	void sharesInquiriesWithinBusiness() throws Exception {
@@ -107,8 +139,7 @@ class SellerInquiryApiTest extends IntegrationTestSupport {
 		assertThat(row.get("author_email")).isEqualTo("owner-a@example.com");
 		assertThat(row.get("booking_id")).isNull();
 		assertThat(row.get("title")).isEqualTo("정산 금액이 예상과 달라요");
-		assertThat(jdbc.queryForList("SELECT action FROM inquiry_history WHERE inquiry_id = ?", String.class, inquiryId))
-			.containsExactly("CREATED");
+		assertThat(historyActions(inquiryId)).containsExactly("CREATED");
 
 		Cookie staff = session(staffA, "STAFF", businessA);
 		mockMvc.perform(get(INQUIRIES).cookie(staff))
@@ -153,5 +184,56 @@ class SellerInquiryApiTest extends IntegrationTestSupport {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data[*].code").value(
 				contains("PERFORMANCE", "SETTLEMENT", "BUSINESS", "ETC")));
+	}
+
+	@Test
+	@DisplayName("작성자 본인은 수정·삭제할 수 있고 이력이 남으며, 같은 사업체의 다른 계정이 수정·삭제하면 404 이고 내용이 그대로다")
+	void onlyAuthorEditsOrDeletes() throws Exception {
+		Cookie owner = session(ownerA, "OWNER", businessA);
+		Cookie staff = session(staffA, "STAFF", businessA);
+		Long inquiryId = createdId(owner, body("SETTLEMENT", List.of(IMAGE)));
+
+		update(staff, inquiryId, changedBody())
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("INQUIRY001"));
+		remove(staff, inquiryId)
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("INQUIRY001"));
+		assertThat(jdbc.queryForObject("SELECT title FROM inquiry WHERE id = ?", String.class, inquiryId))
+			.isEqualTo("정산 금액이 예상과 달라요");
+		assertThat(historyActions(inquiryId)).containsExactly("CREATED");
+
+		update(owner, inquiryId, changedBody())
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.title").value("바꾼 제목"))
+			.andExpect(jsonPath("$.data.category.code").value("PERFORMANCE"))
+			.andExpect(jsonPath("$.data.imageUrls").isEmpty());
+		remove(owner, inquiryId).andExpect(status().isOk());
+
+		mockMvc.perform(get(INQUIRIES).cookie(staff))
+			.andExpect(jsonPath("$.data.totalElements").value(0));
+		assertThat(historyActions(inquiryId)).containsExactly("CREATED", "UPDATED", "DELETED");
+	}
+
+	@Test
+	@DisplayName("관리자가 답변한 판매자 문의는 작성자도 수정·삭제할 수 없어 409 이고 내용이 그대로다")
+	void rejectsEditAfterAnswer() throws Exception {
+		Cookie owner = session(ownerA, "OWNER", businessA);
+		Long inquiryId = createdId(owner, body("SETTLEMENT", List.of()));
+		mockMvc.perform(post("/api/v1/admin/inquiries/" + inquiryId + "/answer")
+				.cookie(sessionCookie(new CustomUserDetails(1L, AccountType.ADMIN, null, null)))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of("answer", "확인 후 안내드리겠습니다."))))
+			.andExpect(status().isOk());
+
+		update(owner, inquiryId, changedBody())
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("INQUIRY002"));
+		remove(owner, inquiryId)
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("INQUIRY002"));
+		assertThat(jdbc.queryForObject("SELECT title FROM inquiry WHERE id = ?", String.class, inquiryId))
+			.isEqualTo("정산 금액이 예상과 달라요");
+		assertThat(historyActions(inquiryId)).containsExactly("CREATED", "ANSWERED");
 	}
 }
