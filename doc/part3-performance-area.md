@@ -702,6 +702,9 @@ ALTER TABLE schedule_seat SET (fillfactor = 80, autovacuum_vacuum_scale_factor =
 
 모든 공연에 똑같이 보여주는 안내입니다. (예매 방법, 환불 안내 등) 판매자가 공연마다 쓰는 공지(`performance.notice`, `guide`)와는 **분리**합니다. 관리자만 수정합니다.
 
+- 관리자 API는 목록(ADM-17)과 유형별 수정(ADM-18)입니다. 유형이 enum으로 고정이라 생성·삭제 API는 두지 않고, 수정이 "없으면 만들기"를 겸합니다. (운영 DB에는 시드가 없어서 관리자가 처음 저장할 때 행이 생깁니다. 그전에는 공연 상세의 안내가 `null`) (2026-11-29)
+- 수정은 행을 잠그고(`SELECT … FOR UPDATE`) 바꿔서 동시에 고쳐도 차례로 바뀌고, 감사 로그(`COMMON_GUIDE`/`UPDATE`)의 전 값이 실제 직전 값과 같습니다.
+
 ---
 
 ## 3-8. 공연 상세 화면은 어떤 테이블로 만들어지나
