@@ -220,6 +220,20 @@ public class SellerPerformanceRequest {
 	) {
 	}
 
+	/** 보류석 지정(SLR-32)·해제(SLR-33) 본문. 둘 중 정확히 하나라는 규칙은 필드 간 관계라 서비스가 본다. */
+	@Schema(name = "SellerSeatSelectionRequest", description = "보류석 지정·해제 대상. seatIds 와 zoneIds 중 하나만 보낸다")
+	public record SeatSelection(
+
+		@Size(min = 1, max = 500, message = "좌석은 1개 이상 500개 이하로 선택해 주세요.")
+		@Schema(description = "판매 좌석 번호. 같은 번호는 한 번으로 본다", example = "[9301, 9302]", nullable = true)
+		List<@NotNull(message = "좌석 번호를 입력해 주세요.") Long> seatIds,
+
+		@Size(min = 1, message = "구역을 하나 이상 선택해 주세요.")
+		@Schema(description = "구역을 통째로 바꿀 때의 구역 번호", example = "[12, 13]", nullable = true)
+		List<@NotNull(message = "구역 번호를 입력해 주세요.") Long> zoneIds
+	) {
+	}
+
 	private static String trim(String value) {
 		return value == null ? null : value.trim();
 	}

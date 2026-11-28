@@ -14,6 +14,7 @@ import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.domain.performance.service.GradeService;
 import com.squirrel.tickting.domain.performance.service.PerformanceLockNames;
@@ -23,7 +24,10 @@ import com.squirrel.tickting.domain.performance.service.SellerPerformanceService
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
+import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
@@ -31,10 +35,12 @@ import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -469,6 +475,82 @@ public class SellerPerformanceFacade {
 			Map.of("performanceId", performanceId, "startAt", previousStartAt),
 			Map.of("performanceId", performanceId, "startAt", startAt));
 		return updated;
+	}
+
+	/** 판매자 보류석을 지정한다. 락과 검사 순서는 changeSeatReservation 에 적었다. */
+	public SellerPerformanceResponse.ReservationChanged reserveSeats(Long businessId, Long actorId, Long scheduleId,
+		SellerPerformanceRequest.SeatSelection request) {
+		return changeSeatReservation(businessId, actorId, scheduleId, request, true);
+	}
+
+	/** 판매자 보류석을 해제한다. 해제한 좌석은 바로 판매 가능해진다. */
+	public SellerPerformanceResponse.ReservationChanged releaseSeats(Long businessId, Long actorId, Long scheduleId,
+		SellerPerformanceRequest.SeatSelection request) {
+		return changeSeatReservation(businessId, actorId, scheduleId, request, false);
+	}
+
+	/**
+	 * 공연 락은 공연 수정·좌석 생성·중지·연기와 같은 이름이다. 좌석 락은 잡지 않는다. 오픈 때 예매자 점유와 Redis·락 대기를 다투지 않으려는 것이고,
+	 * 점유와 겹치는 것은 양쪽의 상태 조건부 UPDATE 가 막는다.
+	 * 조회 캐시는 지우지 않는다. 예매자 요약·목록은 몇 초 뒤 만료로 따라오고 구역 좌석은 저장하지 않는다.
+	 * 검사 순서: 요청 형식(DB 전) → 회차 조회 404(락 밖) → 락 → 재조회 → 공연·회차 상태 → 좌석·구역 번호 → 바꿀 좌석 없음.
+	 */
+	private SellerPerformanceResponse.ReservationChanged changeSeatReservation(Long businessId, Long actorId,
+		Long scheduleId, SellerPerformanceRequest.SeatSelection request, boolean reserve) {
+		sellerPerformanceService.validateSeatSelection(request);
+		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
+		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				LocalDateTime now = LocalDateTime.now();
+				PerformanceSchedule schedule = sellerPerformanceService.getMySchedule(businessId, scheduleId);
+				sellerPerformanceService.validateSeatReservationChangeable(schedule, reserve, now);
+
+				SellerPerformanceResponse.ReservationChanged response;
+				Map<String, Object> changedValues = new LinkedHashMap<>();
+				changedValues.put("performanceId", performanceId);
+				changedValues.put("status", reserve ? SeatStatus.RESERVED : SeatStatus.AVAILABLE);
+				if (request.seatIds() != null) {
+					ScheduleSeatService.SeatReservationChange change = scheduleSeatService.changeReservation(scheduleId,
+						new LinkedHashSet<>(request.seatIds()), reserve, now);
+					response = SellerPerformanceResponse.ReservationChanged.ofSeats(scheduleId, change.changed(),
+						change.skipped());
+					changedValues.put("seats", change.changed().stream().map(SeatValue::from).toList());
+				} else {
+					// 좌석 UPDATE 가 영속성 컨텍스트를 비우므로 구역 번호·이름은 먼저 꺼내 둔다.
+					List<VenueZone> zones = sellerPerformanceService.getScheduleZonesIn(schedule, request.zoneIds());
+					List<Integer> counts = scheduleSeatService.changeZoneReservation(scheduleId,
+						zones.stream().map(VenueZone::getId).toList(), reserve, now);
+					response = SellerPerformanceResponse.ReservationChanged.ofZones(scheduleId, IntStream
+						.range(0, zones.size())
+						.mapToObj(i -> new SellerPerformanceResponse.ZoneChanged(zones.get(i).getId(), counts.get(i)))
+						.toList());
+					// 수천 석일 수 있어 좌석을 나열하지 않고 바뀐 구역만 적는다.
+					changedValues.put("zones", IntStream.range(0, zones.size())
+						.filter(i -> counts.get(i) > 0)
+						.mapToObj(i -> new ZoneCount(zones.get(i).getId(), zones.get(i).getName(), counts.get(i)))
+						.toList());
+				}
+				saveHistory(businessId, actorId, TARGET_SCHEDULE, scheduleId,
+					reserve ? "SEAT_RESERVE" : "SEAT_RELEASE",
+					Map.of("performanceId", performanceId,
+						"status", reserve ? SeatStatus.AVAILABLE : SeatStatus.RESERVED),
+					changedValues);
+				return response;
+			}));
+	}
+
+	/** 감사 로그에 남길 좌석. 끝난 회차의 판매 좌석은 나중에 지울 수 있어 번호만으로는 어느 자리였는지 알 수 없다. */
+	private record SeatValue(Long seatId, String zone, String row, String number) {
+
+		static SeatValue from(ScheduleSeat seat) {
+			VenueSeat venueSeat = seat.getVenueSeat();
+			return new SeatValue(seat.getId(), venueSeat.getZone().getName(), venueSeat.getRowLabel(),
+				venueSeat.getSeatNumber());
+		}
+	}
+
+	private record ZoneCount(Long zoneId, String zone, int changedSeats) {
 	}
 
 	/** 취소 규정을 만들고 감사 로그를 남긴다. 새 규정은 쓰는 공연이 없어 잠금은 필요 없다. */

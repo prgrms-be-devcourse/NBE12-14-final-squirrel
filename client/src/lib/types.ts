@@ -143,6 +143,33 @@ export type Seat = {
 
 export type ZoneSeats = { zoneId: number; name: string; seats: Seat[] };
 
+// 판매자 보류석 (SLR-30). 판매 좌석을 만들지 않은 회차는 좌석 수가 null 이다.
+export type SellerScheduleZone = {
+  zoneId: number;
+  name: string;
+  floor: string | null;
+  grade: string | null;
+  price: number | null;
+  total: number;
+  availableSeats: number | null;
+  reservedSeats: number | null;
+};
+
+export type SellerScheduleZones = {
+  scheduleId: number;
+  layoutKey: string | null;
+  seatsGenerated: boolean;
+  zones: SellerScheduleZone[];
+};
+
+// 보류 지정·해제 결과 (SLR-32·33). 좌석으로 보내면 앞의 둘, 구역으로 보내면 zones 만 온다.
+export type SeatReservationChanged = {
+  scheduleId: number;
+  changedSeatIds?: number[];
+  skipped?: { seatId: number; status: SeatStatus }[];
+  zones?: { zoneId: number; changedSeats: number }[];
+};
+
 export type BookingStatus = "PENDING" | "PAID" | "PARTIAL_CANCELED" | "CANCELED" | "EXPIRED";
 
 export type BookingSeat = {

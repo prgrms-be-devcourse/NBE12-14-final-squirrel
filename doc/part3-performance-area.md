@@ -533,6 +533,7 @@ erDiagram
 **그래서 생기는 규칙**
 - 가격은 **좌석을 만드는 시점**에 복사되므로, **좌석 생성 전까지는 등급·가격을 자유롭게 수정**하고 **생성 후에는 수정할 수 없습니다.**
 - 판매자 보류석 지정(`RESERVED`)은 **좌석이 만들어진 뒤에만** 가능합니다. (일찍 하고 싶으면 앞당겨 만들기)
+- 보류석 지정은 **판매 오픈 전까지**, 해제는 **회차 시작 전까지** 할 수 있습니다. 일정 미정으로 연기한 회차는 시작하지 않은 것으로 봅니다. 요청과 에러는 `api-spec.md` SLR-30~33에 있습니다.
 - 공연 공개와 판매 좌석 생성 전에 `UNSET` 구역이 없는지 확인합니다. `INTENTIONALLY_UNSOLD` 구역은 허용하고, 해당 좌석만 `BLOCKED`로 만듭니다.
 - 좌석이 아직 없는 회차의 총 좌석 수는 `venue.total_seats`로 보여 줍니다.
 
@@ -719,7 +720,7 @@ ALTER TABLE schedule_seat SET (fillfactor = 80, autovacuum_vacuum_scale_factor =
 | 판매 좌석 생성 (시스템) | `performance_schedule`, `schedule_seat` | 오픈 24시간 전부터, 회차 1개 = 트랜잭션 1개로 좌석 복사. 판매자가 앞당겨 실행할 수도 있음 |
 | 판매 중지·재개 | `performance_schedule`, `audit_log` | 공개 공연의 시작 전 회차 상태 변경 (모두 또는 골라서, SLR-26·27) |
 | 회차 연기 | `performance_schedule`, `schedule_postponement`, `audit_log` | 3-3 참고 |
-| 판매자 보류석 지정·해제 | `schedule_seat` | `AVAILABLE` ⇄ `RESERVED` (좌석이 만들어진 뒤에만 가능) |
+| 판매자 보류석 지정·해제 | `schedule_seat`, `audit_log` | `AVAILABLE` ⇄ `RESERVED` (좌석이 만들어진 뒤, 지정은 오픈 전까지, SLR-32·33) |
 | 취소 규정 관리 | `cancel_policy`, `cancel_policy_rule` | 기본 규정 조회, 사업체 규정 생성·조회·수정 |
 | 공통 안내 관리 (관리자) | `common_guide` | 유형별 내용 수정 |
 | 공연 목록·검색 (예매자) | `performance`, `performance_schedule`, `venue` | 장르·지역·판매 상태 필터 |

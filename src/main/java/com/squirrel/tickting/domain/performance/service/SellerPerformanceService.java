@@ -13,6 +13,7 @@ import com.squirrel.tickting.domain.performance.infra.repository.PerformanceRepo
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceScheduleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.SchedulePostponementRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.ScheduleSeatRepository;
+import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.ZoneGradeRepository;
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
@@ -93,6 +94,7 @@ public class SellerPerformanceService {
 	private final ZoneGradeRepository zoneGradeRepository;
 	private final ScheduleSeatRepository scheduleSeatRepository;
 	private final SchedulePostponementRepository schedulePostponementRepository;
+	private final UserPerformanceRepository userPerformanceRepository;
 	private final DistributedLockExecutor lockExecutor;
 	private final TransactionTemplate transactionTemplate;
 	private final PerformanceProperties properties;
@@ -305,6 +307,84 @@ public class SellerPerformanceService {
 			.filter(status -> status == ScheduleStatus.ON_SALE || status == ScheduleStatus.PAUSED)
 			.toList();
 		return !upcoming.isEmpty() && upcoming.stream().allMatch(status -> status == ScheduleStatus.PAUSED);
+	}
+
+	/** 보류석 대상을 고르는 방식. DB 를 보지 않는 검사라 조회보다 먼저 한다. */
+	public void validateSeatSelection(SellerPerformanceRequest.SeatSelection request) {
+		if ((request.seatIds() == null) == (request.zoneIds() == null)) {
+			throw new BusinessException(CommonExceptionCode.INVALID_INPUT, "seatIds와 zoneIds 중 하나만 보내 주세요.");
+		}
+	}
+
+	/**
+	 * 보류석을 지정·해제할 수 있는 회차인가. 락 안에서 다시 읽은 회차로 부른다. 모두 이미 읽은 값으로 판단한다.
+	 * 순서: 취소된 공연 → 취소 회차 → 이미 시작함 → (지정만) 판매 오픈 지남 → 좌석 미생성.
+	 * 일정 미정(POSTPONED) 회차는 원래 일시가 지났어도 시작하지 않은 것으로 본다. 새 일정을 확정하는 순간 판매가 열려서, 그 전에 풀 수 있어야 한다.
+	 */
+	public void validateSeatReservationChangeable(PerformanceSchedule schedule, boolean reserve, LocalDateTime now) {
+		Performance performance = schedule.getPerformance();
+		String action = reserve ? "지정" : "해제";
+		if (performance.getStatus() == PerformanceStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED,
+				"취소된 공연은 보류석을 " + action + "할 수 없습니다.");
+		}
+		if (schedule.getStatus() == ScheduleStatus.CANCELED) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_CANCELED,
+				"취소된 회차는 보류석을 " + action + "할 수 없습니다.");
+		}
+		if (schedule.getStatus() != ScheduleStatus.POSTPONED && !schedule.getStartAt().isAfter(now)) {
+			throw new BusinessException(PerformanceExceptionCode.SCHEDULE_ALREADY_STARTED,
+				"이미 시작한 회차는 보류석을 " + action + "할 수 없습니다.");
+		}
+		// 작성 중 공연은 판매 오픈이 비어 있을 수 있다. 정하지 않았으면 아직 오픈 전이다.
+		if (reserve && performance.getSaleOpenAt() != null && !now.isBefore(performance.getSaleOpenAt())) {
+			throw new BusinessException(PerformanceExceptionCode.SEAT_RESERVE_AFTER_SALE_OPEN);
+		}
+		validateSeatsGenerated(schedule);
+	}
+
+	/** 그 회차 공연장의 구역 중 요청한 것을 화면 순서로 돌려준다. 하나라도 아니면 404 다. 트랜잭션 안에서 부른다. */
+	public List<VenueZone> getScheduleZonesIn(PerformanceSchedule schedule, List<Long> zoneIds) {
+		Set<Long> requested = new HashSet<>(zoneIds);
+		List<VenueZone> zones = schedule.getPerformance().getVenue().getZones().stream()
+			.filter(zone -> requested.contains(zone.getId()))
+			.toList();
+		if (zones.size() != requested.size()) {
+			throw new BusinessException(PerformanceExceptionCode.USER_ZONE_NOT_FOUND);
+		}
+		return zones;
+	}
+
+	/**
+	 * 내 회차의 구역 요약(SLR-30). 작성 중·취소된 공연과 회차도 보여 준다. (SLR-17·18과 같은 기준)
+	 * 판매 좌석을 만들지 않은 회차는 에러가 아니라 좌석 수를 비워 돌려준다. 화면이 좌석 생성을 안내해야 해서다.
+	 */
+	@Transactional(readOnly = true)
+	public SellerPerformanceResponse.ScheduleZones getScheduleZones(Long businessId, Long scheduleId) {
+		PerformanceSchedule schedule = getMySchedule(businessId, scheduleId);
+		Performance performance = schedule.getPerformance();
+		boolean generated = schedule.getSeatsGeneratedAt() != null;
+		return SellerPerformanceResponse.ScheduleZones.of(schedule,
+			zoneGradeRepository.findAllWithGradeByPerformanceId(performance.getId()),
+			generated ? scheduleSeatRepository.countAvailableAndReservedByZone(scheduleId) : List.of());
+	}
+
+	/** 내 회차의 한 구역 좌석(SLR-31). 예매자 조회(PFM-04)와 달리 작성 중·취소도 보여 준다. 검사 순서: 회차 404 → 좌석 미생성 → 구역 404. */
+	@Transactional(readOnly = true)
+	public SellerPerformanceResponse.ZoneSeats getZoneSeats(Long businessId, Long scheduleId, Long zoneId) {
+		PerformanceSchedule schedule = getMySchedule(businessId, scheduleId);
+		validateSeatsGenerated(schedule);
+		UserPerformanceRepository.ZoneName zone = userPerformanceRepository
+			.findZoneName(zoneId, schedule.getPerformance().getVenueId())
+			.orElseThrow(() -> new BusinessException(PerformanceExceptionCode.USER_ZONE_NOT_FOUND));
+		return SellerPerformanceResponse.ZoneSeats.of(zone,
+			userPerformanceRepository.findScheduleSeats(scheduleId, zoneId));
+	}
+
+	private void validateSeatsGenerated(PerformanceSchedule schedule) {
+		if (schedule.getSeatsGeneratedAt() == null) {
+			throw new BusinessException(PerformanceExceptionCode.SEATS_NOT_GENERATED_FOR_RESERVATION);
+		}
 	}
 
 	/** 중지·재개 대상을 고르는 방식. DB 를 보지 않는 검사라 조회보다 먼저 한다. all 이 false 면 보내지 않은 것과 같다. */

@@ -118,6 +118,10 @@
 | SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
 | SLR-28 | 회차 연기 | POST `/api/v1/seller/schedules/{scheduleId}/postpone` | 구현됨 |
 | SLR-29 | 연기 회차 새 일정 확정 | POST `/api/v1/seller/schedules/{scheduleId}/postpone/confirm` | 구현됨 |
+| SLR-30 | 회차 구역별 보류석 현황 | GET `/api/v1/seller/schedules/{scheduleId}/zones` | 구현됨 |
+| SLR-31 | 회차 구역 좌석 (판매자) | GET `/api/v1/seller/schedules/{scheduleId}/zones/{zoneId}/seats` | 구현됨 |
+| SLR-32 | 보류석 지정 | POST `/api/v1/seller/schedules/{scheduleId}/seats/reserve` | 구현됨 |
+| SLR-33 | 보류석 해제 | POST `/api/v1/seller/schedules/{scheduleId}/seats/release` | 구현됨 |
 | ADM-01 | 사업체 목록·검색 | GET `/api/v1/admin/seller-businesses` | 구현됨 |
 | ADM-02 | 사업체 승인 | POST `/api/v1/admin/seller-businesses/{businessId}/approve` | 구현됨 |
 | ADM-03 | 사업체 반려 | POST `/api/v1/admin/seller-businesses/{businessId}/reject` | 구현됨 |
@@ -1602,7 +1606,7 @@ Query: `title`, `status`(`PENDING/PAID/PARTIAL_CANCELED/CANCELED`, 여러 개), 
 
 ### 판매자 감사 로그 (공통)
 
-SLR-03·04·09·10·11·12·13은 변경할 때 `audit_log`에 한 줄을 남깁니다. 행위자는 `SELLER`, `actor_id`는 계정 번호, `business_id`는 사업체 번호입니다. 변경과 **한 트랜잭션**이라 로그를 남기지 못하면 변경도 취소됩니다(500). 거절된 요청과 **값이 그대로인 요청은 남기지 않습니다.** 대상·행동·전후 값은 각 API에 적습니다. 판매 일시 중지·재개(SLR-26·27), 연기·확정(SLR-28·29), 취소 규정 생성·수정(SLR-21·22)도 남깁니다.
+SLR-03·04·09·10·11·12·13은 변경할 때 `audit_log`에 한 줄을 남깁니다. 행위자는 `SELLER`, `actor_id`는 계정 번호, `business_id`는 사업체 번호입니다. 변경과 **한 트랜잭션**이라 로그를 남기지 못하면 변경도 취소됩니다(500). 거절된 요청과 **값이 그대로인 요청은 남기지 않습니다.** 대상·행동·전후 값은 각 API에 적습니다. 판매 일시 중지·재개(SLR-26·27), 연기·확정(SLR-28·29), 취소 규정 생성·수정(SLR-21·22), 보류석 지정·해제(SLR-32·33)도 남깁니다.
 
 ### SLR-01 공연장 목록 — `GET /api/v1/seller/venues` (구현됨)
 
@@ -2569,6 +2573,95 @@ Body 없음. 공연장 좌석을 복사합니다(회차 1개 = 트랜잭션 1개
 - 연기 때 만든 이력의 `new_start_at`·`free_cancel_until`을 채웁니다. 새 이력을 만들지 않아 연기 전에 산 사람이 그대로 무료 취소 대상입니다.
 - 에러 순서: 400 `COMMON000` → 400 `PERFORMANCE022`(마감 > 새 일시) → 404 `PERFORMANCE008` → 409 `COMMON004`(락) → 409 `PERFORMANCE002` → 409 `PERFORMANCE501`(취소된 회차는 새 일정을 확정할 수 없습니다.) → 409 `PERFORMANCE021`(일정 미정으로 연기된 회차만 새 일정을 확정할 수 있습니다.) → 400 `PERFORMANCE407` → 400 `PERFORMANCE408` → 409 `PERFORMANCE007` → 400 `PERFORMANCE022`(하한) → 409 `COMMON004`(0행)
 - 감사 로그: `SCHEDULE` / `POSTPONE_CONFIRM`, 전후 항목은 SLR-28과 같습니다.
+
+### SLR-30 회차 구역별 보류석 현황 — `GET /api/v1/seller/schedules/{scheduleId}/zones` (구현됨)
+
+판매자(대표·담당자)가 보류석을 지정할 구역을 고를 때 씁니다. **작성 중·취소된 공연과 회차도** 보입니다. 없는 회차, 다른 사업체의 회차는 404 `PERFORMANCE008`입니다.
+
+```json
+{
+  "scheduleId": 31,
+  "layoutKey": "sample-arena",
+  "seatsGenerated": true,
+  "zones": [
+    { "zoneId": 12, "name": "F2구역", "floor": "1층", "grade": "R", "price": 154000,
+      "total": 220, "availableSeats": 180, "reservedSeats": 8 }
+  ]
+}
+```
+
+- 구역 순서·`grade`·`price`·`total`은 PFM-03과 같습니다. 좌석 수는 판매 가능(`AVAILABLE`)과 판매자 보류(`RESERVED`)만 셉니다. (나머지 상태는 SLR-17)
+- 판매 좌석을 만들지 않은 회차는 에러가 아니라 `seatsGenerated: false`이고 `availableSeats`·`reservedSeats`가 `null`입니다. `layoutKey`가 없는 공연장은 `null`입니다.
+- 캐시하지 않습니다.
+
+### SLR-31 회차 구역 좌석 (판매자) — `GET /api/v1/seller/schedules/{scheduleId}/zones/{zoneId}/seats` (구현됨)
+
+응답 모양은 PFM-04와 같습니다(`zoneId`, `name`, `seats[seatId, row, number, sortOrder, status]`). 내 회차면 작성 중·취소도 보이는 것만 다릅니다. 점유자·예매 정보는 주지 않습니다.
+
+에러 순서: 404 `PERFORMANCE008`(없는·남의 회차) → 409 `PERFORMANCE600`(판매 좌석 미생성) → 404 `PERFORMANCE201`(그 회차 공연장의 구역이 아님)
+
+### SLR-32 보류석 지정 — `POST /api/v1/seller/schedules/{scheduleId}/seats/reserve` (구현됨)
+### SLR-33 보류석 해제 — `POST /api/v1/seller/schedules/{scheduleId}/seats/release` (구현됨)
+
+지정은 판매 가능(`AVAILABLE`) 좌석을 판매자 보류(`RESERVED`)로, 해제는 보류석을 판매 가능으로 바꿉니다. 해제한 좌석은 판매 중이면 바로 예매할 수 있습니다. 판매자(대표·담당자) 모두 할 수 있습니다.
+
+**요청**: `seatIds`와 `zoneIds` 중 **정확히 하나**
+
+```json
+{ "seatIds": [9301, 9302, 9303] }
+```
+
+```json
+{ "zoneIds": [12, 13] }
+```
+
+| 필드 | 조건 |
+|---|---|
+| `seatIds` | 1~500개(임시), `null` 원소 불가, 같은 번호는 한 번. 여러 구역의 좌석을 섞어도 됩니다 |
+| `zoneIds` | 1개 이상, `null` 원소 불가, 같은 번호는 한 번. 그 구역에서 바꿀 수 있는 좌석 전부입니다 |
+
+**언제 할 수 있나**
+
+| | 지정 (SLR-32) | 해제 (SLR-33) |
+|---|---|---|
+| 공연 | 작성 중·공개 | 작성 중·공개 |
+| 회차 | 취소·시작한 회차 불가. **판매 오픈 전까지만** (작성 중 공연은 오픈 일시가 없으면 가능) | 취소·시작한 회차 불가. 판매 중·종료 뒤에도 가능 |
+| 일정 미정 연기(`POSTPONED`) | 원래 일시가 지나도 시작하지 않은 것으로 봅니다(오픈 조건은 같음) | 원래 일시가 지나도 가능 |
+
+**응답** (200) — `seatIds`로 보냈을 때
+
+```json
+{ "scheduleId": 31, "changedSeatIds": [9301, 9303], "skipped": [{ "seatId": 9302, "status": "HELD" }] }
+```
+
+- 바꿀 수 있는 좌석만 바꾸고 나머지는 `skipped`에 **지금 상태**와 함께 담습니다. 두 목록은 좌석 번호순입니다.
+
+`zoneIds`로 보냈을 때
+
+```json
+{ "scheduleId": 31, "zones": [{ "zoneId": 12, "changedSeats": 212 }, { "zoneId": 13, "changedSeats": 0 }] }
+```
+
+- 좌석 번호 대신 구역마다 바뀐 수를 공연장의 화면 순서로 줍니다.
+
+**에러** (겹치면 위가 먼저)
+
+| 순서 | 조건 | 코드 | 메시지 |
+|---|---|---|---|
+| 1 | 요청 형식(둘 다 있거나 둘 다 없음, 빈 목록·`null`, 500개 초과) | 400 `COMMON000` | 필드별 메시지 |
+| 2 | 없는 회차, 다른 사업체의 회차 | 404 `PERFORMANCE008` | 기본 |
+| 3 | 락을 1초 안에 잡지 못함 | 409 `COMMON004` | 기본 |
+| 4 | 취소된 공연 | 409 `PERFORMANCE002` | 취소된 공연은 보류석을 지정(해제)할 수 없습니다. |
+| 5 | 취소된 회차 | 409 `PERFORMANCE501` | 취소된 회차는 보류석을 지정(해제)할 수 없습니다. |
+| 6 | 시작한 회차 (일정 미정 제외) | 400 `PERFORMANCE502` | 이미 시작한 회차는 보류석을 지정(해제)할 수 없습니다. |
+| 7 | (지정만) 판매 오픈이 지남 | 409 `PERFORMANCE604` | 판매가 시작된 회차는 보류석을 지정할 수 없습니다. 판매를 일시 중지해도 지정할 수 없습니다. |
+| 8 | 판매 좌석 미생성 | 409 `PERFORMANCE600` | 판매 좌석을 먼저 생성해 주세요. |
+| 9 | 이 회차 좌석이 아닌 번호가 섞임 / 이 회차 공연장의 구역이 아닌 번호가 섞임 | 404 `PERFORMANCE601` / `PERFORMANCE201` | 아무것도 바꾸지 않습니다 |
+| 10 | 바뀐 좌석이 하나도 없음 | 409 `PERFORMANCE602`(지정) / `603`(해제) | 보류할 수 있는 좌석이 없습니다. / 해제할 수 있는 보류석이 없습니다. |
+
+- 락은 공연 단위(`performance:{공연 번호}`)이고, 상태 조건이 있는 UPDATE를 함께 둡니다. 좌석 락은 잡지 않습니다. 예매자 점유와 겹치면 먼저 바꾼 쪽만 성공합니다.
+- 조회 캐시는 지우지 않습니다. 예매자 구역 요약·목록은 몇 초 뒤 만료로 따라옵니다. 남은 판매 가능 좌석을 모두 보류하면 그 회차는 `SOLD_OUT`으로 보입니다.
+- 감사 로그: `SCHEDULE` / `SEAT_RESERVE`·`SEAT_RELEASE`, 요청 한 번에 한 줄. 전후에 `performanceId`·`status`, 후에는 **바뀐 것만** 담습니다. `seatIds`는 `seats[seatId, zone, row, number]`, `zoneIds`는 `zones[zoneId, zone, changedSeats]`입니다(수천 석일 수 있어 좌석을 나열하지 않음).
 
 ### SLR-15 회차 취소 — `POST /api/v1/seller/schedules/{scheduleId}/cancel`
 

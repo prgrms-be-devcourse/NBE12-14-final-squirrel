@@ -357,6 +357,9 @@ export default function SellerPerformanceDetailPage() {
                         새 일정 확정
                       </button>
                     )}
+                    <Link href={`/seller/schedules/${s.scheduleId}/seats`} className="btn">
+                      보류석
+                    </Link>
                     <Link href={`/seller/schedules/${s.scheduleId}/bookings`} className="btn">
                       예매 내역
                     </Link>
