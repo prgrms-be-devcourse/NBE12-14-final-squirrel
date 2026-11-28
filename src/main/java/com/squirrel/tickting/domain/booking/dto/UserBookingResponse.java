@@ -2,6 +2,7 @@ package com.squirrel.tickting.domain.booking.dto;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
+import com.squirrel.tickting.domain.booking.service.CancelPolicyCalculator;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.domain.payment.infra.entity.Payment;
@@ -37,8 +38,10 @@ public class UserBookingResponse {
 		String performanceTitle,
 		@Schema(description = "포스터 이미지 주소. 공연 정보가 없으면 null")
 		String posterUrl,
-		@Schema(description = "회차 일시. 연기되면 바뀐 일시. 회차 정보가 없으면 null")
+		@Schema(description = "회차 일시. 연기되면 바뀐 일시(일정 미정이면 원래 일시). 회차 정보가 없으면 null")
 		LocalDateTime scheduleStartAt,
+		@Schema(description = "회차 상태. POSTPONED 면 일정 미정이라 화면은 일시 대신 \"일정 미정\"을 보여 준다")
+		ScheduleStatus scheduleStatus,
 		@Schema(description = "처음 예매한 좌석 수 (취소된 좌석 포함)", example = "2")
 		Integer seatCount,
 		@Schema(description = "처음 결제 금액 (취소해도 바뀌지 않음)", example = "312000")
@@ -59,6 +62,7 @@ public class UserBookingResponse {
 				.performanceTitle(booking.getPerformance().getTitle())
 				.posterUrl(booking.getPerformance().getPosterUrl())
 				.scheduleStartAt(booking.getSchedule().getStartAt())
+				.scheduleStatus(booking.getSchedule().getStatus())
 				.seatCount(booking.getBookingSeats().size())
 				.totalAmount(booking.getTotalAmount())
 				.createdAt(booking.getCreatedAt())
@@ -107,6 +111,8 @@ public class UserBookingResponse {
 		Boolean cancelable,
 		@Schema(description = "지금 취소하면 적용되는 수수료율(%). 취소할 수 없으면 null", example = "10")
 		Integer currentFeeRate,
+		@Schema(description = "공연 연기로 지금 수수료 없이 취소할 수 있을 때만 있고 그 밖은 null", nullable = true)
+		PostponeFreeCancel postponeFreeCancel,
 		@Schema(description = "결제 제한 시각. 결제 대기(PENDING)일 때만 있고 나머지는 null")
 		LocalDateTime expiresAt,
 		@Schema(description = "예매한 일시")
@@ -118,11 +124,9 @@ public class UserBookingResponse {
 		/**
 		 * 공연·회차·좌석·결제·환불은 예매의 읽기 전용 연관에서 꺼낸다. 지연 로딩이라 트랜잭션 안에서 불러야 한다.
 		 *
-		 * @param cancelable     지금 취소할 수 있는지. 예매 취소(BKG-06)와 같은 계산기에서 받는다
-		 * @param currentFeeRate 지금 취소하면 적용되는 수수료율. 취소할 수 없으면 null
+		 * @param quote 지금 취소하면 어떻게 되는지. 예매 취소(BKG-06)와 같은 계산기에서 받는다
 		 */
-		public static Detail from(Booking booking, List<CancelRule> cancelPolicy, boolean cancelable,
-			Integer currentFeeRate) {
+		public static Detail from(Booking booking, List<CancelRule> cancelPolicy, CancelPolicyCalculator.Quote quote) {
 			return Detail.builder()
 				.bookingId(booking.getId())
 				.bookingNo(booking.getBookingNo())
@@ -139,8 +143,10 @@ public class UserBookingResponse {
 				.refundedAmount(refundedAmount(booking))
 				.payment(approvedPayment(booking))
 				.cancelPolicy(cancelPolicy)
-				.cancelable(cancelable)
-				.currentFeeRate(currentFeeRate)
+				.cancelable(quote.cancelable())
+				.currentFeeRate(quote.feeRate())
+				.postponeFreeCancel(quote.freePostponement() == null ? null
+					: new PostponeFreeCancel(quote.freePostponement().findDeadline()))
 				.expiresAt(booking.getStatus() == BookingStatus.PENDING ? booking.getExpiresAt() : null)
 				.createdAt(booking.getCreatedAt())
 				.canceledAt(booking.getCanceledAt())
@@ -191,6 +197,13 @@ public class UserBookingResponse {
 		static ScheduleInfo from(PerformanceSchedule schedule) {
 			return new ScheduleInfo(schedule.getId(), schedule.getStartAt(), schedule.getStatus());
 		}
+	}
+
+	@Schema(name = "UserBookingPostponeFreeCancel", description = "공연 연기에 따른 무료 취소")
+	public record PostponeFreeCancel(
+		@Schema(description = "무료 취소 마감. 일정 미정이면 null(일정 확정 전까지)", nullable = true)
+		LocalDateTime until
+	) {
 	}
 
 	@Schema(name = "UserBookingOrderer", description = "주문자")

@@ -60,7 +60,7 @@ public class UserPerformanceCache {
 			}, () -> userPerformanceService.getPublishedDetail(performanceId));
 	}
 
-	/** 판매 중지·재개는 상세에 바로 보여야 해서 저장분을 지운다. 중지되면 화면이 예매자를 상세로 보내기 때문이다. */
+	/** 판매 중지·재개와 연기·확정은 상세에 바로 보여야 해서 저장분을 지운다. 중지·연기되면 화면이 예매자를 상세로 보내기 때문이다. */
 	public void evictDetail(Long performanceId) {
 		readCache.evict(DETAIL, String.valueOf(performanceId));
 	}

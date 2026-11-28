@@ -9,11 +9,11 @@ import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { useAccount } from "@/lib/auth";
 import { getVenueLayout } from "@/lib/venue-layouts";
 import { saveBooking } from "@/lib/booking-cache";
-import { dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
+import { gradeColor, gradeLabel, scheduleText, won } from "@/lib/format";
 import type { BookingCreated, PerformanceDetail, Seat, Zone, ZoneSeats, ZoneSummary } from "@/lib/types";
 import { ArenaMap } from "@/components/arena-map";
 import { QueueGate } from "@/components/queue-gate";
-import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
+import { SALE_PAUSED_CODE, SCHEDULE_POSTPONED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { ErrorBox, Loading } from "@/components/ui";
 
 type Picked = {
@@ -69,9 +69,10 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
 
   const p = performance.data;
   const schedule = p?.schedules.find((s) => String(s.scheduleId) === scheduleId);
-  // 중지된 회차에 다시 들어왔거나, 예매를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
-  const [rejected, setRejected] = useState(false);
-  const paused = rejected || schedule?.status === "PAUSED";
+  // 중지·연기된 회차에 다시 들어왔거나, 예매를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
+  const [rejected, setRejected] = useState<string | null>(null);
+  const postponed = rejected === SCHEDULE_POSTPONED_CODE || schedule?.status === "POSTPONED";
+  const paused = !postponed && (rejected === SALE_PAUSED_CODE || schedule?.status === "PAUSED");
   const maxPerPerson = p?.sale.maxPerPerson ?? 4;
   const activeZone = zones.data?.zones.find((z) => z.zoneId === activeZoneId);
 
@@ -126,8 +127,8 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
         onNotAdmitted();
         return;
       }
-      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
-        setRejected(true);
+      if (error instanceof ApiError && (error.code === SALE_PAUSED_CODE || error.code === SCHEDULE_POSTPONED_CODE)) {
+        setRejected(error.code);
         return;
       }
       setMessage(errorText(error, "예매에 실패했습니다"));
@@ -166,7 +167,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
         공연 상세
       </Link>
       <h1 className="mt-4 text-3xl leading-tight font-semibold">{p.title}</h1>
-      <p className="mt-2 text-secondary">{schedule ? dateTimeText(schedule.startAt) : "회차 정보 없음"}</p>
+      <p className="mt-2 text-secondary">{schedule ? scheduleText(schedule.startAt, schedule.status) : "회차 정보 없음"}</p>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[1fr_340px]">
         <div className="min-w-0 space-y-10">
@@ -341,6 +342,11 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
               지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다
             </SalePausedModal>
           )}
+          {postponed && (
+            <SalePausedModal href={`/performances/${id}`} title="공연이 연기되었습니다">
+              일정이 정해지지 않아 지금은 예매할 수 없습니다
+            </SalePausedModal>
+          )}
           {message && <p className="text-sm text-accent-strong">{message}</p>}
           {account === null ? (
             <button type="button" className="btn btn-primary btn-lg w-full" onClick={toLogin}>
@@ -350,7 +356,7 @@ function SeatSelect({ onNotAdmitted }: { onNotAdmitted: () => void }) {
             <button
               type="button"
               className="btn btn-primary btn-lg w-full"
-              disabled={paused || picked.length === 0 || submitting}
+              disabled={paused || postponed || picked.length === 0 || submitting}
               onClick={book}
             >
               {submitting ? "좌석 확인 중" : "주문 확인으로"}

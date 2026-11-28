@@ -21,7 +21,7 @@ const SELLER_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin", label: "개요", icon: LayoutDashboard, exact: true },
   { href: "/admin/businesses", label: "사업체 심사", icon: Briefcase },
-  { href: "/admin/venues", label: "공연장 등록", icon: Building },
+  { href: "/admin/venues", label: "공연장", icon: Building },
   { href: "/admin/refunds", label: "환불 처리", icon: RotateCcw },
 ];
 

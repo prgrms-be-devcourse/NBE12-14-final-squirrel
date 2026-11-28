@@ -7,13 +7,14 @@ import { dateTimeText } from "@/lib/format";
 import { Field, Panel } from "@/components/console";
 import type { StepProps } from "@/components/performance-wizard/types";
 
-// 서버 규칙(api-spec SLR-12)의 "임시" 값. 서버가 바뀌면 같이 고친다. 여기서는 미리 알려 주기만 하고 막지는 않는다.
-const MIN_LEAD_HOURS = 3;
+// 서버 규칙(api-spec SLR-12)의 "임시" 값. 여기서는 미리 알려 주기만 하고 막지는 않는다.
+// 공개 화면(review-step)과 같은 환경 변수를 읽는다. 서버 app.performance.publish-lead-time 과 같게 맞춘다. 없으면 3시간이다.
+const MIN_LEAD_MINUTES = Number(process.env.NEXT_PUBLIC_PUBLISH_LEAD_MINUTES ?? 180);
+const MIN_LEAD_TEXT = MIN_LEAD_MINUTES % 60 === 0 ? `${MIN_LEAD_MINUTES / 60}시간` : `${MIN_LEAD_MINUTES}분`;
 const TURNAROUND_MINUTES = 60;
 const MAX_CANDIDATES = 60;
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
-const HOUR = 3_600_000;
 const MINUTE = 60_000;
 
 type Candidate = { value: string; error?: string };
@@ -92,7 +93,7 @@ export function ScheduleStep({ detail, onSaved, onNext, onBack }: StepProps) {
     const start = new Date(value).getTime();
     if (start <= now) return "지난 시각입니다";
     if (detail.saleOpenAt && start <= new Date(detail.saleOpenAt).getTime()) return "예매 오픈보다 늦어야 합니다";
-    if (start < now + MIN_LEAD_HOURS * HOUR) return `지금부터 ${MIN_LEAD_HOURS}시간 뒤부터 가능합니다`;
+    if (start < now + MIN_LEAD_MINUTES * MINUTE) return `지금부터 ${MIN_LEAD_TEXT} 뒤부터 가능합니다`;
     if (ranges.some((other) => other !== start && Math.abs(other - start) < duration)) {
       return "다른 회차와 시간이 겹칩니다 (공연 시간 + 정리 1시간)";
     }
