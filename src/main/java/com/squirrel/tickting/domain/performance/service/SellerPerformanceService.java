@@ -161,31 +161,36 @@ public class SellerPerformanceService {
 		return new SellerPerformanceResponse.Sales(response);
 	}
 
+	/** 공개할 때 함께 잡을 락의 대상. 취소 규정이 서비스 기본 규정이면 cancelPolicyId 는 null 이다. */
+	public record PublishLockTarget(Long venueId, Long cancelPolicyId) {
+	}
+
 	/**
-	 * 공개할 때 함께 잡을 취소 규정 번호. 서비스 기본 규정이면 null 이다.
+	 * 공개할 때 함께 잡을 공연장·취소 규정 번호. 락 밖에서 읽고, 바뀌었으면 락 안에서 알아챈다.
 	 * 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
 	 */
-	public Long getPublishLockPolicyId(Long businessId, Long performanceId) {
-		getMineEntity(businessId, performanceId);
-		return performanceRepository.findLockableCancelPolicyId(performanceId).orElse(null);
+	public PublishLockTarget getPublishLockTarget(Long businessId, Long performanceId) {
+		Long venueId = getMineEntity(businessId, performanceId).getVenueId();
+		return new PublishLockTarget(venueId,
+			performanceRepository.findLockableCancelPolicyId(performanceId).orElse(null));
 	}
 
 	/**
 	 * 작성 중인 내 공연을 공개(PUBLISHED)한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없어서 조건을 모두 만족해야 한다.
-	 * 호출한 쪽(파사드)이 공연 락과 규정 락을 잡고 트랜잭션을 연 상태에서 부른다.
+	 * 호출한 쪽(파사드)이 공연 락·공연장 락·규정 락을 잡고 트랜잭션을 연 상태에서 부른다.
 	 * 락을 기다리는 사이 상태가 바뀌었을 수 있어 락 밖의 판단은 믿지 않고 다시 읽는다.
-	 * 검사 순서: 공연 한 행 → 회차 → 구역 설정. 앞에서 막히면 뒤의 쿼리는 나가지 않는다.
+	 * 검사 순서: 공연 한 행(작성 중) → 공연장 → 판매 정보 → 회차 → 구역 설정. 앞에서 막히면 뒤의 쿼리는 나가지 않는다.
 	 * 회차를 구역보다 먼저 두는 것은 읽을 행 수가 적을 것이라는 추정이고 측정하지는 않았다.
 	 */
 	@Transactional
 	public SellerPerformanceResponse.Published publish(Long businessId, Long performanceId,
-		Long lockedCancelPolicyId) {
+		PublishLockTarget locked) {
 		// 현재 시각은 한 번만 읽어 모든 비교에 같은 값을 쓴다.
 		LocalDateTime now = LocalDateTime.now();
 		Performance performance = getMineEntity(businessId, performanceId);
 
-		// 락 밖에서 본 규정과 다르면 우리가 잡은 규정 락이 지금 규정을 지키지 못한다. 처음부터 다시 시도하게 한다.
-		if (!Objects.equals(lockedCancelPolicyId, lockableCancelPolicyId(performance))) {
+		// 락 밖에서 본 공연장·규정과 다르면 우리가 잡은 락이 지금 값을 지키지 못한다. 처음부터 다시 시도하게 한다.
+		if (!locked.equals(new PublishLockTarget(performance.getVenueId(), lockableCancelPolicyId(performance)))) {
 			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
 		}
 		validatePublishable(performance, now);
@@ -219,18 +224,22 @@ public class SellerPerformanceService {
 	/**
 	 * 내 공연에 회차를 하나 추가한다. 공개 공연이고 판매 오픈이 가까우면 같은 트랜잭션에서 판매 좌석까지 만들고,
 	 * 좌석을 만들 수 없으면 회차도 남기지 않는다. (회차만 남으면 판매자는 성공으로 알고 예매자에게는 매진으로 보인다)
-	 * 호출한 쪽(파사드)이 공연 락을 잡고 트랜잭션을 연 상태에서 부른다.
+	 * 호출한 쪽(파사드)이 공연 락과 공연장 락을 잡고 트랜잭션을 연 상태에서 부른다.
 	 * 검사 순서: 공연 한 행(취소) → 공연장 → 새 회차의 시각 → (공개) 기존 회차 → 판매 종료 → 일시 중지 → (즉시 생성) 구역 설정 → 같은 공연장 겹침.
 	 * 앞에서 막히면 뒤의 쿼리는 나가지 않는다. 처리량은 추정이고 측정하지 않았다.
 	 * 지난 시각은 요청 DTO 가 막으므로 여기서 다시 보지 않는다.
 	 */
 	@Transactional
 	public SellerPerformanceResponse.ScheduleCreated addSchedule(Long businessId, Long performanceId,
-		LocalDateTime startAt) {
+		Long lockedVenueId, LocalDateTime startAt) {
 		// 현재 시각은 한 번만 읽어 모든 비교·UPDATE·응답에 같은 값을 쓴다.
 		LocalDateTime now = LocalDateTime.now();
 		Performance performance = getMineEntity(businessId, performanceId);
 		boolean published = performance.getStatus() == PerformanceStatus.PUBLISHED;
+		// 락 밖에서 본 공연장과 다르면 잡은 공연장 락이 지금 공연장을 지키지 못한다.
+		if (!performance.getVenueId().equals(lockedVenueId)) {
+			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+		}
 
 		if (performance.getStatus() == PerformanceStatus.CANCELED) {
 			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_CANCELED, "취소된 공연에는 회차를 추가할 수 없습니다.");
@@ -775,6 +784,62 @@ public class SellerPerformanceService {
 		return title;
 	}
 
+	/** 공연장 사용 중지(ADM-11·13)의 대상 공연 번호(공개 공연). 락 이름에 쓰고 락 안에서 다시 읽어 비교한다. */
+	@Transactional(readOnly = true)
+	public List<Long> findPublishedIdsOfVenue(Long venueId) {
+		return performanceRepository.findIdsByVenueIdAndStatus(venueId, PerformanceStatus.PUBLISHED);
+	}
+
+	/** 공연장의 공개 공연 중 취소할 수 있는 회차. 공연장 사용 중지 미리보기가 쓴다. */
+	@Transactional(readOnly = true)
+	public List<PerformanceSchedule> findCancelableSchedulesOfVenue(Long venueId, LocalDateTime now) {
+		return performanceScheduleRepository.findCancelableByVenueId(venueId, now);
+	}
+
+	/** 공연장의 작성 중 공연. 취소하지 않지만 중지하면 공개할 수 없어 미리보기에 보여 준다. */
+	@Transactional(readOnly = true)
+	public List<Performance> findDraftsOfVenue(Long venueId) {
+		return performanceRepository.findByVenueIdAndStatusOrderById(venueId, PerformanceStatus.DRAFT);
+	}
+
+	/**
+	 * 공연장 사용 중지(전부 취소)가 공연 하나의 열리지 않은 회차를 취소한다. 사업체 조건이 없는 관리자 흐름이라
+	 * 판매자 공연 취소와 같은 대상 조건·조건부 UPDATE 를 쓴다. 호출한 쪽이 공연장 락·공연 락·트랜잭션을 연 상태에서 부른다.
+	 *
+	 * @return 취소한 회차. 엔티티에는 취소하기 전 상태가 남아 감사 로그에 쓴다
+	 */
+	@Transactional
+	public List<PerformanceSchedule> cancelSchedulesForVenueSuspension(Long performanceId, String reason,
+		LocalDateTime now) {
+		List<PerformanceSchedule> targets = performanceScheduleRepository
+			.findByPerformanceIdAndStatusNotOrderByStartAt(performanceId, ScheduleStatus.CANCELED).stream()
+			.filter(schedule -> isCancelable(schedule, now))
+			.toList();
+		List<Long> targetIds = targets.stream().map(PerformanceSchedule::getId).toList();
+		if (performanceScheduleRepository.cancelAll(targetIds, reason, now) != targets.size()) {
+			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+		}
+		return targets;
+	}
+
+	/**
+	 * 취소되지 않은 회차가 하나도 남지 않은 공개 공연을 취소한다. 공연장이 중지되면 회차를 더 넣을 수 없어 공연이 쓸모없어서다.
+	 * 지난 회차가 남은 공연은 그대로 둔다. 호출 조건은 cancelSchedulesForVenueSuspension 과 같다.
+	 *
+	 * @return 취소한 공연. 취소하지 않았으면 비어 있다
+	 */
+	@Transactional
+	public Optional<Performance> cancelIfNoScheduleLeft(Long performanceId, LocalDateTime now) {
+		if (performanceScheduleRepository.existsByPerformanceIdAndStatusNot(performanceId, ScheduleStatus.CANCELED)) {
+			return Optional.empty();
+		}
+		Performance performance = performanceRepository.findById(performanceId).orElseThrow();
+		if (performanceRepository.cancelIfPublished(performanceId, now) == 0) {
+			throw new BusinessException(CommonExceptionCode.LOCK_ACQUISITION_FAILED);
+		}
+		return Optional.of(performance);
+	}
+
 	/** 취소되지 않은 회차 중 취소할 수 있는 것(일정 미정이거나 시작 전). cancelAll 의 조건과 같아야 한다. */
 	private static boolean isCancelable(PerformanceSchedule schedule, LocalDateTime now) {
 		return schedule.getStatus() == ScheduleStatus.POSTPONED || schedule.getStartAt().isAfter(now);
@@ -1021,10 +1086,15 @@ public class SellerPerformanceService {
 			|| performance.getBookingFee() == null;
 	}
 
-	/** 공연 한 행만 보고 판단하는 조건. 작성 중 → 판매 필드 → 판매 종료 → 판매 오픈 순이다. */
+	/** 공연과 공연장만 보고 판단하는 조건. 작성 중 → 공연장 → 판매 필드 → 판매 종료 → 판매 오픈 순이다. */
 	private void validatePublishable(Performance performance, LocalDateTime now) {
 		if (performance.getStatus() != PerformanceStatus.DRAFT) {
 			throw new BusinessException(PerformanceExceptionCode.PERFORMANCE_NOT_DRAFT);
+		}
+		// 작성 중 공연은 공연장을 바꿀 수 있어, 바꿀 칸이 초기화하는 구역·판매 필드 문제보다 먼저 알린다.
+		if (performance.getVenue().getStatus() != VenueStatus.ACTIVE) {
+			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE,
+				"사용이 중지된 공연장이라 공개할 수 없습니다. 공연장을 바꿔 주세요.");
 		}
 		if (hasMissingSaleField(performance)) {
 			throw new BusinessException(PerformanceExceptionCode.SALE_FIELDS_MISSING);

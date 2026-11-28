@@ -120,4 +120,10 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.DRAFT
 		""")
 	int deleteIfDraft(@Param("id") Long id);
+
+	/** 공연장의 해당 상태 공연 번호(번호순). 공연장 사용 중지가 락 이름과 락 안의 재확인에 쓴다. */
+	@Query("SELECT p.id FROM Performance p WHERE p.venueId = :venueId AND p.status = :status ORDER BY p.id")
+	List<Long> findIdsByVenueIdAndStatus(@Param("venueId") Long venueId, @Param("status") PerformanceStatus status);
+
+	List<Performance> findByVenueIdAndStatusOrderById(Long venueId, PerformanceStatus status);
 }

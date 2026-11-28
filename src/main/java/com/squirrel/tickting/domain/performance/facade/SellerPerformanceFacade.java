@@ -28,6 +28,7 @@ import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
 import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
+import com.squirrel.tickting.domain.venue.service.VenueLockNames;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
@@ -75,31 +76,30 @@ public class SellerPerformanceFacade {
 
 	/**
 	 * 공연을 작성 중(DRAFT)으로 등록하고 공연장의 모든 구역을 UNSET 으로 만든다.
-	 * 확인(공연장, 취소 규정)은 읽기만 해서 트랜잭션 밖에서 먼저 하고, 쓰기만 한 트랜잭션으로 묶는다.
+	 * 공연장 확인과 저장 사이에 사용 중지가 끼어들지 않게 공연장 락을 잡고 그 안에서 확인(공연장, 취소 규정)과 저장을 한다.
 	 * 구역 설정 없이 공연만 남으면 공개 검사가 빈 구역을 "UNSET 없음"으로 잘못 읽으므로 둘은 함께 성공하거나 함께 취소된다.
-	 * 잠금은 쓰지 않는다. 새 공연은 DRAFT 라 취소 규정 수정과 부딪히지 않고, 공연장 구역은 등록 중에 바뀌지 않는다.
+	 * 취소 규정 락은 잡지 않는다. 새 공연은 DRAFT 라 취소 규정 수정과 부딪히지 않는다.
 	 */
 	public SellerPerformanceResponse.Created register(Long businessId, Long createdBy,
 		SellerPerformanceRequest.Save request) {
-		List<Long> zoneIds = venueService.getActiveZoneIds(request.venueId());
-		CancelPolicy cancelPolicy = cancelPolicyService.getVisible(request.cancelPolicyId(), businessId);
-
-		Performance performance = transactionTemplate.execute(status -> {
-			Performance created = sellerPerformanceService.create(businessId, createdBy, request.venueId(), cancelPolicy,
-				request);
-			gradeService.initializeZones(created, zoneIds);
-			return created;
-		});
+		Performance performance = lockExecutor.execute(List.of(VenueLockNames.venue(request.venueId())),
+			properties.lockWait(), () -> transactionTemplate.execute(status -> {
+				List<Long> zoneIds = venueService.getActiveZoneIds(request.venueId());
+				CancelPolicy cancelPolicy = cancelPolicyService.getVisible(request.cancelPolicyId(), businessId);
+				Performance created = sellerPerformanceService.create(businessId, createdBy, request.venueId(),
+					cancelPolicy, request);
+				gradeService.initializeZones(created, zoneIds);
+				return created;
+			}));
 		return SellerPerformanceResponse.Created.from(performance);
 	}
 
 	/**
 	 * 공연을 전체 교체로 수정한다. 락은 커밋 뒤에 풀려야 해서 락을 먼저 잡고 그 안에서 트랜잭션을 연다.
-	 * 락은 공연 단위(performance:{번호})다. 같은 공연의 등급·구역 수정(SLR-10·11), 공개(SLR-04), 판매 좌석 생성과 겹치지 않게 한다.
-	 * 특히 공연장 변경이 좌석 생성과 겹치면 옛 공연장 좌석이 새로 만들어질 수 있다.
-	 * 같은 공연장의 시간 겹침은 락 없이 검사만 한다. 공연장은 판매자가 미리 정해 오는 것이라 서로 다른 공연이 같은 순간에
-	 * 같은 공연장의 같은 시간을 잡을 일이 매우 드물고, 겹침 검사가 그다음 요청을 막는다. 동시에 들어오는 경우의 마지막 방어선은
-	 * DB 제약 TODO(doc/seller-progress.md)로 남겼다.
+	 * 락은 공연 단위(performance:{번호})와 요청한 공연장(venue:{번호})이다. 공연 락은 같은 공연의 등급·구역 수정(SLR-10·11), 공개(SLR-04),
+	 * 판매 좌석 생성과, 공연장 락은 그 공연장의 사용 중지와 겹치지 않게 한다. 특히 공연장 변경이 좌석 생성과 겹치면 옛 공연장 좌석이 새로 만들어질 수 있다.
+	 * 같은 공연장의 시간 겹침은 공연장 락 안에서 검사해 등록·수정·회차 추가끼리는 함께 막힌다. 회차 수정과 연기 확정은 공연장 락을 잡지
+	 * 않아 그대로이고, 마지막 방어선은 DB 제약 TODO(doc/seller-progress.md)로 남겼다.
 	 * 작성 중 취소 규정 변경은 규정 락을 잡지 않는다. 작성 중 공연이 쓰는 규정은 잠기지 않아 규정 수정과 겹쳐도 규칙 위반이 아니고,
 	 * 공개와는 공연 락으로 막힌다.
 	 * 검사 순서: 요청 형식(DB 전) → 공연 조회 404(락 밖) → 락 → 재조회 → 공연 한 행 → 규정·공연장 한 건 조회 → 회차 → 예매 → 회차 겹침.
@@ -112,7 +112,8 @@ public class SellerPerformanceFacade {
 		// 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
 		sellerPerformanceService.getMinePerformance(businessId, performanceId);
 
-		Performance updated = lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)),
+		Performance updated = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId), VenueLockNames.venue(request.venueId())),
 			properties.lockWait(), () -> transactionTemplate.execute(
 				status -> updateInTransaction(businessId, actorId, performanceId, request)));
 		return SellerPerformanceResponse.Updated.from(updated);
@@ -200,20 +201,22 @@ public class SellerPerformanceFacade {
 	/**
 	 * 작성 중인 내 공연을 공개한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없다.
 	 * 락은 공개 직후 구역·등급(SLR-10·11)이나 취소 규정(SLR-22)이 바뀌어 공개 조건이 깨지는 것을 막으려는 것이다.
-	 * 공연 락과, 기본 규정이 아니면 그 공연의 규정 락을 함께 잡는다. (실행기가 이름순으로 잡아 데드락이 없다)
+	 * 공연 락·그 공연의 공연장 락과, 기본 규정이 아니면 그 공연의 규정 락을 함께 잡는다. (실행기가 이름순으로 잡아 데드락이 없다)
 	 */
 	public SellerPerformanceResponse.Published publish(Long businessId, Long actorId, Long performanceId) {
-		// 남의 공연은 락을 잡기 전에 404 로 끝낸다. 규정 번호는 락 이름에 필요해서 락 밖에서 읽고, 바뀌면 안에서 알아챈다.
-		Long cancelPolicyId = sellerPerformanceService.getPublishLockPolicyId(businessId, performanceId);
+		// 남의 공연은 락을 잡기 전에 404 로 끝낸다. 공연장·규정 번호는 락 이름에 필요해서 락 밖에서 읽고, 바뀌면 안에서 알아챈다.
+		SellerPerformanceService.PublishLockTarget target = sellerPerformanceService.getPublishLockTarget(businessId,
+			performanceId);
 
 		List<String> lockNames = new ArrayList<>();
 		lockNames.add(PerformanceLockNames.performance(performanceId));
-		if (cancelPolicyId != null) {
-			lockNames.add(PerformanceLockNames.cancelPolicy(cancelPolicyId));
+		lockNames.add(VenueLockNames.venue(target.venueId()));
+		if (target.cancelPolicyId() != null) {
+			lockNames.add(PerformanceLockNames.cancelPolicy(target.cancelPolicyId()));
 		}
 		return lockExecutor.execute(lockNames, properties.lockWait(), () -> transactionTemplate.execute(status -> {
 			SellerPerformanceResponse.Published published = sellerPerformanceService.publish(businessId, performanceId,
-				cancelPolicyId);
+				target);
 			saveHistory(businessId, actorId, TARGET_PERFORMANCE, performanceId, "PUBLISH",
 				Map.of("status", PerformanceStatus.DRAFT), Map.of("status", published.status()));
 			return published;
@@ -307,16 +310,17 @@ public class SellerPerformanceFacade {
 
 	/**
 	 * 내 공연에 회차를 하나 추가한다. 공연 락은 공개·공연 수정·등급과 구역 수정·좌석 생성과 같은 이름이라, 확인한 공연 값이 저장 전에 바뀌지 않는다.
-	 * 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡는 것은 공연 락으로 막지 못한다. (드물다고 보고 감수, DB 제약은 TODO)
+	 * 공연장 락은 그 공연장의 사용 중지와, 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡는 것을 막는다.
 	 * 남의 공연은 락을 잡기 전에 404 로 끝낸다.
 	 */
 	public SellerPerformanceResponse.ScheduleCreated addSchedule(Long businessId, Long actorId, Long performanceId,
 		SellerPerformanceRequest.ScheduleSave request) {
-		sellerPerformanceService.getMinePerformance(businessId, performanceId);
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
-			() -> transactionTemplate.execute(status -> {
+		Long venueId = sellerPerformanceService.getMinePerformance(businessId, performanceId).getVenueId();
+		return lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId), VenueLockNames.venue(venueId)),
+			properties.lockWait(), () -> transactionTemplate.execute(status -> {
 				SellerPerformanceResponse.ScheduleCreated created = sellerPerformanceService.addSchedule(businessId,
-					performanceId, request.startAt());
+					performanceId, venueId, request.startAt());
 				saveHistory(businessId, actorId, TARGET_SCHEDULE, created.scheduleId(), ACTION_CREATE, null,
 					Map.of("performanceId", performanceId, "startAt", created.startAt(),
 						"seatsGenerated", created.seatsGeneratedAt() != null));

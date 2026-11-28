@@ -74,6 +74,12 @@ public class BookingService {
 		return bookingRepository.countByScheduleIdInAndStatusIn(scheduleIds, PAID_STATUSES);
 	}
 
+	/** 주어진 회차들의 공연별 환불 대상·결제 대기 예매 수. 예매가 없는 공연은 빠진다. */
+	@Transactional(readOnly = true)
+	public List<BookingRepository.PerformanceBookingCount> countByPerformance(Collection<Long> scheduleIds) {
+		return bookingRepository.countByPerformance(scheduleIds);
+	}
+
 	/**
 	 * 결제할 수 있는 내 예매를 읽는다. 없거나 남의 예매면 같은 404, 결제 대기(PENDING)가 아니거나 결제 제한 시각이 지났으면 409 다.
 	 * 스케줄러가 아직 정리하지 않았더라도 시각이 지난 예매는 여기서 막는다. 호출한 쪽의 트랜잭션에 참여한다.
