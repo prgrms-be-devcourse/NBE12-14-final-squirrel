@@ -126,6 +126,24 @@ public class AuthRequest {
 		}
 	}
 
+	@Schema(name = "PasswordChangeRequest", description = "로그인한 계정의 비밀번호 변경 요청 (예매자·판매자 공통)")
+	public record PasswordChange(
+
+		@NotBlank
+		@Schema(description = "현재 비밀번호", example = "oldPassw0rd!")
+		String currentPassword,
+
+		@NotBlank @ValidPassword
+		@Schema(description = "새 비밀번호 (8~25자, 영문·숫자·특수문자 포함). 현재 비밀번호와 달라야 한다 (같으면 400 AUTH312)",
+			example = "newPassw0rd!")
+		String newPassword,
+
+		@NotBlank
+		@Schema(description = "새 비밀번호 확인. 새 비밀번호와 같아야 한다 (다르면 400 AUTH005)", example = "newPassw0rd!")
+		String newPasswordConfirm
+	) {
+	}
+
 	/** 붙여 넣다가 생긴 앞뒤 공백 때문에 이메일 형식 검증에서 떨어지지 않도록 검증 전에 잘라 낸다. */
 	private static String trim(String value) {
 		return value == null ? null : value.trim();

@@ -8,6 +8,7 @@ import { clearAccount } from "@/lib/auth";
 import { dateText } from "@/lib/format";
 import type { UserMe } from "@/lib/types";
 import { ImageUpload } from "@/components/image-upload";
+import { PasswordChangeForm } from "@/components/password-change-form";
 import { ErrorBox, Loading, PageTitle } from "@/components/ui";
 
 type Message = { text: string; error: boolean };
@@ -162,6 +163,11 @@ export default function MePage() {
           <Link href="/bookings" className="btn btn-lg mt-6 w-full">
             내 예매 보기
           </Link>
+
+          <section className="mt-12 border-t border-line pt-6">
+            <h2 className="mb-3 font-semibold">비밀번호 변경</h2>
+            <PasswordChangeForm endpoint="/api/v1/users/me/password" />
+          </section>
 
           <section className="mt-12 border-t border-line pt-6">
             <h2 className="font-semibold">회원 탈퇴</h2>

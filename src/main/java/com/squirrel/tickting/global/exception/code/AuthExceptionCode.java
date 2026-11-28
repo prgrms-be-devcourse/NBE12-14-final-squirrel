@@ -43,6 +43,12 @@ public enum AuthExceptionCode implements ExceptionCode {
 	/** 비밀번호 재설정 링크가 만료되었거나 이미 사용됨(다른 링크로 비밀번호를 바꿔 폐기된 경우, 링크를 받은 뒤 계정이 탈퇴한 경우 포함). 사용자가 할 일은 "다시 요청" 하나라 한 코드로 둔다 */
 	PASSWORD_RESET_TOKEN_INVALID("AUTH309", HttpStatus.BAD_REQUEST, "만료되었거나 이미 사용한 링크입니다. 다시 요청해 주세요."),
 
+	// AUTH310 은 쓰지 않는다. (비밀번호 재설정의 IP 한도로 정했다가 버린 번호)
+	/** 비밀번호 변경에서 현재 비밀번호가 틀림 (같은 계정을 동시에 바꿔 그 사이 비밀번호가 바뀐 경우 포함). 401 이면 화면이 로그인 풀림으로 처리해서 400 이다 */
+	CURRENT_PASSWORD_MISMATCH("AUTH311", HttpStatus.BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다."),
+	/** 비밀번호 변경에서 새 비밀번호가 현재 비밀번호와 같음 */
+	NEW_PASSWORD_SAME_AS_CURRENT("AUTH312", HttpStatus.BAD_REQUEST, "새 비밀번호가 현재 비밀번호와 같습니다."),
+
 	/** 로그인은 됐으나 권한 부족 (예: 예매자가 관리자 API 호출, 403) */
 	ACCESS_DENIED("AUTH100", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 

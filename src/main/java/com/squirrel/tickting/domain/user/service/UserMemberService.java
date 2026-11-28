@@ -134,6 +134,16 @@ public class UserMemberService {
 		return user.getEmail();
 	}
 
+	/**
+	 * 로그인한 회원의 비밀번호를 바꾼다. 현재 비밀번호 확인은 파사드가 먼저 하고, 그때 읽은 해시를 넘긴다.
+	 * 그 사이 비밀번호가 바뀌었거나 탈퇴했으면 CURRENT_PASSWORD_MISMATCH. 트랜잭션을 열지 않는 이유는 resetPassword 와 같다.
+	 */
+	public void changePassword(Long userId, String currentHash, String rawPassword, LocalDateTime now) {
+		if (userMemberRepository.updatePasswordIfUnchanged(userId, currentHash, passwordEncoder.encode(rawPassword), now) == 0) {
+			throw new BusinessException(AuthExceptionCode.CURRENT_PASSWORD_MISMATCH);
+		}
+	}
+
 	public CustomUserDetails toAccount(UserMember user) {
 		return new CustomUserDetails(user.getId(), AccountType.USER, null, null);
 	}

@@ -110,6 +110,20 @@ public interface SellerMemberRepository extends JpaRepository<SellerMember, Long
 		""")
 	int updatePassword(@Param("id") Long id, @Param("password") String password, @Param("now") LocalDateTime now);
 
+	/**
+	 * 로그인한 상태의 비밀번호 변경. 확인에 쓴 해시가 그대로일 때만 바꾸는 조건부 UPDATE 다. 같은 계정을 동시에 바꾸면 한 요청만 1행을 얻는다.
+	 * 0 이면 그 사이 다른 변경·재설정이나 삭제가 먼저 된 것이다. (트랜잭션은 이 UPDATE 하나 동안만 연다)
+	 */
+	@Transactional
+	@Modifying
+	@Query("""
+		UPDATE SellerMember m
+		SET m.password = :newPassword, m.updatedAt = :now
+		WHERE m.id = :id AND m.password = :oldPassword AND m.deletedAt IS NULL
+		""")
+	int updatePasswordIfUnchanged(@Param("id") Long id, @Param("oldPassword") String oldPassword,
+		@Param("newPassword") String newPassword, @Param("now") LocalDateTime now);
+
 	/** 관리자 상세용. 사업체의 대표(신청자) 계정. 대표는 사업체마다 1명이다. */
 	@Query("""
 		SELECT m
