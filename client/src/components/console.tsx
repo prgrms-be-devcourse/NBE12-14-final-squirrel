@@ -1,6 +1,6 @@
 "use client";
 
-import { Briefcase, Building, FileText, LayoutDashboard, MapPin, RotateCcw, Ticket, X } from "lucide-react";
+import { Briefcase, Building, FileText, LayoutDashboard, MapPin, RotateCcw, Ticket, UserRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -16,6 +16,7 @@ const SELLER_NAV: NavItem[] = [
   { href: "/seller/performances", label: "공연", icon: Ticket },
   { href: "/seller/cancel-policies", label: "취소 규정", icon: FileText },
   { href: "/seller/venues", label: "공연장", icon: MapPin },
+  { href: "/seller/account", label: "내 계정", icon: UserRound },
 ];
 
 const ADMIN_NAV: NavItem[] = [
@@ -60,7 +61,8 @@ export function ConsoleShell({ role, children }: { role: Exclude<AccountType, "U
       <StaffBar role={role} />
       <div className="flex-1 bg-deep">
         <div className="mx-auto grid max-w-[1400px] gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[220px_1fr]">
-          <aside className="lg:sticky lg:top-8 lg:self-start">
+          {/* min-w-0 이 없으면 폰에서 메뉴가 가로로 밀리지 않고 화면 전체가 메뉴 너비만큼 넓어진다 */}
+          <aside className="min-w-0 lg:sticky lg:top-8 lg:self-start">
           <nav
             aria-label="콘솔 메뉴"
             className="no-scrollbar -mx-4 flex gap-1 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:px-0"

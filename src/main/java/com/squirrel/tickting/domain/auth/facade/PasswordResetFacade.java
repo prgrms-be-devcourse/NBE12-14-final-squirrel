@@ -36,14 +36,13 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PasswordResetFacade {
 
-	private static final String SEND_METRIC = "email.password-reset.send";
-
 	private final UserMemberService userMemberService;
 	private final SellerMemberService sellerMemberService;
 	private final PasswordResetTokenService tokenService;
 	private final EmailSender emailSender;
 	private final EmailSendExecutor sendExecutor;
 	private final PasswordResetProperties properties;
+	private final PasswordChangedNotifier passwordChangedNotifier;
 	private final MeterRegistry meterRegistry;
 	private final Clock clock;
 
@@ -90,8 +89,7 @@ public class PasswordResetFacade {
 			case ADMIN -> throw new BusinessException(AuthExceptionCode.PASSWORD_RESET_TOKEN_INVALID);
 		};
 
-		revokeAllQuietly(target);
-		notifyChanged(email, target.type());
+		passwordChangedNotifier.passwordChanged(target, email);
 	}
 
 	private PasswordResetResponse.Sent request(AccountType type, Long memberId, String rawEmail) {
@@ -145,35 +143,7 @@ public class PasswordResetFacade {
 		}
 	}
 
-	/** 비밀번호는 이미 바뀌었으므로 폐기에 실패해도 응답은 성공이다. 다른 링크가 최대 링크 유효 시간까지 남는다. */
-	private void revokeAllQuietly(Target target) {
-		try {
-			tokenService.revokeAll(target.type(), target.id());
-		} catch (RuntimeException e) {
-			log.error("비밀번호를 바꾼 계정의 다른 재설정 링크를 폐기하지 못했습니다. type={}, memberId={}, error={}", target.type(),
-				target.id(), e.getClass().getSimpleName());
-		}
-	}
-
-	/** 변경 알림은 보조 기능이라 접수나 발송에 실패해도 비밀번호 변경은 성공으로 둔다. */
-	private void notifyChanged(String email, AccountType type) {
-		try {
-			sendExecutor.execute(() -> {
-				try {
-					emailSender.sendPasswordChanged(email, type);
-					countSend("changed-success");
-				} catch (RuntimeException e) {
-					countSend("changed-failure");
-					log.warn("비밀번호 변경 알림 메일 발송에 실패했습니다. type={}, error={}", type, e.getClass().getSimpleName());
-				}
-			});
-		} catch (RejectedExecutionException e) {
-			countSend("changed-rejected");
-			log.warn("발송 대기가 가득 차서 비밀번호 변경 알림 메일을 접수하지 못했습니다. type={}", type);
-		}
-	}
-
 	private void countSend(String result) {
-		meterRegistry.counter(SEND_METRIC, "result", result).increment();
+		meterRegistry.counter(PasswordChangedNotifier.SEND_METRIC, "result", result).increment();
 	}
 }
