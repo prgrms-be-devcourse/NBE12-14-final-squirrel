@@ -20,7 +20,7 @@ export type AccountType = "USER" | "SELLER" | "ADMIN";
 export type LoginResult = { accountType: AccountType; role: string | null };
 
 export type Genre = "CONCERT" | "MUSICAL" | "PLAY" | "CLASSIC" | "ETC";
-export type SaleStatus = "PAUSED" | "UPCOMING" | "ON_SALE" | "SOLD_OUT" | "ENDED";
+export type SaleStatus = "POSTPONED" | "PAUSED" | "UPCOMING" | "ON_SALE" | "SOLD_OUT" | "ENDED";
 export type ReceiveType = "ONSITE" | "DELIVERY" | "BOTH";
 
 export type Term = {
@@ -70,6 +70,14 @@ export type CancelRule = {
   cancelable: boolean;
 };
 
+// 회차 연기 안내. newStartAt·freeCancelUntil 은 일정 미정이면 null 이다
+export type Postponement = {
+  oldStartAt: string;
+  newStartAt: string | null;
+  reason: string;
+  freeCancelUntil: string | null;
+};
+
 export type PerformanceDetail = {
   performanceId: number;
   title: string;
@@ -95,6 +103,8 @@ export type PerformanceDetail = {
     status: string;
     saleStatus: SaleStatus;
     pauseReason: string | null;
+    // 일정 미정이면 늘, 날짜를 바꾼 연기면 무료 취소 마감 전까지 온다
+    postponement: Postponement | null;
   }[];
   grades: { gradeId: number; name: string; price: number }[];
   cancelPolicy: CancelRule[];
@@ -183,6 +193,7 @@ export type BookingSummary = {
   performanceTitle: string;
   posterUrl: string | null;
   scheduleStartAt: string;
+  scheduleStatus: ScheduleStatus;
   seatCount: number;
   totalAmount: number;
   createdAt: string;
@@ -193,7 +204,7 @@ export type BookingDetail = {
   bookingNo: string;
   status: BookingStatus;
   performance: { performanceId: number; title: string; posterUrl: string | null };
-  schedule: { scheduleId: number; startAt: string; status: string };
+  schedule: { scheduleId: number; startAt: string; status: ScheduleStatus };
   receiveType: "ONSITE" | "DELIVERY";
   orderer: { name: string; phone: string; email: string };
   delivery: {
@@ -223,6 +234,8 @@ export type BookingDetail = {
   cancelable: boolean;
   // 취소할 수 없으면 null
   currentFeeRate: number | null;
+  // 공연 연기로 지금 수수료 없이 취소할 수 있을 때만 있다. until 이 null 이면 일정 확정 전까지
+  postponeFreeCancel: { until: string | null } | null;
   expiresAt: string | null;
   createdAt: string;
   canceledAt: string | null;
@@ -287,6 +300,8 @@ export type SellerSchedule = {
   seatsGeneratedAt: string | null;
   // 일시 중지 회차의 중지 사유. 판매자 응답에만 있다
   pauseReason: string | null;
+  // 가장 최근 연기. 연기한 적이 없으면 null
+  postponement: (Postponement & { postponementId: number; createdAt: string }) | null;
 };
 
 // 회차 판매 일시 중지·재개(SLR-26·27) 결과

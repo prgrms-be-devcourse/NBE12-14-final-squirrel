@@ -79,7 +79,7 @@ erDiagram
 // before_value
 { "status": "ON_SALE" }
 // after_value
-{ "status": "POSTPONED", "newStartAt": null }
+{ "status": "POSTPONED", "startAt": null }
 ```
 
 **Q. 왜 다른 테이블과 FK로 연결하지 않나요?**

@@ -84,9 +84,9 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("editableStatuses") Collection<ScheduleStatus> editableStatuses, @Param("now") LocalDateTime now);
 
 	/**
-	 * 상태가 fromStatus 이고 아직 시작하지 않은 회차만 판매 상태와 중지 사유를 바꾸고 바뀐 행 수를 돌려준다. (일시 중지·재개)
+	 * 상태가 fromStatus 이고 아직 시작하지 않은 회차만 판매 상태와 중지 사유를 바꾸고 바뀐 행 수를 돌려준다. (일시 중지·재개·일정 미정 연기)
 	 * 락이 듣지 않는 경우(Redis 장애·락 만료)에도 그 사이 바뀌거나 시작한 회차를 덮어쓰지 않게 하는 상태 조건부 UPDATE 다.
-	 * pauseReason 은 중지하면 사유, 재개하면 null 이다.
+	 * pauseReason 은 중지하면 사유, 재개·연기하면 null 이다.
 	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣고, 영속성 컨텍스트는 비우지 않는다. (읽어 둔 엔티티에는 바꾸기 전 값이 남는다)
 	 */
 	@Modifying(flushAutomatically = true)
@@ -102,6 +102,23 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 	int updateSaleStatus(@Param("scheduleIds") Collection<Long> scheduleIds,
 		@Param("fromStatus") ScheduleStatus fromStatus, @Param("toStatus") ScheduleStatus toStatus,
 		@Param("pauseReason") String pauseReason, @Param("now") LocalDateTime now);
+
+	/**
+	 * 일정 미정으로 연기한 회차만 새 일시를 넣고 판매 중으로 바꾼 뒤 바뀐 행 수를 돌려준다. 0행이면 확인한 뒤에 상태가 바뀌었다.
+	 * 원래 일시가 지났을 수 있어 시작 시각은 보지 않는다. 락이 듣지 않는 경우의 방어선인 상태 조건부 UPDATE 다.
+	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣고, 영속성 컨텍스트는 비우지 않는다.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE PerformanceSchedule s
+		   SET s.startAt = :startAt,
+		       s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.ON_SALE,
+		       s.updatedAt = :now
+		 WHERE s.id = :scheduleId
+		   AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.POSTPONED
+		""")
+	int confirmPostponed(@Param("scheduleId") Long scheduleId, @Param("startAt") LocalDateTime startAt,
+		@Param("now") LocalDateTime now);
 
 	/**
 	 * 이 공연의 회차 중, 주어진 공연장의 다른 회차와 시간이 겹치는 회차의 시작 일시. 빠른 순이다.

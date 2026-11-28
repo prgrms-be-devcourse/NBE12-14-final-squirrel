@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
  */
 public enum SaleStatus {
 
+	/** 일정 미정으로 연기. 아직 시작하지 않은 판매 중·일시 중지 회차는 없고 미정 연기 회차가 있음 */
+	POSTPONED,
 	/** 판매자가 일시 중지. 아직 시작하지 않은 회차에 일시 중지는 있고 판매 중은 없다 */
 	PAUSED,
 	/** 판매 오픈 전 */
@@ -22,15 +24,23 @@ public enum SaleStatus {
 	/**
 	 * 판매 상태를 계산한다. 현재 시각을 밖에서 받아서, 한 요청 안에서 기준 시각이 어긋나지 않고 경계값을 테스트하기 쉽다.
 	 * 종료를 가장 먼저 본다. 끝난 공연은 좌석이 남아 있어도 살 수 없기 때문이다.
+	 * 단 일정 미정 연기는 원래 일시가 지났어도 끝난 것이 아니라서, 판매 종료 시각만 먼저 보고 마지막 회차보다 앞에 둔다.
 	 * 일시 중지는 오픈 예정보다 먼저다. 재개하지 않으면 오픈 시각이 되어도 살 수 없다.
 	 *
 	 * @param lastStartAt       취소되지 않은 회차 중 가장 늦은 공연 일시. 회차가 없으면 null 이고 살 수 있는 회차가 없으니 종료로 본다
 	 * @param paused            아직 시작하지 않은 회차에 일시 중지는 있고 판매 중은 없는지
+	 * @param postponed         아직 시작하지 않은 판매 중·일시 중지 회차는 없고 일정 미정 연기 회차가 있는지
 	 * @param hasAvailableSeat  아직 시작하지 않은 판매 중 회차에 판매 가능(AVAILABLE) 좌석이 하나라도 있는지
 	 */
 	public static SaleStatus of(LocalDateTime saleOpenAt, LocalDateTime saleCloseAt, LocalDateTime lastStartAt,
-		boolean paused, boolean hasAvailableSeat, LocalDateTime now) {
-		if (lastStartAt == null || !now.isBefore(lastStartAt) || !now.isBefore(saleCloseAt)) {
+		boolean paused, boolean postponed, boolean hasAvailableSeat, LocalDateTime now) {
+		if (lastStartAt == null || !now.isBefore(saleCloseAt)) {
+			return ENDED;
+		}
+		if (postponed) {
+			return POSTPONED;
+		}
+		if (!now.isBefore(lastStartAt)) {
 			return ENDED;
 		}
 		if (paused) {

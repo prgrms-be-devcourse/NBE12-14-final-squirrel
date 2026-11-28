@@ -7,6 +7,7 @@ import com.squirrel.tickting.domain.booking.infra.repository.BookingRepository;
 import com.squirrel.tickting.domain.booking.infra.repository.BookingSeatRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
@@ -79,12 +80,23 @@ public class BookingService {
 	}
 
 	/**
-	 * 판매가 일시 중지된 회차의 예매는 결제할 수 없다. 판매자가 중지한 뒤에는 돈이 들어오면 안 된다.
-	 * 좌석 점유는 그대로 두어 만료 전에 재개되면 이어서 결제한다. 회차를 지연 로딩으로 읽어서 호출한 쪽의 트랜잭션 안에서 부른다.
+	 * 판매가 일시 중지되었거나 일정이 바뀐 회차의 예매는 결제할 수 없다. 판매자가 중지·연기한 뒤에는 돈이 들어오면 안 된다.
+	 * 일정 미정 회차와, 연기하기 전에 만든 예매(바뀌기 전 일시를 보고 고른 좌석)를 막는다. 중지와 겹치면 연기를 먼저 알린다.
+	 * 그 예매는 재개해도 결제할 수 없어서 "중지"라고 하면 기다리게 되기 때문이다.
+	 * 좌석 점유는 그대로 두어 만료 전에 재개되면(중지만 한 경우) 이어서 결제한다.
+	 * 회차와 연기 이력을 지연 로딩으로 읽어서 호출한 쪽의 트랜잭션 안에서 부른다.
 	 */
 	@Transactional(readOnly = true)
-	public void validateScheduleNotPaused(Booking booking) {
-		if (booking.getSchedule().getStatus() == ScheduleStatus.PAUSED) {
+	public void validateSchedulePayable(Booking booking) {
+		PerformanceSchedule schedule = booking.getSchedule();
+		boolean bookedBeforePostponement = schedule.findLatestPostponement()
+			.filter(latest -> latest.isAnnouncedAfter(booking.getCreatedAt()))
+			.isPresent();
+		if (schedule.getStatus() == ScheduleStatus.POSTPONED || bookedBeforePostponement) {
+			throw new BusinessException(BookingExceptionCode.SCHEDULE_POSTPONED,
+				"공연 일정이 바뀌어 결제할 수 없습니다. 바뀐 일정을 확인한 뒤 다시 예매해 주세요.");
+		}
+		if (schedule.getStatus() == ScheduleStatus.PAUSED) {
 			throw new BusinessException(BookingExceptionCode.SCHEDULE_SALE_PAUSED, "판매가 일시 중지된 회차라 결제할 수 없습니다.");
 		}
 	}
@@ -221,7 +233,7 @@ public class BookingService {
 		int refundAmount = targets.stream().mapToInt(seat -> seat.getPrice() + seat.getBookingFee()).sum()
 			- cancelFeeTotal;
 		return new BookingCancelPlan(bookingId, feeRate, lines, cancelFeeTotal, refundAmount,
-			targets.size() == activeSeats.size());
+			targets.size() == activeSeats.size(), quote.freePostponement() != null);
 	}
 
 	/**

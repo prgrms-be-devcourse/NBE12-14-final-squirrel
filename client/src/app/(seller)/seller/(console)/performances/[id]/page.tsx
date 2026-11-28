@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Fragment, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, useApi } from "@/lib/api";
-import { GENRE_LABEL, GRADE_CODES, dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
+import { GENRE_LABEL, GRADE_CODES, dateTimeText, gradeColor, gradeLabel, scheduleText, won } from "@/lib/format";
 import {
   PERFORMANCE_BADGE,
   PERFORMANCE_LABEL,
@@ -36,6 +36,7 @@ type ModalState =
   | { kind: "grade"; grade?: Grade }
   | { kind: "cancel-performance" }
   | { kind: "cancel-schedule"; scheduleId: number }
+  | { kind: "postpone" | "confirm-postpone"; scheduleId: number }
   // scheduleIds 가 null 이면 모두
   | { kind: "pause" | "resume"; scheduleIds: number[] | null }
   | null;
@@ -87,7 +88,14 @@ export default function SellerPerformanceDetailPage() {
       setSelected([]);
       reloadAll();
     } catch (error) {
-      setMessage({ text: error instanceof ApiError ? error.message : "처리하지 못했습니다", error: true });
+      // 원래 일시가 지난 미정 회차만 남으면 서버는 "회차가 모두 시작됨"으로 답해서, 먼저 할 일을 덧붙인다.
+      const hint =
+        error instanceof ApiError &&
+        error.code === "PERFORMANCE010" &&
+        detail.data?.schedules.some((s) => s.status === "POSTPONED")
+          ? " 일정 미정 회차의 새 일정을 먼저 확정해 주세요."
+          : "";
+      setMessage({ text: error instanceof ApiError ? error.message + hint : "처리하지 못했습니다", error: true });
     } finally {
       setBusy(false);
     }
@@ -123,6 +131,12 @@ export default function SellerPerformanceDetailPage() {
         return skipped.length === 0 ? done : `${done}. 건너뜀: ${skipped.join(", ")}`;
       },
     );
+  }
+
+  // 연기·확정 창은 거절 사유(마감 범위, 시간 겹침 등)를 창 안에서 보여 주므로 열 때 이전 메시지를 지운다.
+  function openPostpone(kind: "postpone" | "confirm-postpone", scheduleId: number) {
+    setMessage(null);
+    setModal({ kind, scheduleId });
   }
 
   // 공개 공연이 통째로 멈춘 동안에는 회차를 더하지 못한다. 막는 것은 서버다.
@@ -295,13 +309,22 @@ export default function SellerPerformanceDetailPage() {
                     />
                   )}
                   <div>
-                    <p className="font-medium">{dateTimeText(s.startAt)}</p>
+                    <p className="font-medium">{scheduleText(s.startAt, s.status)}</p>
                     <p className="mt-1 flex items-center gap-2 text-xs text-muted">
                       <span className={SCHEDULE_BADGE[s.status]}>{SCHEDULE_LABEL[s.status]}</span>
                       {s.seatsGeneratedAt ? `좌석 생성 ${dateTimeText(s.seatsGeneratedAt)}` : "좌석 미생성"}
                     </p>
                     {s.status === "PAUSED" && s.pauseReason && (
                       <p className="mt-1 text-xs text-secondary">중지 사유: {s.pauseReason}</p>
+                    )}
+                    {s.postponement && (
+                      <p className="mt-1 text-xs break-words text-secondary">
+                        {s.status !== "POSTPONED" && `일정 변경(원래 ${dateTimeText(s.postponement.oldStartAt)}) · `}
+                        연기 사유: {s.postponement.reason} ·{" "}
+                        {s.postponement.freeCancelUntil
+                          ? `무료 취소 마감 ${dateTimeText(s.postponement.freeCancelUntil)}`
+                          : "일정 확정 전까지 무료 취소"}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -317,6 +340,21 @@ export default function SellerPerformanceDetailPage() {
                         }
                       >
                         좌석 생성
+                      </button>
+                    )}
+                    {switchable.some((x) => x.scheduleId === s.scheduleId) && (
+                      <button type="button" className="btn" disabled={busy} onClick={() => openPostpone("postpone", s.scheduleId)}>
+                        연기
+                      </button>
+                    )}
+                    {s.status === "POSTPONED" && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={busy}
+                        onClick={() => openPostpone("confirm-postpone", s.scheduleId)}
+                      >
+                        새 일정 확정
                       </button>
                     )}
                     <Link href={`/seller/schedules/${s.scheduleId}/bookings`} className="btn">
@@ -409,7 +447,7 @@ export default function SellerPerformanceDetailPage() {
           {sales.data?.schedules.map((s) => (
             <li key={s.scheduleId}>
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{dateTimeText(s.startAt)}</span>
+                <span className="font-medium">{scheduleText(s.startAt, s.status)}</span>
                 <span className="text-muted">
                   {s.seatsGenerated ? `${s.soldSeats}/${s.totalSeats}석 판매` : "좌석 미생성"}
                 </span>
@@ -441,6 +479,24 @@ export default function SellerPerformanceDetailPage() {
           busy={busy}
           onClose={() => setModal(null)}
           onSubmit={(startAt) => run(() => api(`${base}/schedules`, { method: "POST", body: { startAt } }), "회차를 추가했습니다")}
+        />
+      )}
+      {(modal?.kind === "postpone" || modal?.kind === "confirm-postpone") && (
+        <PostponeModal
+          confirming={modal.kind === "confirm-postpone"}
+          error={message?.error ? message.text : null}
+          busy={busy}
+          onClose={() => setModal(null)}
+          onSubmit={(body) =>
+            run(
+              () =>
+                api(
+                  `/api/v1/seller/schedules/${modal.scheduleId}/postpone${modal.kind === "confirm-postpone" ? "/confirm" : ""}`,
+                  { method: "POST", body },
+                ),
+              modal.kind === "confirm-postpone" ? "새 일정을 확정하고 판매를 열었습니다" : "회차를 연기했습니다",
+            )
+          }
         />
       )}
       {modal?.kind === "pause" && (
@@ -556,6 +612,93 @@ function ScheduleModal({
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy}>
             추가
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// 연기(SLR-28)와 새 일정 확정(SLR-29). 확정은 사유가 없고 새 일시가 필수다.
+function PostponeModal({
+  confirming,
+  error,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  confirming: boolean;
+  error: string | null;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (body: { reason?: string; newStartAt: string | null; freeCancelUntil: string | null }) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [startAt, setStartAt] = useState("");
+  const [deadline, setDeadline] = useState("");
+  return (
+    <Modal title={confirming ? "새 일정 확정" : "회차 연기"} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!confirming && !reason.trim()) return;
+          onSubmit({
+            reason: confirming ? undefined : reason.trim(),
+            newStartAt: toServerDateTime(startAt),
+            // 새 일시를 지우면 마감 칸이 꺼지므로 남아 있던 값은 보내지 않는다
+            freeCancelUntil: startAt ? toServerDateTime(deadline) : null,
+          });
+        }}
+        className="space-y-5"
+      >
+        <p className="text-sm text-secondary">
+          {confirming
+            ? "확정하면 바로 판매가 열립니다. 중지한 상태에서 연기한 회차도 열립니다. 연기 전에 예매한 사람은 무료 취소 마감까지 수수료 없이 취소할 수 있습니다"
+            : "예매는 그대로 두고, 연기 전에 예매한 사람은 수수료 없이 취소할 수 있습니다. 새 일시를 비우면 일정 미정이 되어 대기열·좌석 선택·결제가 막힙니다. 되돌릴 수 없습니다"}
+        </p>
+        {!confirming && (
+          <Field label="연기 사유 (예매자 공연 상세에 보입니다)">
+            <textarea
+              className="input h-24 py-3"
+              value={reason}
+              maxLength={255}
+              onChange={(e) => setReason(e.target.value)}
+              required
+            />
+          </Field>
+        )}
+        <Field label={confirming ? "새 공연 일시" : "새 공연 일시 (선택)"} hint="같은 공연장의 다른 회차와 시간이 겹치면 안 됩니다">
+          <input
+            className="input"
+            type="datetime-local"
+            value={startAt}
+            onChange={(e) => setStartAt(e.target.value)}
+            required={confirming}
+          />
+        </Field>
+        <Field
+          label="무료 취소 마감 (선택)"
+          hint={`비우면 14일 뒤${confirming ? "" : "(남은 이전 마감이 더 늦으면 그때)"}입니다. 7일 뒤${confirming ? "" : "와 남은 이전 마감"}보다 이를 수 없고, 새 공연 일시를 넘지 않습니다`}
+        >
+          <input
+            className="input"
+            type="datetime-local"
+            value={deadline}
+            disabled={!startAt}
+            onChange={(e) => setDeadline(e.target.value)}
+          />
+        </Field>
+        {error && (
+          <p role="alert" className="text-sm text-accent-strong">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn" onClick={onClose}>
+            닫기
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {confirming ? "확정하고 판매 열기" : "연기하기"}
           </button>
         </div>
       </form>
