@@ -10,9 +10,11 @@ import type { StepKey, StepProps } from "@/components/performance-wizard/types";
 
 type Check = { label: string; ok: boolean; detail?: string; fix: StepKey };
 
-const HOUR = 3_600_000;
-// 공개 조건의 "임시" 값(api-spec SLR-04 4번)이다. 서버가 바뀌면 같이 고친다.
-const PUBLISH_LEAD_HOURS = 3;
+const MINUTE = 60_000;
+// 공개 조건의 "임시" 값(api-spec SLR-04 4번). 서버 app.performance.publish-lead-time 과 같게 맞춘다.
+// 테스트 환경에서만 줄이려고 환경 변수로 뺐다. 빌드할 때 박히므로 바꾸면 다시 빌드한다. 없으면 3시간이다.
+const PUBLISH_LEAD_MINUTES = Number(process.env.NEXT_PUBLIC_PUBLISH_LEAD_MINUTES ?? 180);
+const PUBLISH_LEAD_TEXT = PUBLISH_LEAD_MINUTES % 60 === 0 ? `${PUBLISH_LEAD_MINUTES / 60}시간` : `${PUBLISH_LEAD_MINUTES}분`;
 
 // 공개하기 전에 서버가 확인하는 조건(api-spec SLR-04)을 미리 보여 준다. 최종 판단은 서버가 한다.
 export function ReviewStep({ detail, grades, onBack, goTo }: StepProps) {
@@ -45,8 +47,8 @@ export function ReviewStep({ detail, grades, onBack, goTo }: StepProps) {
       fix: "basic",
     },
     {
-      label: `예매 오픈까지 ${PUBLISH_LEAD_HOURS}시간보다 더 남았다`,
-      ok: open !== null && open - now > PUBLISH_LEAD_HOURS * HOUR,
+      label: `예매 오픈까지 ${PUBLISH_LEAD_TEXT}보다 더 남았다`,
+      ok: open !== null && open - now > PUBLISH_LEAD_MINUTES * MINUTE,
       detail: "오픈 직전에 공개하면 판매 좌석이 없는 틈이 생겨서 막습니다",
       fix: "basic",
     },
