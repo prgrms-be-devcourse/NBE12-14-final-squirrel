@@ -24,6 +24,7 @@ pnpm dev
 | `SPRING_API_URL` | 필수 | BFF가 호출할 Spring 주소. 로컬은 `http://localhost:8080`, 운영은 `https://api.noresell.store` |
 | `NEXT_PUBLIC_TOSS_CLIENT_KEY` | 운영 필수 | 토스 결제위젯 **클라이언트** 키(`test_gck_…`/`live_gck_…`). 시크릿 키는 서버(Spring)만 갖고 여기에 넣지 않습니다 |
 | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | 운영 필수 | reCAPTCHA v3 **사이트** 키. 구글 콘솔의 허용 도메인에 배포 도메인(`noresell.store`)을 넣어야 합니다 |
+| `NEXT_PUBLIC_PUBLISH_LEAD_MINUTES` | 선택 | 공연 공개 화면의 "예매 오픈까지 N보다 더 남았다" 검사(분). 없으면 180(3시간). 테스트에서 줄일 때만 넣고 서버 `app.performance.publish-lead-time`과 같게 맞춥니다 |
 
 `NEXT_PUBLIC_` 값은 브라우저 번들에 들어갑니다. 비밀 값을 이 이름으로 만들지 마세요.
 

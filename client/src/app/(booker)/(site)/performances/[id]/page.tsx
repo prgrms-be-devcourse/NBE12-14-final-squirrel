@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { useApi } from "@/lib/api";
-import { GENRE_LABEL, SALE_LABEL, dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
+import { GENRE_LABEL, SALE_LABEL, dateTimeText, gradeColor, gradeLabel, scheduleText, won } from "@/lib/format";
 import type { CancelRule, PerformanceDetail } from "@/lib/types";
 import { ErrorBox, Loading, Poster } from "@/components/ui";
 
@@ -135,12 +135,25 @@ export default function PerformanceDetailPage() {
                       active ? "border-foreground bg-raised" : "border-line hover:border-[rgba(25,27,33,0.35)]"
                     }`}
                   >
-                    <span>{dateTimeText(s.startAt)}</span>
+                    <span>{scheduleText(s.startAt, s.status)}</span>
                     {!ok && <span className="text-xs text-muted">{SALE_LABEL[s.saleStatus]}</span>}
                   </button>
                   {/* 선택할 수 없는 버튼은 흐려지므로 사유는 버튼 밖에 둔다 */}
                   {s.pauseReason && (
                     <p className="mt-1 px-4 text-xs break-words text-secondary">중지 사유: {s.pauseReason}</p>
+                  )}
+                  {s.postponement && (
+                    <div className="mt-1 space-y-0.5 px-4 text-xs break-words text-secondary">
+                      {s.status !== "POSTPONED" && <p>일정 변경: 원래 {dateTimeText(s.postponement.oldStartAt)}</p>}
+                      <p>연기 사유: {s.postponement.reason}</p>
+                      <p>
+                        연기 전 예매는{" "}
+                        {s.postponement.freeCancelUntil
+                          ? `${dateTimeText(s.postponement.freeCancelUntil)}까지`
+                          : "일정 확정 전까지"}{" "}
+                        수수료 없이 취소할 수 있습니다
+                      </p>
+                    </div>
                   )}
                 </li>
               );

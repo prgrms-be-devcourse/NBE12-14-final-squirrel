@@ -95,8 +95,7 @@ public class BookingQueryService {
 		BiFunction<Booking, UserBookingResponse.Detail, T> toDetail) {
 		Booking booking = find(scope, bookingId);
 		CancelPolicyCalculator.Quote quote = cancelPolicyCalculator.quote(booking, LocalDateTime.now());
-		UserBookingResponse.Detail detail = UserBookingResponse.Detail.from(booking, readCancelPolicy(booking),
-			quote.cancelable(), quote.feeRate());
+		UserBookingResponse.Detail detail = UserBookingResponse.Detail.from(booking, readCancelPolicy(booking), quote);
 		return toDetail.apply(booking, detail);
 	}
 

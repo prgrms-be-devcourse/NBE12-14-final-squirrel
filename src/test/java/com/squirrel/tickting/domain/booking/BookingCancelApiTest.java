@@ -1,17 +1,27 @@
 package com.squirrel.tickting.domain.booking;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.squirrel.tickting.domain.booking.service.BookingCancelPlan;
+import com.squirrel.tickting.domain.booking.service.BookingService;
 import com.squirrel.tickting.domain.payment.gateway.MockPaymentGateway;
+import com.squirrel.tickting.domain.payment.infra.entity.Payment;
+import com.squirrel.tickting.domain.payment.infra.entity.Refund;
+import com.squirrel.tickting.domain.payment.service.PaymentService;
+import com.squirrel.tickting.domain.payment.service.RefundService;
+import com.squirrel.tickting.domain.payment.type.RefundReasonType;
+import com.squirrel.tickting.global.exception.BusinessException;
 import jakarta.servlet.http.Cookie;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,11 +30,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 예매 취소(BKG-06). 예매는 실제 좌석 점유·결제 준비·결제 승인 API 로 결제 완료까지 만들고, 토스 대신 Mock 게이트웨이를 쓴다.
  * 결제 키 접두사로 Mock 의 환불 결과를 고른다. (refund_reject_ 거절, 그 밖은 성공)
  * 기본 취소 규정: 7일 전까지 0%, 6~3일 10%, 2~1일 20%, 당일 취소 불가. 좌석 154,000원, 예매 수수료 장당 2,000원.
+ * 판매자가 취소한 회차의 결제·직접 취소 차단도 여기서 확인한다. 환불은 추후 구현할 스케줄러가 만든다.
  */
 class BookingCancelApiTest extends BookingTestSupport {
 
@@ -33,6 +45,18 @@ class BookingCancelApiTest extends BookingTestSupport {
 
 	@Autowired
 	MockPaymentGateway gateway;
+
+	@Autowired
+	BookingService bookingService;
+
+	@Autowired
+	PaymentService paymentService;
+
+	@Autowired
+	RefundService refundService;
+
+	@Autowired
+	TransactionTemplate transactionTemplate;
 
 	@BeforeEach
 	void resetPayments() {
@@ -296,5 +320,97 @@ class BookingCancelApiTest extends BookingTestSupport {
 		assertThat(bookingStatus(paid.bookingId())).isEqualTo("PARTIAL_CANCELED");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM booking_seat WHERE booking_id = ? AND active",
 			Long.class, paid.bookingId())).isEqualTo(1);
+	}
+
+	// ---------------------------------------------------------------- 회차 취소: 결제·직접 취소 차단
+
+	/** 판매자가 회차를 취소한 상태로 만든다. 취소 API 자체는 SellerScheduleCancelApiTest 가 확인한다. */
+	private void cancelSchedule(Long scheduleId) {
+		jdbc.update("UPDATE performance_schedule SET status = 'CANCELED', cancel_reason = '출연자 사정' WHERE id = ?",
+			scheduleId);
+	}
+
+	@Test
+	@DisplayName("취소된 회차의 결제 대기 예매는 결제 준비와 승인이 409 BOOKING007 이고, 토스를 부르지 않으며 결제는 준비로 남는다")
+	void blocksPaymentOfCanceledSchedule() throws Exception {
+		Show show = show(1);
+		User user = signup("first");
+		MvcResult booked = book(user.session(), show.scheduleId(), show.seatIds()).andReturn();
+		Long bookingId = Long.parseLong(read(booked, "$.data.bookingId"));
+		String url = "/api/v1/bookings/" + bookingId + "/payments";
+		String receive = objectMapper.writeValueAsString(Map.of("receiveType", "ONSITE"));
+		MvcResult prepared = mockMvc.perform(post(url).cookie(user.session())
+				.contentType(MediaType.APPLICATION_JSON).content(receive))
+			.andExpect(status().isOk())
+			.andReturn();
+		cancelSchedule(show.scheduleId());
+
+		mockMvc.perform(post(url).cookie(user.session()).contentType(MediaType.APPLICATION_JSON).content(receive))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING007"))
+			.andExpect(jsonPath("$.message").value("취소된 회차라 결제할 수 없습니다."));
+		mockMvc.perform(post("/api/v1/payments/confirm").cookie(user.session())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(Map.of(
+					"paymentKey", "pay_key_ok",
+					"orderId", read(prepared, "$.data.orderId"),
+					"amount", Integer.parseInt(read(prepared, "$.data.amount"))))))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING007"));
+
+		assertThat(gateway.confirmedOrderIds()).isEmpty();
+		assertThat(paymentStatus(bookingId)).isEqualTo("READY");
+		assertThat(bookingStatus(bookingId)).isEqualTo("PENDING");
+	}
+
+	@Test
+	@DisplayName("연기 무료 취소 대상이었어도 회차가 취소되면 직접 취소는 409 BOOKING008 이고 상세는 취소 불가다")
+	void blocksUserCancelOfCanceledSchedule() throws Exception {
+		Show show = show(2);
+		User user = signup("first");
+		Paid paid = pay(user, show, 2, "pay_key_ok");
+		jdbc.update("""
+			INSERT INTO schedule_postponement (schedule_id, old_start_at, new_start_at, reason, free_cancel_until,
+			                                   changed_by, created_at)
+			VALUES (?, ?, NULL, '출연자 사정', ?, 1, ?)
+			""", show.scheduleId(), now.plusDays(10), LocalDateTime.now().plusDays(14), LocalDateTime.now().plusSeconds(1));
+		cancelSchedule(show.scheduleId());
+
+		cancel(user.session(), paid.bookingId(), Map.of("bookingSeatIds", List.of(paid.bookingSeatIds().get(0))))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BOOKING008"))
+			.andExpect(jsonPath("$.message").value("취소된 회차입니다. 환불은 자동으로 처리됩니다."));
+		mockMvc.perform(get("/api/v1/bookings/" + paid.bookingId()).cookie(user.session()))
+			.andExpect(jsonPath("$.data.cancelable").value(false));
+
+		assertThat(count("refund")).isZero();
+		assertThat(bookingStatus(paid.bookingId())).isEqualTo("PAID");
+	}
+
+	@Test
+	@DisplayName("계산한 뒤 회차가 취소되면 직접 취소의 반영은 되돌려지고 환불 행도 남지 않는다 (예매 락이 듣지 않을 때)")
+	void rollsBackUserCancelWhenScheduleCanceledMidway() throws Exception {
+		Show show = show(2);
+		User user = signup("first");
+		Paid paid = pay(user, show, 2, "pay_key_ok");
+
+		assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(tx -> {
+			LocalDateTime requestedAt = LocalDateTime.now();
+			BookingCancelPlan plan = bookingService.planCancel(user.id(), paid.bookingId(), paid.bookingSeatIds(),
+				requestedAt);
+			// 계산한 뒤 반영하기 전에 판매자가 취소한다. 다른 연결에서 커밋돼야 해서 새 스레드를 쓴다.
+			CompletableFuture.runAsync(() -> cancelSchedule(show.scheduleId())).join();
+			Payment payment = paymentService.getRefundable(paid.bookingId());
+			Refund refund = refundService.start(payment, paid.bookingId(), plan.refundAmount(),
+				RefundReasonType.USER_CANCEL, requestedAt);
+			paymentService.applyCancel(payment, plan.fullyCanceled());
+			bookingService.applyCancel(plan, refund.getId(), requestedAt);
+		})).isInstanceOf(BusinessException.class);
+
+		assertThat(count("refund")).isZero();
+		assertThat(bookingStatus(paid.bookingId())).isEqualTo("PAID");
+		assertThat(paymentStatus(paid.bookingId())).isEqualTo("DONE");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM booking_seat WHERE booking_id = ? AND active",
+			Long.class, paid.bookingId())).isEqualTo(2);
 	}
 }

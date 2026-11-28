@@ -34,7 +34,7 @@ public class CancelPolicyService {
 	 * 쓰는 공연이 이 상태면 규정을 고칠 수 없다. 수정(SLR-22)의 409 와 목록·상세의 editable 이 이 값 하나를 함께 써서
 	 * "고칠 수 있다고 떴는데 저장하면 409" 가 생기지 않게 한다.
 	 * 취소된 공연도 잠그는 것은 판매자가 그 공연에 적용된 기준을 볼 곳이 공연의 규정뿐이라서다.
-	 * 상태만 봐서 작성 중(DRAFT)에 취소된 공연도 잠긴다. 공연에 공개 시각(published_at)이 생기면 그 값으로 바꾼다(DB 관련 TODO).
+	 * 공연 취소는 공개 공연만 할 수 있어 취소 공연은 모두 공개한 적이 있다.
 	 */
 	private static final Set<PerformanceStatus> LOCKING_STATUSES =
 		EnumSet.of(PerformanceStatus.PUBLISHED, PerformanceStatus.CANCELED);

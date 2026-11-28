@@ -14,6 +14,7 @@ import com.squirrel.tickting.domain.performance.dto.SellerPerformanceResponse;
 import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicy;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.entity.ScheduleSeat;
 import com.squirrel.tickting.domain.performance.service.CancelPolicyService;
 import com.squirrel.tickting.domain.performance.service.GradeService;
 import com.squirrel.tickting.domain.performance.service.PerformanceLockNames;
@@ -23,7 +24,11 @@ import com.squirrel.tickting.domain.performance.service.SellerPerformanceService
 import com.squirrel.tickting.domain.performance.type.PerformanceStatus;
 import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatGradeName;
+import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.domain.performance.type.ZoneAssignmentStatus;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueSeat;
+import com.squirrel.tickting.domain.venue.infra.entity.VenueZone;
+import com.squirrel.tickting.domain.venue.service.VenueLockNames;
 import com.squirrel.tickting.domain.venue.service.VenueService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
@@ -31,9 +36,12 @@ import com.squirrel.tickting.global.lock.DistributedLockExecutor;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -68,31 +76,30 @@ public class SellerPerformanceFacade {
 
 	/**
 	 * 공연을 작성 중(DRAFT)으로 등록하고 공연장의 모든 구역을 UNSET 으로 만든다.
-	 * 확인(공연장, 취소 규정)은 읽기만 해서 트랜잭션 밖에서 먼저 하고, 쓰기만 한 트랜잭션으로 묶는다.
+	 * 공연장 확인과 저장 사이에 사용 중지가 끼어들지 않게 공연장 락을 잡고 그 안에서 확인(공연장, 취소 규정)과 저장을 한다.
 	 * 구역 설정 없이 공연만 남으면 공개 검사가 빈 구역을 "UNSET 없음"으로 잘못 읽으므로 둘은 함께 성공하거나 함께 취소된다.
-	 * 잠금은 쓰지 않는다. 새 공연은 DRAFT 라 취소 규정 수정과 부딪히지 않고, 공연장 구역은 등록 중에 바뀌지 않는다.
+	 * 취소 규정 락은 잡지 않는다. 새 공연은 DRAFT 라 취소 규정 수정과 부딪히지 않는다.
 	 */
 	public SellerPerformanceResponse.Created register(Long businessId, Long createdBy,
 		SellerPerformanceRequest.Save request) {
-		List<Long> zoneIds = venueService.getActiveZoneIds(request.venueId());
-		CancelPolicy cancelPolicy = cancelPolicyService.getVisible(request.cancelPolicyId(), businessId);
-
-		Performance performance = transactionTemplate.execute(status -> {
-			Performance created = sellerPerformanceService.create(businessId, createdBy, request.venueId(), cancelPolicy,
-				request);
-			gradeService.initializeZones(created, zoneIds);
-			return created;
-		});
+		Performance performance = lockExecutor.execute(List.of(VenueLockNames.venue(request.venueId())),
+			properties.lockWait(), () -> transactionTemplate.execute(status -> {
+				List<Long> zoneIds = venueService.getActiveZoneIds(request.venueId());
+				CancelPolicy cancelPolicy = cancelPolicyService.getVisible(request.cancelPolicyId(), businessId);
+				Performance created = sellerPerformanceService.create(businessId, createdBy, request.venueId(),
+					cancelPolicy, request);
+				gradeService.initializeZones(created, zoneIds);
+				return created;
+			}));
 		return SellerPerformanceResponse.Created.from(performance);
 	}
 
 	/**
 	 * 공연을 전체 교체로 수정한다. 락은 커밋 뒤에 풀려야 해서 락을 먼저 잡고 그 안에서 트랜잭션을 연다.
-	 * 락은 공연 단위(performance:{번호})다. 같은 공연의 등급·구역 수정(SLR-10·11), 공개(SLR-04), 판매 좌석 생성과 겹치지 않게 한다.
-	 * 특히 공연장 변경이 좌석 생성과 겹치면 옛 공연장 좌석이 새로 만들어질 수 있다.
-	 * 같은 공연장의 시간 겹침은 락 없이 검사만 한다. 공연장은 판매자가 미리 정해 오는 것이라 서로 다른 공연이 같은 순간에
-	 * 같은 공연장의 같은 시간을 잡을 일이 매우 드물고, 겹침 검사가 그다음 요청을 막는다. 동시에 들어오는 경우의 마지막 방어선은
-	 * DB 제약 TODO(doc/seller-progress.md)로 남겼다.
+	 * 락은 공연 단위(performance:{번호})와 요청한 공연장(venue:{번호})이다. 공연 락은 같은 공연의 등급·구역 수정(SLR-10·11), 공개(SLR-04),
+	 * 판매 좌석 생성과, 공연장 락은 그 공연장의 사용 중지와 겹치지 않게 한다. 특히 공연장 변경이 좌석 생성과 겹치면 옛 공연장 좌석이 새로 만들어질 수 있다.
+	 * 같은 공연장의 시간 겹침은 공연장 락 안에서 검사해 등록·수정·회차 추가끼리는 함께 막힌다. 회차 수정과 연기 확정은 공연장 락을 잡지
+	 * 않아 그대로이고, 마지막 방어선은 DB 제약 TODO(doc/seller-progress.md)로 남겼다.
 	 * 작성 중 취소 규정 변경은 규정 락을 잡지 않는다. 작성 중 공연이 쓰는 규정은 잠기지 않아 규정 수정과 겹쳐도 규칙 위반이 아니고,
 	 * 공개와는 공연 락으로 막힌다.
 	 * 검사 순서: 요청 형식(DB 전) → 공연 조회 404(락 밖) → 락 → 재조회 → 공연 한 행 → 규정·공연장 한 건 조회 → 회차 → 예매 → 회차 겹침.
@@ -105,7 +112,8 @@ public class SellerPerformanceFacade {
 		// 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
 		sellerPerformanceService.getMinePerformance(businessId, performanceId);
 
-		Performance updated = lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)),
+		Performance updated = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId), VenueLockNames.venue(request.venueId())),
 			properties.lockWait(), () -> transactionTemplate.execute(
 				status -> updateInTransaction(businessId, actorId, performanceId, request)));
 		return SellerPerformanceResponse.Updated.from(updated);
@@ -193,20 +201,22 @@ public class SellerPerformanceFacade {
 	/**
 	 * 작성 중인 내 공연을 공개한다. 공개하면 구역·등급·취소 규정을 되돌릴 수 없다.
 	 * 락은 공개 직후 구역·등급(SLR-10·11)이나 취소 규정(SLR-22)이 바뀌어 공개 조건이 깨지는 것을 막으려는 것이다.
-	 * 공연 락과, 기본 규정이 아니면 그 공연의 규정 락을 함께 잡는다. (실행기가 이름순으로 잡아 데드락이 없다)
+	 * 공연 락·그 공연의 공연장 락과, 기본 규정이 아니면 그 공연의 규정 락을 함께 잡는다. (실행기가 이름순으로 잡아 데드락이 없다)
 	 */
 	public SellerPerformanceResponse.Published publish(Long businessId, Long actorId, Long performanceId) {
-		// 남의 공연은 락을 잡기 전에 404 로 끝낸다. 규정 번호는 락 이름에 필요해서 락 밖에서 읽고, 바뀌면 안에서 알아챈다.
-		Long cancelPolicyId = sellerPerformanceService.getPublishLockPolicyId(businessId, performanceId);
+		// 남의 공연은 락을 잡기 전에 404 로 끝낸다. 공연장·규정 번호는 락 이름에 필요해서 락 밖에서 읽고, 바뀌면 안에서 알아챈다.
+		SellerPerformanceService.PublishLockTarget target = sellerPerformanceService.getPublishLockTarget(businessId,
+			performanceId);
 
 		List<String> lockNames = new ArrayList<>();
 		lockNames.add(PerformanceLockNames.performance(performanceId));
-		if (cancelPolicyId != null) {
-			lockNames.add(PerformanceLockNames.cancelPolicy(cancelPolicyId));
+		lockNames.add(VenueLockNames.venue(target.venueId()));
+		if (target.cancelPolicyId() != null) {
+			lockNames.add(PerformanceLockNames.cancelPolicy(target.cancelPolicyId()));
 		}
 		return lockExecutor.execute(lockNames, properties.lockWait(), () -> transactionTemplate.execute(status -> {
 			SellerPerformanceResponse.Published published = sellerPerformanceService.publish(businessId, performanceId,
-				cancelPolicyId);
+				target);
 			saveHistory(businessId, actorId, TARGET_PERFORMANCE, performanceId, "PUBLISH",
 				Map.of("status", PerformanceStatus.DRAFT), Map.of("status", published.status()));
 			return published;
@@ -214,17 +224,20 @@ public class SellerPerformanceFacade {
 	}
 
 	/**
-	 * 내 공연에 등급을 추가한다. 락은 쓰지 않는다. 새 등급은 아직 어느 구역에도 지정되지 않아 판매 좌석 생성이 그 가격을 복사할 일이 없고,
-	 * 같은 등급의 동시 추가는 나중에 만들 UNIQUE (performance_id, name) 가 마지막 방어선이다. (취소 규정 이름과 같은 방식)
+	 * 내 공연에 등급을 추가한다. 공연 락은 작성 중 공연 삭제(SLR-25)와 겹쳐 지워진 공연의 등급 행이 남지 않게 한다.
+	 * 락을 기다리는 사이 지워졌거나 취소됐으면 서비스가 다시 읽어 404·409 로 끝낸다.
+	 * 남의 공연은 락을 잡기 전에 404 로 끝낸다. 같은 등급의 동시 추가는 UNIQUE (performance_id, name) 가 마지막 방어선이다.
 	 */
 	public SellerGradeResponse.Grade addGrade(Long businessId, Long actorId, Long performanceId,
 		SellerGradeRequest.Save request) {
-		return transactionTemplate.execute(status -> {
-			SellerGradeResponse.Grade added = gradeService.add(businessId, performanceId, request);
-			saveHistory(businessId, actorId, TARGET_SEAT_GRADE, added.gradeId(), ACTION_CREATE, null,
-				gradeValues(performanceId, added));
-			return added;
-		});
+		sellerPerformanceService.getMinePerformance(businessId, performanceId);
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				SellerGradeResponse.Grade added = gradeService.add(businessId, performanceId, request);
+				saveHistory(businessId, actorId, TARGET_SEAT_GRADE, added.gradeId(), ACTION_CREATE, null,
+					gradeValues(performanceId, added));
+				return added;
+			}));
 	}
 
 	/**
@@ -297,16 +310,17 @@ public class SellerPerformanceFacade {
 
 	/**
 	 * 내 공연에 회차를 하나 추가한다. 공연 락은 공개·공연 수정·등급과 구역 수정·좌석 생성과 같은 이름이라, 확인한 공연 값이 저장 전에 바뀌지 않는다.
-	 * 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡는 것은 공연 락으로 막지 못한다. (드물다고 보고 감수, DB 제약은 TODO)
+	 * 공연장 락은 그 공연장의 사용 중지와, 서로 다른 공연이 같은 순간에 같은 공연장의 같은 시간을 잡는 것을 막는다.
 	 * 남의 공연은 락을 잡기 전에 404 로 끝낸다.
 	 */
 	public SellerPerformanceResponse.ScheduleCreated addSchedule(Long businessId, Long actorId, Long performanceId,
 		SellerPerformanceRequest.ScheduleSave request) {
-		sellerPerformanceService.getMinePerformance(businessId, performanceId);
-		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
-			() -> transactionTemplate.execute(status -> {
+		Long venueId = sellerPerformanceService.getMinePerformance(businessId, performanceId).getVenueId();
+		return lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId), VenueLockNames.venue(venueId)),
+			properties.lockWait(), () -> transactionTemplate.execute(status -> {
 				SellerPerformanceResponse.ScheduleCreated created = sellerPerformanceService.addSchedule(businessId,
-					performanceId, request.startAt());
+					performanceId, venueId, request.startAt());
 				saveHistory(businessId, actorId, TARGET_SCHEDULE, created.scheduleId(), ACTION_CREATE, null,
 					Map.of("performanceId", performanceId, "startAt", created.startAt(),
 						"seatsGenerated", created.seatsGeneratedAt() != null));
@@ -360,6 +374,58 @@ public class SellerPerformanceFacade {
 		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
 		userPerformanceCache.evictDetail(performanceId);
 		return response;
+	}
+
+	/**
+	 * 회차를 연기하고 감사 로그를 남긴다. 공연 락은 회차 추가·수정·중지, 공연 수정, 좌석 생성과 같은 이름이다.
+	 * 좌석 점유와 결제 승인은 이 락을 잡지 않아, 확인을 막 통과한 요청은 막지 못한다. (알고 감수, doc/seller-progress.md TODO)
+	 * 대기열(Redis)은 건드리지 않는다.
+	 * 검사 순서: 요청 형식·마감(DB 전) → 회차 조회 404(락 밖) → 락 → 서비스의 검사.
+	 */
+	public SellerPerformanceResponse.SchedulePostponed postponeSchedule(Long businessId, Long actorId, Long scheduleId,
+		SellerPerformanceRequest.SchedulePostpone request) {
+		sellerPerformanceService.validateFreeCancelUntil(request.newStartAt(), request.freeCancelUntil());
+		return changePostponement(businessId, actorId, scheduleId, "POSTPONE",
+			() -> sellerPerformanceService.postpone(businessId, actorId, scheduleId, request));
+	}
+
+	/** 일정 미정으로 연기한 회차의 새 일정을 확정하고 감사 로그를 남긴다. 락과 검사 순서는 연기와 같다. */
+	public SellerPerformanceResponse.SchedulePostponed confirmPostponement(Long businessId, Long actorId,
+		Long scheduleId, SellerPerformanceRequest.SchedulePostponeConfirm request) {
+		sellerPerformanceService.validateFreeCancelUntil(request.newStartAt(), request.freeCancelUntil());
+		return changePostponement(businessId, actorId, scheduleId, "POSTPONE_CONFIRM",
+			() -> sellerPerformanceService.confirmPostponement(businessId, scheduleId, request));
+	}
+
+	private SellerPerformanceResponse.SchedulePostponed changePostponement(Long businessId, Long actorId,
+		Long scheduleId, String action, Supplier<SellerPerformanceService.PostponementChange> change) {
+		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
+		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
+		SellerPerformanceResponse.SchedulePostponed response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				SellerPerformanceService.PostponementChange changed = change.get();
+				saveHistory(businessId, actorId, TARGET_SCHEDULE, scheduleId, action,
+					Map.of("performanceId", changed.performanceId(), "status", changed.previousStatus(),
+						"startAt", changed.previousStartAt()),
+					postponementValues(changed));
+				return changed.response();
+			}));
+		// 커밋한 뒤에 지워야 지우자마자 읽은 요청이 이전 값을 다시 저장하지 않는다.
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
+	}
+
+	/** 연기·확정 로그의 바꾼 뒤 값. 일정 미정이면 일시와 마감이 null 이라 Map.of 를 쓰지 않는다. */
+	private Map<String, Object> postponementValues(SellerPerformanceService.PostponementChange changed) {
+		SellerPerformanceResponse.Postponement postponement = changed.response().postponement();
+		Map<String, Object> values = new LinkedHashMap<>();
+		values.put("performanceId", changed.performanceId());
+		values.put("status", changed.response().status());
+		values.put("startAt", postponement.newStartAt());
+		values.put("reason", postponement.reason());
+		values.put("freeCancelUntil", postponement.freeCancelUntil());
+		return values;
 	}
 
 	/** 중지·재개 로그의 전후 값. 사유가 없는 쪽에는 reason 을 넣지 않는다. */
@@ -416,6 +482,163 @@ public class SellerPerformanceFacade {
 			Map.of("performanceId", performanceId, "startAt", previousStartAt),
 			Map.of("performanceId", performanceId, "startAt", startAt));
 		return updated;
+	}
+
+	/**
+	 * 회차를 취소한다. 감사 로그와 환불 대상 수(예매 도메인)가 얽혀 파사드가 맡는다. 공연 락은 회차 수정·연기와 같은 이름이다.
+	 * 환불은 만들지 않는다. 취소 회차만 보고 처리하는 환불 스케줄러(추후 구현)가 만든다. 좌석 점유는 공연 락을 잡지 않아
+	 * 취소 순간의 점유는 막지 못하지만, 그 예매는 결제가 막혀 만료된다.
+	 * 검사 순서: 요청 형식(DB 전) → 회차 조회 404(락 밖) → 락 → 재조회 → 공연·회차 상태 → 조건부 UPDATE → 감사 로그 → 건수.
+	 */
+	public SellerPerformanceResponse.ScheduleCanceled cancelSchedule(Long businessId, Long actorId, Long scheduleId,
+		SellerPerformanceRequest.Cancel request) {
+		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
+		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
+
+		SellerPerformanceResponse.ScheduleCanceled response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				PerformanceSchedule schedule = sellerPerformanceService.getMySchedule(businessId, scheduleId);
+				// 일괄 UPDATE 는 엔티티에 반영되지 않아, 이 값은 취소하기 전 상태다.
+				ScheduleStatus before = schedule.getStatus();
+				sellerPerformanceService.cancelSchedule(schedule, request.reason(), LocalDateTime.now());
+				// 감사 로그 저장이 실패하면 취소도 되돌린다. 누가 취소했는지 남지 않은 채 환불 대상이 되면 안 된다.
+				saveHistory(businessId, actorId, TARGET_SCHEDULE, scheduleId, "CANCEL",
+					Map.of("performanceId", performanceId, "status", before),
+					Map.of("performanceId", performanceId, "status", ScheduleStatus.CANCELED,
+						"reason", request.reason()));
+				return SellerPerformanceResponse.ScheduleCanceled.builder()
+					.scheduleId(scheduleId)
+					.status(ScheduleStatus.CANCELED)
+					.refundRequestedCount(bookingService.countRefundTargets(List.of(scheduleId)))
+					.build();
+			}));
+		// 예매자 공연 상세가 취소를 바로 반영하게 커밋·락 해제 뒤에 지운다.
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
+	}
+
+	/**
+	 * 공개 공연을 취소한다. 락·환불·검사 순서는 회차 취소와 같다.
+	 */
+	public SellerPerformanceResponse.Canceled cancel(Long businessId, Long actorId, Long performanceId,
+		SellerPerformanceRequest.Cancel request) {
+		// 남의 공연은 락을 잡기 전에 404 로 끝내서 남의 공연 상태를 드러내지 않는다.
+		sellerPerformanceService.getMinePerformance(businessId, performanceId);
+
+		SellerPerformanceResponse.Canceled response = lockExecutor.execute(
+			List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				Performance performance = sellerPerformanceService.getMinePerformance(businessId, performanceId);
+				PerformanceStatus before = performance.getStatus();
+				List<Long> scheduleIds = sellerPerformanceService.cancel(performance, request.reason(),
+					LocalDateTime.now());
+				saveHistory(businessId, actorId, TARGET_PERFORMANCE, performanceId, "CANCEL",
+					Map.of("status", before),
+					Map.of("status", PerformanceStatus.CANCELED, "reason", request.reason(),
+						"canceledScheduleIds", scheduleIds));
+				return SellerPerformanceResponse.Canceled.builder()
+					.performanceId(performanceId)
+					.status(PerformanceStatus.CANCELED)
+					.canceledScheduleCount(scheduleIds.size())
+					.refundRequestedCount(bookingService.countRefundTargets(scheduleIds))
+					.build();
+			}));
+		userPerformanceCache.evictDetail(performanceId);
+		return response;
+	}
+
+	/**
+	 * 작성 중 공연을 지운다. 공개한 적이 없어 예매자 캐시는 없다. 감사 로그에는 사라지는 공연의 이름을 남긴다.
+	 * 검사 순서: 공연 조회 404(락 밖) → 락 → 재조회 → 작성 중 → 삭제 → 감사 로그.
+	 */
+	public void delete(Long businessId, Long actorId, Long performanceId) {
+		sellerPerformanceService.getMinePerformance(businessId, performanceId);
+		lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> {
+				transactionTemplate.executeWithoutResult(status -> {
+					String title = sellerPerformanceService.delete(businessId, performanceId);
+					saveHistory(businessId, actorId, TARGET_PERFORMANCE, performanceId, "DELETE",
+						Map.of("status", PerformanceStatus.DRAFT, "title", title), null);
+				});
+				return null;
+			});
+	}
+
+	/** 판매자 보류석을 지정한다. 락과 검사 순서는 changeSeatReservation 에 적었다. */
+	public SellerPerformanceResponse.ReservationChanged reserveSeats(Long businessId, Long actorId, Long scheduleId,
+		SellerPerformanceRequest.SeatSelection request) {
+		return changeSeatReservation(businessId, actorId, scheduleId, request, true);
+	}
+
+	/** 판매자 보류석을 해제한다. 해제한 좌석은 바로 판매 가능해진다. */
+	public SellerPerformanceResponse.ReservationChanged releaseSeats(Long businessId, Long actorId, Long scheduleId,
+		SellerPerformanceRequest.SeatSelection request) {
+		return changeSeatReservation(businessId, actorId, scheduleId, request, false);
+	}
+
+	/**
+	 * 공연 락은 공연 수정·좌석 생성·중지·연기와 같은 이름이다. 좌석 락은 잡지 않는다. 오픈 때 예매자 점유와 Redis·락 대기를 다투지 않으려는 것이고,
+	 * 점유와 겹치는 것은 양쪽의 상태 조건부 UPDATE 가 막는다.
+	 * 조회 캐시는 지우지 않는다. 예매자 요약·목록은 몇 초 뒤 만료로 따라오고 구역 좌석은 저장하지 않는다.
+	 * 검사 순서: 요청 형식(DB 전) → 회차 조회 404(락 밖) → 락 → 재조회 → 공연·회차 상태 → 좌석·구역 번호 → 바꿀 좌석 없음.
+	 */
+	private SellerPerformanceResponse.ReservationChanged changeSeatReservation(Long businessId, Long actorId,
+		Long scheduleId, SellerPerformanceRequest.SeatSelection request, boolean reserve) {
+		sellerPerformanceService.validateSeatSelection(request);
+		// 남의 회차는 락을 잡기 전에 404 로 끝낸다. 락 이름에 쓸 공연 번호도 여기서 얻는다.
+		Long performanceId = sellerPerformanceService.getMySchedule(businessId, scheduleId).getPerformance().getId();
+		return lockExecutor.execute(List.of(PerformanceLockNames.performance(performanceId)), properties.lockWait(),
+			() -> transactionTemplate.execute(status -> {
+				LocalDateTime now = LocalDateTime.now();
+				PerformanceSchedule schedule = sellerPerformanceService.getMySchedule(businessId, scheduleId);
+				sellerPerformanceService.validateSeatReservationChangeable(schedule, reserve, now);
+
+				SellerPerformanceResponse.ReservationChanged response;
+				Map<String, Object> changedValues = new LinkedHashMap<>();
+				changedValues.put("performanceId", performanceId);
+				changedValues.put("status", reserve ? SeatStatus.RESERVED : SeatStatus.AVAILABLE);
+				if (request.seatIds() != null) {
+					ScheduleSeatService.SeatReservationChange change = scheduleSeatService.changeReservation(scheduleId,
+						new LinkedHashSet<>(request.seatIds()), reserve, now);
+					response = SellerPerformanceResponse.ReservationChanged.ofSeats(scheduleId, change.changed(),
+						change.skipped());
+					changedValues.put("seats", change.changed().stream().map(SeatValue::from).toList());
+				} else {
+					// 좌석 UPDATE 가 영속성 컨텍스트를 비우므로 구역 번호·이름은 먼저 꺼내 둔다.
+					List<VenueZone> zones = sellerPerformanceService.getScheduleZonesIn(schedule, request.zoneIds());
+					List<Integer> counts = scheduleSeatService.changeZoneReservation(scheduleId,
+						zones.stream().map(VenueZone::getId).toList(), reserve, now);
+					response = SellerPerformanceResponse.ReservationChanged.ofZones(scheduleId, IntStream
+						.range(0, zones.size())
+						.mapToObj(i -> new SellerPerformanceResponse.ZoneChanged(zones.get(i).getId(), counts.get(i)))
+						.toList());
+					// 수천 석일 수 있어 좌석을 나열하지 않고 바뀐 구역만 적는다.
+					changedValues.put("zones", IntStream.range(0, zones.size())
+						.filter(i -> counts.get(i) > 0)
+						.mapToObj(i -> new ZoneCount(zones.get(i).getId(), zones.get(i).getName(), counts.get(i)))
+						.toList());
+				}
+				saveHistory(businessId, actorId, TARGET_SCHEDULE, scheduleId,
+					reserve ? "SEAT_RESERVE" : "SEAT_RELEASE",
+					Map.of("performanceId", performanceId,
+						"status", reserve ? SeatStatus.AVAILABLE : SeatStatus.RESERVED),
+					changedValues);
+				return response;
+			}));
+	}
+
+	/** 감사 로그에 남길 좌석. 끝난 회차의 판매 좌석은 나중에 지울 수 있어 번호만으로는 어느 자리였는지 알 수 없다. */
+	private record SeatValue(Long seatId, String zone, String row, String number) {
+
+		static SeatValue from(ScheduleSeat seat) {
+			VenueSeat venueSeat = seat.getVenueSeat();
+			return new SeatValue(seat.getId(), venueSeat.getZone().getName(), venueSeat.getRowLabel(),
+				venueSeat.getSeatNumber());
+		}
+	}
+
+	private record ZoneCount(Long zoneId, String zone, int changedSeats) {
 	}
 
 	/** 취소 규정을 만들고 감사 로그를 남긴다. 새 규정은 쓰는 공연이 없어 잠금은 필요 없다. */

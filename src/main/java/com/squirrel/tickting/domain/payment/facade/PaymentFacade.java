@@ -64,7 +64,7 @@ public class PaymentFacade {
 
 	private PaymentResponse.Prepared prepareInTransaction(Long userId, Long bookingId, PaymentRequest.Prepare request) {
 		Booking booking = bookingService.getPayable(userId, bookingId, LocalDateTime.now());
-		bookingService.validateScheduleNotPaused(booking);
+		bookingService.validateSchedulePayable(booking);
 		Performance performance = scheduleService.getPayablePerformance(booking.getPerformanceId());
 		validateReceive(performance.getReceiveType(), request);
 
@@ -80,7 +80,7 @@ public class PaymentFacade {
 	 * 결제를 승인한다. 세 단계로 나뉘고, 토스를 부르는 두 번째 단계만 DB 트랜잭션과 락 밖이다.
 	 *
 	 *   1. 시작 (락 + 트랜잭션): 내 결제인지, 준비 상태인지, 금액이 서버가 계산한 값과 같은지, 점유 시간이 남았는지,
-	 *      회차가 일시 중지가 아닌지 확인하고 결제를 승인 중(PROCESSING)으로 바꾼다. 처음 시도라면 점유 시간(예매 결제 제한 시각·좌석 점유 시각)을 늘린다.
+	 *      회차가 일시 중지·연기로 막히지 않았는지 확인하고 결제를 승인 중(PROCESSING)으로 바꾼다. 처음 시도라면 점유 시간(예매 결제 제한 시각·좌석 점유 시각)을 늘린다.
 	 *      금액이나 시간이 어긋나면 토스를 부르지 않고 거절한다. 토스는 승인 API 를 부르기 전에는 돈을 빼지 않아서 돈이 나가지 않는다.
 	 *   2. 승인 (트랜잭션 밖): 토스에 승인을 요청한다. 응답이 느려도 DB 연결과 락을 붙잡지 않는다.
 	 *   3. 반영 (트랜잭션): 성공하면 결제 DONE, 예매 PAID, 좌석 SOLD 를 한 트랜잭션으로 바꾼다. 거절당하면 결제를 FAILED 로 기록한다.
@@ -137,8 +137,8 @@ public class PaymentFacade {
 		if (booking.getStatus() != BookingStatus.PENDING || !booking.getExpiresAt().isAfter(now)) {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE);
 		}
-		// 점유를 늘리기 전에 막는다. 중지 전에 승인 중이 된 결제는 이 단계를 이미 지나서 그대로 완료된다.
-		bookingService.validateScheduleNotPaused(booking);
+		// 점유를 늘리기 전에 막는다. 중지·연기 전에 승인 중이 된 결제는 이 단계를 이미 지나서 그대로 완료된다.
+		bookingService.validateSchedulePayable(booking);
 
 		if (!attempted) {
 			extendHold(booking, now);

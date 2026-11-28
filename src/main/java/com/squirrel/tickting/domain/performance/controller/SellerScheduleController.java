@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -69,6 +70,25 @@ public class SellerScheduleController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	/** 감사 로그와 환불 대상 수가 다른 도메인이라 파사드를 부른다. 대표·담당자 모두 취소할 수 있다. */
+	@Operation(summary = "회차 취소",
+		description = "아직 시작하지 않은 회차를 취소한다. 되돌릴 수 없다. 판매 중·일시 중지·연기 회차, 일정 미정으로 연기한 회차(원래 일시가 지났어도), "
+			+ "작성 중 공연의 회차, 마지막 남은 회차도 취소할 수 있다. 취소 사유(500자 이하)가 필요하다(400). "
+			+ "취소된 공연·이미 취소한 회차는 409, 이미 시작한 회차는 400이다. "
+			+ "응답의 refundRequestedCount 는 취소 시점의 결제 완료·일부 취소 예매 수다. 환불은 수수료 없이 이 요청 뒤에 차례로 처리하고, "
+			+ "예매는 환불에 성공한 뒤에 취소로 바뀐다. 취소 회차는 결제와 예매자의 직접 취소가 막힌다. "
+			+ "다른 사업체의 회차이거나 없는 회차는 404 다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/schedules/{scheduleId}/cancel")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleCanceled>> cancelSchedule(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.Cancel request
+	) {
+		SellerPerformanceResponse.ScheduleCanceled response = sellerPerformanceFacade.cancelSchedule(account.getBusinessId(),
+			account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 중지할 수 있다. */
 	@Operation(summary = "회차 판매 일시 중지",
 		description = "공개(PUBLISHED) 공연의 회차 판매를 모두(all: true) 또는 골라서(scheduleIds) 일시 중지한다. 둘 중 하나만 보낸다. "
@@ -103,6 +123,44 @@ public class SellerScheduleController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 연기할 수 있다. */
+	@Operation(summary = "회차 연기",
+		description = "공개(PUBLISHED) 공연의 아직 시작하지 않은 판매 중·일시 중지 회차를 연기한다. newStartAt 을 비우면 일정 미정(POSTPONED)이 되어 "
+			+ "대기열 입장·좌석 점유·결제가 막히고, 넣으면 상태는 그대로 두고 공연 일시만 바꾼다(앞당기기도 된다). 연기 전에 만든 결제 대기 예매는 결제할 수 없다. "
+			+ "예매는 바꾸지 않고, 연기 전에 예매한 사람이 직접 취소하면 수수료가 없다. 일정 미정이면 확정 전까지, 날짜를 바꾸면 freeCancelUntil 까지다. "
+			+ "사유(reason)는 필수이고 예매자 공연 상세에 보인다. freeCancelUntil 은 newStartAt 이 있을 때만 보내며, 비우면 14일 뒤(남은 이전 마감이 "
+			+ "더 늦으면 그때, 새 일시를 넘지 않음)다. 보내면 새 일시 이하이고 7일 뒤(남은 이전 마감이 더 늦으면 그때, 새 일시가 이르면 새 일시) 이상이어야 한다. "
+			+ "취소된 공연·작성 중 공연·취소 회차·일정 미정 회차는 409, 이미 시작한 회차·지금과 같은 일시·판매 오픈 이전·판매 종료가 마지막 회차보다 "
+			+ "늦어지는 일시·마감 범위 밖은 400, 같은 공연장 시간 겹침은 409다. 다른 사업체의 회차이거나 없는 회차는 404 다. "
+			+ "같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/schedules/{scheduleId}/postpone")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.SchedulePostponed>> postponeSchedule(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SchedulePostpone request
+	) {
+		SellerPerformanceResponse.SchedulePostponed response = sellerPerformanceFacade.postponeSchedule(
+			account.getBusinessId(), account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 확정할 수 있다. */
+	@Operation(summary = "연기 회차 새 일정 확정",
+		description = "일정 미정(POSTPONED)인 회차의 새 공연 일시를 정하고 판매 중으로 바꾼다. 중지한 상태에서 연기했어도 판매 중이 된다. "
+			+ "원래 일시를 다시 골라도 된다. 연기 전에 예매한 사람은 freeCancelUntil 까지 수수료 없이 취소할 수 있고, 비우면 14일 뒤(새 일시를 넘지 않음)다. "
+			+ "보내면 새 일시 이하이고 7일 뒤(새 일시가 이르면 새 일시) 이상이어야 한다. 새 일시의 조건과 404·409 COMMON004 는 회차 연기와 같고, "
+			+ "일정 미정 회차가 아니면 409 PERFORMANCE021 이다.")
+	@PostMapping("/schedules/{scheduleId}/postpone/confirm")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.SchedulePostponed>> confirmPostponement(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SchedulePostponeConfirm request
+	) {
+		SellerPerformanceResponse.SchedulePostponed response = sellerPerformanceFacade.confirmPostponement(
+			account.getBusinessId(), account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 공연 도메인 안에서 끝나 파사드 없이 서비스를 바로 부른다. 대표·담당자 모두 만들 수 있다. */
 	@Operation(summary = "판매 좌석 생성",
 		description = "한 회차의 판매 좌석을 공연장 좌석에서 복사해 만든다. 작성 중(DRAFT) 공연은 판매 오픈·종료·1인 최대 매수·수령 방법·예매 수수료가 "
@@ -118,6 +176,68 @@ public class SellerScheduleController {
 	) {
 		SellerPerformanceResponse.SeatsGenerated response = sellerPerformanceService.generateSeats(account.getBusinessId(),
 			scheduleId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 공연 도메인 안의 조회라 서비스를 바로 부른다. 대표·담당자 모두 볼 수 있다. */
+	@Operation(summary = "회차의 구역별 보류석 현황",
+		description = "도면 이름표와 구역마다의 판매 가능·보류 좌석 수를 준다. 작성 중·취소된 공연과 회차도 보인다. "
+			+ "판매 좌석을 만들지 않은 회차는 seatsGenerated 가 false 이고 좌석 수가 null 이다. 다른 사업체의 회차이거나 없는 회차는 404 다.")
+	@GetMapping("/schedules/{scheduleId}/zones")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleZones>> getScheduleZones(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId
+	) {
+		SellerPerformanceResponse.ScheduleZones response = sellerPerformanceService.getScheduleZones(account.getBusinessId(),
+			scheduleId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "회차의 구역 좌석",
+		description = "한 구역의 판매 좌석과 상태를 구역 안의 표시 순서대로 준다. 작성 중·취소된 공연과 회차도 보인다. "
+			+ "판매 좌석을 만들지 않은 회차는 409 PERFORMANCE600, 그 회차 공연장의 구역이 아니면 404 PERFORMANCE201, "
+			+ "다른 사업체의 회차이거나 없는 회차는 404 PERFORMANCE008 이다.")
+	@GetMapping("/schedules/{scheduleId}/zones/{zoneId}/seats")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ZoneSeats>> getZoneSeats(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@PathVariable Long zoneId
+	) {
+		SellerPerformanceResponse.ZoneSeats response = sellerPerformanceService.getZoneSeats(account.getBusinessId(),
+			scheduleId, zoneId);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 지정할 수 있다. */
+	@Operation(summary = "보류석 지정",
+		description = "판매 가능(AVAILABLE) 좌석을 판매자 보류(RESERVED)로 바꾼다. seatIds(최대 500)와 zoneIds 중 하나만 보낸다. "
+			+ "판매 오픈 전까지만 지정할 수 있다(지났으면 409 PERFORMANCE604). 바꿀 수 없는 좌석은 건너뛰고, 하나도 바뀌지 않으면 409 PERFORMANCE602 다. "
+			+ "취소된 공연·회차는 409, 시작한 회차는 400, 좌석 미생성은 409 PERFORMANCE600, 이 회차의 좌석·구역이 아닌 번호가 섞이면 404 이고 "
+			+ "아무것도 바꾸지 않는다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/schedules/{scheduleId}/seats/reserve")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ReservationChanged>> reserveSeats(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SeatSelection request
+	) {
+		SellerPerformanceResponse.ReservationChanged response = sellerPerformanceFacade.reserveSeats(account.getBusinessId(),
+			account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 해제할 수 있다. */
+	@Operation(summary = "보류석 해제",
+		description = "보류석(RESERVED)을 판매 가능(AVAILABLE)으로 되돌린다. 판매 중이면 바로 예매할 수 있게 된다. 대상은 지정과 같이 보낸다. "
+			+ "회차 시작 전까지 언제든 가능하고, 일정 미정으로 연기한 회차도 가능하다. 하나도 바뀌지 않으면 409 PERFORMANCE603 이고 "
+			+ "나머지 거절 조건은 지정과 같다.")
+	@PostMapping("/schedules/{scheduleId}/seats/release")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ReservationChanged>> releaseSeats(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.SeatSelection request
+	) {
+		SellerPerformanceResponse.ReservationChanged response = sellerPerformanceFacade.releaseSeats(account.getBusinessId(),
+			account.getId(), scheduleId, request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 }

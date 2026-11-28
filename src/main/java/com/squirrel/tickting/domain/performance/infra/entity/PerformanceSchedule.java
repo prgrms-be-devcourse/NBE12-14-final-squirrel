@@ -17,6 +17,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -54,6 +55,10 @@ public class PerformanceSchedule extends BaseTimeEntity {
 	@Column
 	private String pauseReason;
 
+	/** 회차를 취소한 사유. 취소한 회차에만 값이 있고, 회차 취소 환불의 상세 사유가 된다. */
+	@Column(length = 500)
+	private String cancelReason;
+
 	/** 판매 좌석을 만든 시각. 비어 있으면 아직 안 만든 회차다. 끝난 회차의 좌석을 지워도 값은 남아 다시 만들지 않는다. */
 	@Column
 	private LocalDateTime seatsGeneratedAt;
@@ -65,4 +70,9 @@ public class PerformanceSchedule extends BaseTimeEntity {
 	@OneToMany(mappedBy = "schedule")
 	@OrderBy("id DESC")
 	private List<SchedulePostponement> postponements;
+
+	/** 가장 최근 연기 이력. 지연 로딩이라 트랜잭션 안에서 불러야 한다. */
+	public Optional<SchedulePostponement> findLatestPostponement() {
+		return postponements.stream().findFirst();
+	}
 }
