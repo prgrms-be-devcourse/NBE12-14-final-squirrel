@@ -8,9 +8,10 @@
 | 항목 | 결정 |
 |---|---|
 | 테이블 | 예매자·판매자가 **한 테이블(`inquiry`)을 같이 쓴다.** 관리자는 한 목록에서 작성자 종류로 걸러 본다 |
-| 답변 | 문의 하나에 관리자 답변 **하나**. 주고받기는 없고, 더 물을 것이 있으면 새 문의를 쓴다 |
+| 답변 | 문의 하나에 관리자 답변 **하나**. 주고받기는 없고, 더 물을 것이 있으면 새 문의를 쓴다. **답변은 고치거나 지울 수 없다** (2026-11-27) |
 | 상태 | `WAITING` 답변 대기 / `ANSWERED` 답변 완료, 둘만 |
 | 수정·삭제 | 작성자가 **답변 전에만** 할 수 있다. 삭제는 소프트 삭제(`deleted_at`) |
+| 관리자 목록 | 작성자 종류·답변 상태로 거른다. **삭제된 문의는 기본으로 빼고**, 옵션(`deleted=true`)을 고르면 삭제된 문의**만** 본다. 상세는 삭제된 문의도 보이고, 삭제된 문의에는 답변할 수 없다 (2026-11-27) |
 | 예매 연결 | 예매자 문의는 내 예매를 **골라도 되고 안 골라도 된다.** 회원·가입 문의처럼 예매가 없는 문의가 있어서. 예매 상태는 따지지 않는다 |
 | 첨부 사진 | 주소 문자열만 받는다. 사진은 이미지 업로드(IMG-01, `USER_INQUIRY`·`SELLER_INQUIRY`)로 먼저 올린다. 최대 3장(임시) |
 | 이력 | 작성·수정·삭제·답변마다 그때 내용을 통째로 `inquiry_history`에 남긴다 |
@@ -82,19 +83,28 @@ inquiry (문의 1건 = 1행, 첨부 사진 주소는 image_urls 컬럼에 JSON �
 ```
 domain/inquiry
   controller/UserInquiryController   예매자 API (/api/v1/inquiries)
+  controller/SellerInquiryController 판매자 API (/api/v1/seller/inquiries)
   facade/UserInquiryFacade           작성: 예매(내 예매인가) + 회원(이름·이메일) + 문의(저장), 수정: 예매 + 문의
+  facade/SellerInquiryFacade         작성: 판매자 계정(이름·이메일) + 문의(저장)
   service/InquiryService             문의·이력 저장과 조회 (자기 도메인만)
-  dto/UserInquiryRequest, UserInquiryResponse
+  dto/UserInquiryRequest, UserInquiryResponse, SellerInquiryRequest, SellerInquiryResponse
   infra/entity/Inquiry, InquiryHistory
   type/InquiryStatus, InquiryCategory, InquiryAction
 global/exception/code/InquiryExceptionCode
+
+domain/admin
+  controller/AdminInquiryController  관리자 API (/api/v1/admin/inquiries), InquiryService 를 바로 부른다
+  dto/AdminInquiryRequest, AdminInquiryResponse
 ```
 
 - 작성·수정은 여러 도메인을 읽고 써서 파사드가 순서대로 부른다. 삭제·목록·상세는 문의만 다루고, 예매 번호·공연 제목은 문의의 **읽기 전용 연관**(`Inquiry → Booking`)에서 꺼낸다.
 - "내 것인가"는 작성자 종류 + 번호를 조회 조건에 넣어 거른다. 남의 문의는 403이 아니라 **404**다.
-- **수정·삭제와 답변이 겹칠 때**: 서비스가 먼저 상태를 확인(답변 완료면 409 `INQUIRY002`)한 뒤, `UPDATE … WHERE status = 'WAITING' AND deleted_at IS NULL`로 바꾼다. 확인과 UPDATE 사이에 답변이 끝나면 바뀐 행이 0이라 409다. 먼저 커밋한 쪽만 성공하므로 "수정된 내용에 답변이 달렸는데 답변은 옛 내용을 보고 쓴 것"이 생기지 않는다. 관리자 답변(3번 PR)도 같은 조건으로 바꿔야 이 방어가 성립한다. Redis 락은 쓰지 않았다. 여러 자원을 한꺼번에 바꾸는 흐름이 아니라 행 하나의 상태 조건으로 충분해서다.
+- **수정·삭제와 답변이 겹칠 때**: 서비스가 먼저 상태를 확인(답변 완료면 409 `INQUIRY002`)한 뒤, `UPDATE … WHERE status = 'WAITING' AND deleted_at IS NULL`로 바꾼다. 확인과 UPDATE 사이에 답변이 끝나면 바뀐 행이 0이라 409다. 먼저 커밋한 쪽만 성공하므로 "수정된 내용에 답변이 달렸는데 답변은 옛 내용을 보고 쓴 것"이 생기지 않는다. 관리자 답변도 같은 조건(`answerIfWaiting`)으로 바꿔서, 수정·삭제·답변 중 먼저 커밋한 하나만 성공한다. 두 관리자가 동시에 답변해도 같다. Redis 락은 쓰지 않았다. 여러 자원을 한꺼번에 바꾸는 흐름이 아니라 행 하나의 상태 조건으로 충분해서다.
 - 수정은 내용을 통째로 바꾼다(PUT). 같은 작성자가 두 화면에서 동시에 고치면 나중 요청이 이긴다. 두 수정 모두 이력에 남아서 따로 막지 않았다.
-- 판매자·관리자 컨트롤러는 같은 도메인에 `SellerInquiryController`, 관리자는 팀 규칙대로 `domain/admin`에 둔다. ⏳
+- 관리자 API는 팀 규칙대로 `domain/admin`에 컨트롤러·DTO를 두고 로직은 `InquiryService`가 맡는다. 문의 한 도메인만 바꿔서 파사드는 없다. 상세·답변 응답은 예매(읽기 전용 연관)를 꺼내야 해서, 컨트롤러가 넘긴 변환(`AdminInquiryResponse.Detail::of`)을 서비스가 트랜잭션 안에서 부른다. (관리자 예매 상세와 같은 방식, 서비스가 관리자 DTO를 모른다)
+- 관리자 목록은 문의 행의 값(복사한 이름·이메일)만 보여 줘서 연관을 읽지 않는다. 목록·개수 쿼리 두 번으로 끝나고 항목마다 쿼리가 나가지 않는다.
+- 판매자 API는 같은 도메인에 `SellerInquiryController`로 둔다. 컨트롤러·DTO·파사드는 경로와 권한, 받는 값(판매자는 예매를 고르지 않음), 읽는 도메인이 달라 역할별로 나눴다. 작성 규칙(유형 확인 → 답변 대기로 저장 → 작성 이력)과 "내가 쓴 문의" 조회는 `InquiryService`의 공통 private 메서드 하나를 예매자·판매자가 함께 써서 규칙이 어긋나지 않게 했다. 유형·작성 결과·사진은 모양이 같아 예매자 DTO의 record를 함께 쓴다.
+- 판매자 문의는 **같은 사업체의 대표·담당자가 함께 본다**(사업체 번호로 거름). 다른 사업체의 문의는 404다. 수정·삭제는 작성자 본인만 한다(같은 사업체의 다른 계정도 404). 보기를 사업체 단위로 열어 둔 것은 담당자가 바뀌어도 이어서 확인하려는 것이고, 남이 쓴 내용을 고치면 누가 무엇을 물었는지가 흐려져서 고치기는 본인으로 막았다. 수정·삭제는 예매자와 같은 공통 메서드(내가 쓴 답변 대기 문의만, 조건부 UPDATE, 이력)를 쓴다.
 
 ## 4. PR 순서
 
@@ -103,8 +113,9 @@ global/exception/code/InquiryExceptionCode
 | 0 | 이미지 업로드에 문의 첨부 용도(`USER_INQUIRY`, `SELLER_INQUIRY`) 추가 | ✅ |
 | 1 | 테이블 2개(V14: `inquiry`, `inquiry_history`) + 예매자 문의 유형 목록·작성·목록·상세 | ✅ |
 | 2 | 예매자 문의 수정·삭제 (답변 대기일 때만, 상태 조건부 UPDATE로 답변과 겹치면 하나만 성공) | ✅ |
-| 3 | 관리자 문의 목록·상세(이력 포함)·답변 (이미 답변했으면 409) | ⏳ |
-| 4 | 판매자 문의 유형 목록·작성·목록·상세·수정·삭제 (사업체 단위로 보기) | ⏳ |
+| 3 | 관리자 문의 목록·상세(이력 포함)·답변 (이미 답변했으면 409 `INQUIRY003`) | ✅ |
+| 4-1 | 판매자 문의 유형 목록·작성·사업체 목록·상세 (SLR-34~37) | ✅ |
+| 4-2 | 판매자 문의 수정·삭제 (SLR-38~39, 작성자 본인만, 답변 대기일 때만) | ✅ |
 
 ## 5. 알려진 한계
 

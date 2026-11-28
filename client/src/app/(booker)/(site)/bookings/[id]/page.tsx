@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, useApi } from "@/lib/api";
-import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won } from "@/lib/format";
+import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won, scheduleText } from "@/lib/format";
 import type { BookingDetail, CancelResult } from "@/lib/types";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
@@ -31,6 +31,7 @@ export default function BookingDetailPage() {
   if (!b) return null;
 
   const activeIds = b.seats.filter((s) => s.active).map((s) => s.bookingSeatId);
+  const scheduleCanceled = b.schedule.status === "CANCELED";
 
   async function cancel(bookingSeatIds?: number[]) {
     if (!b) return;
@@ -73,11 +74,14 @@ export default function BookingDetailPage() {
         <ArrowLeft size={16} strokeWidth={1.5} />내 예매
       </Link>
 
-      {b.status === "PENDING" && (
-        <Link href={`/bookings/${b.bookingId}/pay`} className="btn btn-primary btn-lg w-full">
-          결제하러 가기
-        </Link>
-      )}
+      {b.status === "PENDING" &&
+        (scheduleCanceled ? (
+          <p className="card p-6 text-sm">취소된 회차라 결제할 수 없습니다.</p>
+        ) : (
+          <Link href={`/bookings/${b.bookingId}/pay`} className="btn btn-primary btn-lg w-full">
+            결제하러 가기
+          </Link>
+        ))}
 
       <Ticket
         head={
@@ -87,7 +91,10 @@ export default function BookingDetailPage() {
               <span className="text-xs text-muted">{b.bookingNo}</span>
             </div>
             <h1 className="mt-4 text-2xl leading-snug font-semibold">{b.performance.title}</h1>
-            <p className="mt-1 text-sm text-secondary">{dateTimeText(b.schedule.startAt)}</p>
+            <p className="mt-1 flex items-center gap-2 text-sm text-secondary">
+              {scheduleCanceled && <span className="badge badge-accent">회차 취소</span>}
+              {scheduleText(b.schedule.startAt, b.schedule.status)}
+            </p>
           </>
         }
         stub={
@@ -175,7 +182,11 @@ export default function BookingDetailPage() {
           {b.cancelable ? (
             <>
               <p className="text-sm text-muted">
-                지금 취소하면 티켓 금액의 {b.currentFeeRate}%가 수수료로 차감됩니다. 예매 수수료는 환불됩니다.
+                {b.postponeFreeCancel
+                  ? `공연이 연기되어 ${
+                      b.postponeFreeCancel.until ? `${dateTimeText(b.postponeFreeCancel.until)}까지` : "일정 확정 전까지"
+                    } 수수료 없이 취소할 수 있습니다. 예매 수수료도 환불됩니다.`
+                  : `지금 취소하면 티켓 금액의 ${b.currentFeeRate}%가 수수료로 차감됩니다. 예매 수수료는 환불됩니다.`}
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -192,7 +203,11 @@ export default function BookingDetailPage() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted">지금은 취소할 수 없습니다. (공연 당일이거나 이미 모두 취소됨)</p>
+            <p className="text-sm text-muted">
+              {scheduleCanceled
+                ? "회차가 취소되어 환불을 처리하고 있습니다. 환불이 끝나면 예매가 취소로 바뀝니다. 카드사에 따라 입금까지 며칠 걸릴 수 있습니다. 하루가 지나도 취소로 바뀌지 않으면 문의해 주세요."
+                : "지금은 취소할 수 없습니다. (공연 당일이거나 이미 모두 취소됨)"}
+            </p>
           )}
         </section>
       )}

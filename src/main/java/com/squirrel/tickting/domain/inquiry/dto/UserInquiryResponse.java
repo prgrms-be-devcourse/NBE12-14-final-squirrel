@@ -15,9 +15,9 @@ public class UserInquiryResponse {
 	private UserInquiryResponse() {
 	}
 
-	/** 문의 유형 하나. 화면의 유형 드롭다운에 쓴다. */
+	/** 문의 유형 하나. 화면의 유형 드롭다운에 쓴다. 판매자 문의도 같은 모양이라 함께 쓴다. */
 	@Builder
-	@Schema(name = "UserInquiryCategory", description = "문의 유형")
+	@Schema(name = "InquiryCategoryItem", description = "문의 유형")
 	public record Category(
 		@Schema(example = "CANCEL_REFUND")
 		InquiryCategory code,
@@ -33,8 +33,9 @@ public class UserInquiryResponse {
 		}
 	}
 
+	/** 문의 작성 결과. 판매자 문의도 같은 모양이라 함께 쓴다. */
 	@Builder
-	@Schema(name = "UserInquiryCreated", description = "문의 작성 결과")
+	@Schema(name = "InquiryCreated", description = "문의 작성 결과")
 	public record Created(
 		Long inquiryId,
 		InquiryStatus status,
