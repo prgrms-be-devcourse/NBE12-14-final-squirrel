@@ -2,11 +2,12 @@
 
 import { Pencil, Plus, Truck } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { Fragment, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, useApi } from "@/lib/api";
-import { GENRE_LABEL, GRADE_CODES, dateTimeText, gradeColor, gradeLabel, won } from "@/lib/format";
+import { GENRE_LABEL, GRADE_CODES, dateTimeText, gradeColor, gradeLabel, scheduleText, won } from "@/lib/format";
 import {
   PERFORMANCE_BADGE,
   PERFORMANCE_LABEL,
@@ -18,13 +19,11 @@ import {
 import type {
   Grade,
   GradesResponse,
-  Page,
   SalesSchedule,
   ScheduleSaleChanged,
   ScheduleSkipReason,
   SellerPerformanceDetail,
   SellerSchedule,
-  VenueItem,
 } from "@/lib/types";
 import { ConsoleTitle, Field, Modal, Panel } from "@/components/console";
 import { ZoneGradeMap } from "@/components/zone-grade-map";
@@ -36,6 +35,8 @@ type ModalState =
   | { kind: "grade"; grade?: Grade }
   | { kind: "cancel-performance" }
   | { kind: "cancel-schedule"; scheduleId: number }
+  | { kind: "delete-performance" }
+  | { kind: "postpone" | "confirm-postpone"; scheduleId: number }
   // scheduleIds 가 null 이면 모두
   | { kind: "pause" | "resume"; scheduleIds: number[] | null }
   | null;
@@ -55,11 +56,10 @@ const isSwitchable = (s: SellerSchedule, now: number) =>
 export default function SellerPerformanceDetailPage() {
   const { id } = useRouteParams<{ id: string }>("/seller/performances/[id]");
   const base = `/api/v1/seller/performances/${id}`;
+  const router = useRouter();
   const detail = useApi<SellerPerformanceDetail>(base);
   const grades = useApi<GradesResponse>(`${base}/grades`);
   const sales = useApi<{ schedules: SalesSchedule[] }>(`${base}/sales`);
-  // 공연 상세(SLR-06)는 공연장의 도면 이름표(layoutKey)를 주지 않아서 공연장 목록(SLR-01)에서 같은 공연장을 찾는다.
-  const venues = useApi<Page<VenueItem>>("/api/v1/seller/venues", { size: 20 });
 
   const [modal, setModal] = useState<ModalState>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -87,8 +87,29 @@ export default function SellerPerformanceDetailPage() {
       setSelected([]);
       reloadAll();
     } catch (error) {
-      setMessage({ text: error instanceof ApiError ? error.message : "처리하지 못했습니다", error: true });
+      // 원래 일시가 지난 미정 회차만 남으면 서버는 "회차가 모두 시작됨"으로 답해서, 먼저 할 일을 덧붙인다.
+      const hint =
+        error instanceof ApiError &&
+        error.code === "PERFORMANCE010" &&
+        detail.data?.schedules.some((s) => s.status === "POSTPONED")
+          ? " 일정 미정 회차의 새 일정을 먼저 확정해 주세요."
+          : "";
+      setMessage({ text: error instanceof ApiError ? error.message + hint : "처리하지 못했습니다", error: true });
     } finally {
+      setBusy(false);
+    }
+  }
+
+  // 지운 공연은 다시 읽을 수 없어 run 을 쓰지 않고 목록으로 보낸다
+  async function remove() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api(base, { method: "DELETE" });
+      router.replace("/seller/performances");
+    } catch (error) {
+      setMessage({ text: error instanceof ApiError ? error.message : "처리하지 못했습니다", error: true });
+      setModal(null);
       setBusy(false);
     }
   }
@@ -102,7 +123,9 @@ export default function SellerPerformanceDetailPage() {
   const canceled = p.status === "CANCELED";
   const locked = grades.data?.locked ?? false;
   const zoneChanged = Object.keys(zoneEdits).length > 0;
-  const layout = getVenueLayout(venues.data?.content.find((v) => v.venueId === p.venue.venueId)?.layoutKey);
+  const layout = getVenueLayout(p.venue.layoutKey);
+  // 사용 중지된 공연장에서는 새 판매(공개·회차 추가)를 열 수 없다. 막는 것은 서버다.
+  const venueInactive = p.venue.status === "INACTIVE";
   const published = p.status === "PUBLISHED";
   const switchable = published ? p.schedules.filter((s) => isSwitchable(s, openedAt)) : [];
 
@@ -125,6 +148,12 @@ export default function SellerPerformanceDetailPage() {
     );
   }
 
+  // 연기·확정 창은 거절 사유(마감 범위, 시간 겹침 등)를 창 안에서 보여 주므로 열 때 이전 메시지를 지운다.
+  function openPostpone(kind: "postpone" | "confirm-postpone", scheduleId: number) {
+    setMessage(null);
+    setModal({ kind, scheduleId });
+  }
+
   // 공개 공연이 통째로 멈춘 동안에는 회차를 더하지 못한다. 막는 것은 서버다.
   const allPaused = published && switchable.length > 0 && switchable.every((s) => s.status === "PAUSED");
 
@@ -145,7 +174,7 @@ export default function SellerPerformanceDetailPage() {
     <>
       <ConsoleTitle
         title={p.title}
-        sub={`${GENRE_LABEL[p.genre]} · ${p.venue.name}`}
+        sub={`${GENRE_LABEL[p.genre]} · ${p.venue.name}${venueInactive ? " (사용 중지된 공연장)" : ""}`}
         back={{ href: "/seller/performances", label: "공연 목록" }}
         actions={
           <>
@@ -171,15 +200,21 @@ export default function SellerPerformanceDetailPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={busy}
+                disabled={busy || venueInactive}
+                title={venueInactive ? "사용 중지된 공연장입니다. 수정에서 공연장을 바꿔 주세요" : undefined}
                 onClick={() => run(() => api(`${base}/publish`, { method: "POST" }), "공연을 공개했습니다")}
               >
                 공개하기
               </button>
             )}
-            {!canceled && (
-              <button type="button" className="btn" onClick={() => setModal({ kind: "cancel-performance" })}>
+            {published && (
+              <button type="button" className="btn" disabled={busy} onClick={() => setModal({ kind: "cancel-performance" })}>
                 공연 취소
+              </button>
+            )}
+            {draft && (
+              <button type="button" className="btn" disabled={busy} onClick={() => setModal({ kind: "delete-performance" })}>
+                삭제
               </button>
             )}
           </>
@@ -237,9 +272,13 @@ export default function SellerPerformanceDetailPage() {
         className="mt-6"
         title="회차"
         sub={
-          allPaused
-            ? "모든 회차가 판매 중지 상태라 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요"
-            : "판매 좌석을 만들어야 예매가 시작됩니다"
+          venueInactive
+            ? draft
+              ? "사용 중지된 공연장이라 회차를 추가하거나 공개할 수 없습니다. 수정에서 공연장을 바꿔 주세요"
+              : "사용 중지된 공연장이라 회차를 추가할 수 없습니다"
+            : allPaused
+              ? "모든 회차가 판매 중지 상태라 회차를 추가할 수 없습니다. 먼저 판매를 재개해 주세요"
+              : "판매 좌석을 만들어야 예매가 시작됩니다"
         }
         actions={
           !canceled && (
@@ -272,7 +311,7 @@ export default function SellerPerformanceDetailPage() {
                   })}
                 </>
               )}
-              <button type="button" className="btn" disabled={allPaused} onClick={() => setModal({ kind: "schedule" })}>
+              <button type="button" className="btn" disabled={allPaused || venueInactive} onClick={() => setModal({ kind: "schedule" })}>
                 <Plus size={16} strokeWidth={1.5} />
                 회차 추가
               </button>
@@ -301,13 +340,22 @@ export default function SellerPerformanceDetailPage() {
                     />
                   )}
                   <div>
-                    <p className="font-medium">{dateTimeText(s.startAt)}</p>
+                    <p className="font-medium">{scheduleText(s.startAt, s.status)}</p>
                     <p className="mt-1 flex items-center gap-2 text-xs text-muted">
                       <span className={SCHEDULE_BADGE[s.status]}>{SCHEDULE_LABEL[s.status]}</span>
                       {s.seatsGeneratedAt ? `좌석 생성 ${dateTimeText(s.seatsGeneratedAt)}` : "좌석 미생성"}
                     </p>
                     {s.status === "PAUSED" && s.pauseReason && (
                       <p className="mt-1 text-xs text-secondary">중지 사유: {s.pauseReason}</p>
+                    )}
+                    {s.postponement && (
+                      <p className="mt-1 text-xs break-words text-secondary">
+                        {s.status !== "POSTPONED" && `일정 변경(원래 ${dateTimeText(s.postponement.oldStartAt)}) · `}
+                        연기 사유: {s.postponement.reason} ·{" "}
+                        {s.postponement.freeCancelUntil
+                          ? `무료 취소 마감 ${dateTimeText(s.postponement.freeCancelUntil)}`
+                          : "일정 확정 전까지 무료 취소"}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -325,12 +373,33 @@ export default function SellerPerformanceDetailPage() {
                         좌석 생성
                       </button>
                     )}
+                    {switchable.some((x) => x.scheduleId === s.scheduleId) && (
+                      <button type="button" className="btn" disabled={busy} onClick={() => openPostpone("postpone", s.scheduleId)}>
+                        연기
+                      </button>
+                    )}
+                    {s.status === "POSTPONED" && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={busy}
+                        onClick={() => openPostpone("confirm-postpone", s.scheduleId)}
+                      >
+                        새 일정 확정
+                      </button>
+                    )}
+                    <Link href={`/seller/schedules/${s.scheduleId}/seats`} className="btn">
+                      보류석
+                    </Link>
                     <Link href={`/seller/schedules/${s.scheduleId}/bookings`} className="btn">
                       예매 내역
                     </Link>
-                    <button type="button" className="btn" onClick={() => setModal({ kind: "cancel-schedule", scheduleId: s.scheduleId })}>
-                      회차 취소
-                    </button>
+                    {/* 일정 미정 회차는 원래 일시가 지났어도 취소할 수 있다. 실제 판단은 서버가 한다. */}
+                    {!canceled && (s.status === "POSTPONED" || new Date(s.startAt).getTime() > openedAt) && (
+                      <button type="button" className="btn" disabled={busy} onClick={() => setModal({ kind: "cancel-schedule", scheduleId: s.scheduleId })}>
+                        회차 취소
+                      </button>
+                    )}
                   </div>
                 )}
               </li>
@@ -415,7 +484,7 @@ export default function SellerPerformanceDetailPage() {
           {sales.data?.schedules.map((s) => (
             <li key={s.scheduleId}>
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{dateTimeText(s.startAt)}</span>
+                <span className="font-medium">{scheduleText(s.startAt, s.status)}</span>
                 <span className="text-muted">
                   {s.seatsGenerated ? `${s.soldSeats}/${s.totalSeats}석 판매` : "좌석 미생성"}
                 </span>
@@ -447,6 +516,24 @@ export default function SellerPerformanceDetailPage() {
           busy={busy}
           onClose={() => setModal(null)}
           onSubmit={(startAt) => run(() => api(`${base}/schedules`, { method: "POST", body: { startAt } }), "회차를 추가했습니다")}
+        />
+      )}
+      {(modal?.kind === "postpone" || modal?.kind === "confirm-postpone") && (
+        <PostponeModal
+          confirming={modal.kind === "confirm-postpone"}
+          error={message?.error ? message.text : null}
+          busy={busy}
+          onClose={() => setModal(null)}
+          onSubmit={(body) =>
+            run(
+              () =>
+                api(
+                  `/api/v1/seller/schedules/${modal.scheduleId}/postpone${modal.kind === "confirm-postpone" ? "/confirm" : ""}`,
+                  { method: "POST", body },
+                ),
+              modal.kind === "confirm-postpone" ? "새 일정을 확정하고 판매를 열었습니다" : "회차를 연기했습니다",
+            )
+          }
         />
       )}
       {modal?.kind === "pause" && (
@@ -515,19 +602,41 @@ export default function SellerPerformanceDetailPage() {
       {(modal?.kind === "cancel-performance" || modal?.kind === "cancel-schedule") && (
         <ReasonModal
           title={modal.kind === "cancel-performance" ? "공연 취소" : "회차 취소"}
-          description="취소하면 판매 좌석의 예매는 수수료 없이 환불됩니다. 되돌릴 수 없습니다"
+          description={
+            modal.kind === "cancel-performance"
+              ? "시작 전이거나 일정 미정인 회차를 취소하고, 그 예매는 수수료 없이 차례로 환불됩니다. 이미 시작한 회차는 그대로입니다. 되돌릴 수 없습니다"
+              : "취소하면 이 회차의 예매는 수수료 없이 차례로 환불됩니다. 되돌릴 수 없습니다"
+          }
+          maxLength={500}
           busy={busy}
           onClose={() => setModal(null)}
           onSubmit={(reason) =>
             run(
               () =>
-                modal.kind === "cancel-performance"
-                  ? api(`${base}/cancel`, { method: "POST", body: { reason } })
-                  : api(`/api/v1/seller/schedules/${modal.scheduleId}/cancel`, { method: "POST", body: { reason } }),
-              modal.kind === "cancel-performance" ? "공연을 취소했습니다" : "회차를 취소했습니다",
+                api<{ refundRequestedCount: number }>(
+                  modal.kind === "cancel-performance" ? `${base}/cancel` : `/api/v1/seller/schedules/${modal.scheduleId}/cancel`,
+                  { method: "POST", body: { reason } },
+                ),
+              (result) =>
+                `${modal.kind === "cancel-performance" ? "공연을" : "회차를"} 취소했습니다. 환불 대상 예매 ${result.refundRequestedCount}건`,
             )
           }
         />
+      )}
+      {modal?.kind === "delete-performance" && (
+        <Modal title="공연 삭제" onClose={() => setModal(null)}>
+          <div className="space-y-5">
+            <p className="text-sm text-secondary">작성 중인 공연을 회차·등급·구역 설정·판매 좌석과 함께 지웁니다. 되돌릴 수 없습니다</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn" onClick={() => setModal(null)}>
+                닫기
+              </button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={remove}>
+                삭제하기
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );
@@ -562,6 +671,93 @@ function ScheduleModal({
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy}>
             추가
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// 연기(SLR-28)와 새 일정 확정(SLR-29). 확정은 사유가 없고 새 일시가 필수다.
+function PostponeModal({
+  confirming,
+  error,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  confirming: boolean;
+  error: string | null;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (body: { reason?: string; newStartAt: string | null; freeCancelUntil: string | null }) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [startAt, setStartAt] = useState("");
+  const [deadline, setDeadline] = useState("");
+  return (
+    <Modal title={confirming ? "새 일정 확정" : "회차 연기"} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!confirming && !reason.trim()) return;
+          onSubmit({
+            reason: confirming ? undefined : reason.trim(),
+            newStartAt: toServerDateTime(startAt),
+            // 새 일시를 지우면 마감 칸이 꺼지므로 남아 있던 값은 보내지 않는다
+            freeCancelUntil: startAt ? toServerDateTime(deadline) : null,
+          });
+        }}
+        className="space-y-5"
+      >
+        <p className="text-sm text-secondary">
+          {confirming
+            ? "확정하면 바로 판매가 열립니다. 중지한 상태에서 연기한 회차도 열립니다. 연기 전에 예매한 사람은 무료 취소 마감까지 수수료 없이 취소할 수 있습니다"
+            : "예매는 그대로 두고, 연기 전에 예매한 사람은 수수료 없이 취소할 수 있습니다. 새 일시를 비우면 일정 미정이 되어 대기열·좌석 선택·결제가 막힙니다. 되돌릴 수 없습니다"}
+        </p>
+        {!confirming && (
+          <Field label="연기 사유 (예매자 공연 상세에 보입니다)">
+            <textarea
+              className="input h-24 py-3"
+              value={reason}
+              maxLength={255}
+              onChange={(e) => setReason(e.target.value)}
+              required
+            />
+          </Field>
+        )}
+        <Field label={confirming ? "새 공연 일시" : "새 공연 일시 (선택)"} hint="같은 공연장의 다른 회차와 시간이 겹치면 안 됩니다">
+          <input
+            className="input"
+            type="datetime-local"
+            value={startAt}
+            onChange={(e) => setStartAt(e.target.value)}
+            required={confirming}
+          />
+        </Field>
+        <Field
+          label="무료 취소 마감 (선택)"
+          hint={`비우면 14일 뒤${confirming ? "" : "(남은 이전 마감이 더 늦으면 그때)"}입니다. 7일 뒤${confirming ? "" : "와 남은 이전 마감"}보다 이를 수 없고, 새 공연 일시를 넘지 않습니다`}
+        >
+          <input
+            className="input"
+            type="datetime-local"
+            value={deadline}
+            disabled={!startAt}
+            onChange={(e) => setDeadline(e.target.value)}
+          />
+        </Field>
+        {error && (
+          <p role="alert" className="text-sm text-accent-strong">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn" onClick={onClose}>
+            닫기
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {confirming ? "확정하고 판매 열기" : "연기하기"}
           </button>
         </div>
       </form>

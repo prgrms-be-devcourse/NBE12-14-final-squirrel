@@ -10,6 +10,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.io.ClassPathResource;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,7 @@ public class QueueService {
 
 	private final StringRedisTemplate redis;
 	private final QueueProperties properties;
+	private final MeterRegistry meterRegistry;
 
 	/** 줄에 선다. 자리가 있으면 바로 입장하고, 이미 줄에 있거나 입장해 있으면 그대로 현재 상태를 준다. */
 	public QueueResponse enter(Long userId, Long scheduleId) {
@@ -80,6 +82,16 @@ public class QueueService {
 		redis.opsForZSet().remove(waitKey(scheduleId), member);
 		redis.opsForZSet().remove(activeKey(scheduleId), member);
 		redis.delete(seenKey(scheduleId, member));
+		redis.delete(admittedKey(scheduleId, member));
+	}
+
+	/**
+	 * 결제를 마친 사람의 입장 자리를 바로 돌려준다. 한 번 사면 끝이라서 1인 한도가 남아 있어도 더 사려면 다시 줄을 서야 한다.
+	 * 나가기(DELETE)와 같은 동작이고, 어디서 반납됐는지 지표로 가르려고 이름만 따로 둔다.
+	 */
+	public void releaseOnPayment(Long userId, Long scheduleId) {
+		leave(userId, scheduleId);
+		meterRegistry.counter("queue.release", "reason", "payment").increment();
 	}
 
 	/** 지금 입장해 있는지(만료 전인지). 좌석 조회·점유 요청마다 부른다. */
@@ -87,7 +99,9 @@ public class QueueService {
 		if (!properties.enabled()) {
 			return true;
 		}
-		Long admitted = redis.execute(CHECK_SCRIPT, List.of(activeKey(scheduleId)), member(userId));
+		String member = member(userId);
+		Long admitted = redis.execute(CHECK_SCRIPT, List.of(activeKey(scheduleId), admittedKey(scheduleId, member)), member,
+			String.valueOf(properties.entryTtl().toMillis()));
 		return admitted != null && admitted == 1L;
 	}
 
@@ -126,7 +140,8 @@ public class QueueService {
 			String.valueOf(properties.entryTtl().toMillis()),
 			String.valueOf(properties.waitingTimeout().toMillis()),
 			String.valueOf(KEY_TTL.toMillis()),
-			seenPrefix(scheduleId), halted ? "1" : "0");
+			seenPrefix(scheduleId), halted ? "1" : "0",
+			admittedPrefix(scheduleId), String.valueOf(properties.entryMax().toMillis()));
 		if (result == null || result.size() < 3) {
 			throw new IllegalStateException("대기열 스크립트가 값을 돌려주지 않았다.");
 		}
@@ -169,6 +184,14 @@ public class QueueService {
 
 	private static String seenKey(Long scheduleId, String member) {
 		return seenPrefix(scheduleId) + member;
+	}
+
+	private static String admittedPrefix(Long scheduleId) {
+		return base(scheduleId) + "admitted:";
+	}
+
+	private static String admittedKey(Long scheduleId, String member) {
+		return admittedPrefix(scheduleId) + member;
 	}
 
 	private static String openKey(Long scheduleId) {

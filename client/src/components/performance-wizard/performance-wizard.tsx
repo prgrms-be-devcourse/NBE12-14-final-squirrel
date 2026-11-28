@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, useApi } from "@/lib/api";
-import type { GradesResponse, Page, PerformanceForm, SellerPerformanceDetail, VenueItem } from "@/lib/types";
+import type { GradesResponse, PerformanceForm, SellerPerformanceDetail } from "@/lib/types";
 import { ConsoleTitle } from "@/components/console";
 import { PerformanceFormView } from "@/components/performance-form";
 import { GradeStep } from "@/components/performance-wizard/grade-step";
@@ -36,10 +36,8 @@ function ExistingWizard({ performanceId }: { performanceId: number }) {
   const base = `/api/v1/seller/performances/${performanceId}`;
   const detail = useApi<SellerPerformanceDetail>(base);
   const grades = useApi<GradesResponse>(`${base}/grades`);
-  // 공연 상세(SLR-06)는 도면 이름표(layoutKey)를 주지 않아서 공연장 목록(SLR-01)에서 찾는다.
-  const venues = useApi<Page<VenueItem>>("/api/v1/seller/venues", { size: 20 });
 
-  if (detail.loading || grades.loading || venues.loading) return <Loading />;
+  if (detail.loading || grades.loading) return <Loading />;
   if (detail.error) return <ErrorBox error={detail.error} onRetry={detail.reload} />;
   if (grades.error) return <ErrorBox error={grades.error} onRetry={grades.reload} />;
   if (!detail.data || !grades.data) return null;
@@ -58,7 +56,7 @@ function ExistingWizard({ performanceId }: { performanceId: number }) {
     );
   }
 
-  const layout = getVenueLayout(venues.data?.content.find((v) => v.venueId === detail.data?.venue.venueId)?.layoutKey);
+  const layout = getVenueLayout(detail.data.venue.layoutKey);
   return (
     <WizardBody
       detail={detail.data}

@@ -16,6 +16,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.service.ScheduleSeatService;
 import com.squirrel.tickting.domain.performance.service.ScheduleService;
 import com.squirrel.tickting.domain.performance.type.ReceiveType;
+import com.squirrel.tickting.domain.queue.service.QueueService;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
 import com.squirrel.tickting.global.exception.code.PaymentExceptionCode;
@@ -48,6 +49,7 @@ public class PaymentFacade {
 	private final PaymentProperties properties;
 	private final BookingService bookingService;
 	private final ScheduleService scheduleService;
+	private final QueueService queueService;
 	private final ScheduleSeatService scheduleSeatService;
 	private final PaymentService paymentService;
 	private final PaymentGateway paymentGateway;
@@ -64,7 +66,7 @@ public class PaymentFacade {
 
 	private PaymentResponse.Prepared prepareInTransaction(Long userId, Long bookingId, PaymentRequest.Prepare request) {
 		Booking booking = bookingService.getPayable(userId, bookingId, LocalDateTime.now());
-		bookingService.validateScheduleNotPaused(booking);
+		bookingService.validateSchedulePayable(booking);
 		Performance performance = scheduleService.getPayablePerformance(booking.getPerformanceId());
 		validateReceive(performance.getReceiveType(), request);
 
@@ -80,7 +82,7 @@ public class PaymentFacade {
 	 * 결제를 승인한다. 세 단계로 나뉘고, 토스를 부르는 두 번째 단계만 DB 트랜잭션과 락 밖이다.
 	 *
 	 *   1. 시작 (락 + 트랜잭션): 내 결제인지, 준비 상태인지, 금액이 서버가 계산한 값과 같은지, 점유 시간이 남았는지,
-	 *      회차가 일시 중지가 아닌지 확인하고 결제를 승인 중(PROCESSING)으로 바꾼다. 처음 시도라면 점유 시간(예매 결제 제한 시각·좌석 점유 시각)을 늘린다.
+	 *      회차가 일시 중지·연기로 막히지 않았는지 확인하고 결제를 승인 중(PROCESSING)으로 바꾼다. 처음 시도라면 점유 시간(예매 결제 제한 시각·좌석 점유 시각)을 늘린다.
 	 *      금액이나 시간이 어긋나면 토스를 부르지 않고 거절한다. 토스는 승인 API 를 부르기 전에는 돈을 빼지 않아서 돈이 나가지 않는다.
 	 *   2. 승인 (트랜잭션 밖): 토스에 승인을 요청한다. 응답이 느려도 DB 연결과 락을 붙잡지 않는다.
 	 *   3. 반영 (트랜잭션): 성공하면 결제 DONE, 예매 PAID, 좌석 SOLD 를 한 트랜잭션으로 바꾼다. 거절당하면 결제를 FAILED 로 기록한다.
@@ -99,18 +101,34 @@ public class PaymentFacade {
 
 		GatewayPayment approved = requestApproval(request, approval);
 
+		PaymentResponse.Confirmed confirmed;
 		try {
-			return transactionTemplate.execute(status -> completeApproval(approval, approved));
+			confirmed = transactionTemplate.execute(status -> completeApproval(approval, approved));
 		} catch (RuntimeException e) {
 			// 승인은 됐는데 반영에 실패했다. 트랜잭션이 되돌려져 결제는 승인 중으로 남고, 보정 작업이 이어서 확정한다.
 			log.error("토스 승인은 끝났지만 결제 반영에 실패했다. 보정 작업이 확정해야 한다. 결제 번호: {}, 주문 ID: {}",
 				approval.paymentId(), approval.orderId(), e);
 			throw new BusinessException(PaymentExceptionCode.PAYMENT_RESULT_UNKNOWN);
 		}
+		releaseQueueSeat(userId, approval);
+		return confirmed;
+	}
+
+	/**
+	 * 결제가 끝났으면 그 회차의 대기열 입장 자리를 돌려줘서 다음 사람이 들어오게 한다. 반드시 결제가 커밋된 뒤에, 트랜잭션 밖에서 한다.
+	 * 이 반납이 실패해도 결제는 이미 끝났으므로 성공으로 답한다. 못 돌려준 자리는 입장 유효 시간이 지나면 비워진다.
+	 */
+	private void releaseQueueSeat(Long userId, Approval approval) {
+		try {
+			queueService.releaseOnPayment(userId, approval.scheduleId());
+		} catch (RuntimeException e) {
+			log.warn("결제는 끝났지만 대기열 입장 자리를 돌려주지 못했다. 입장 유효 시간이 지나면 비워진다. 회차 번호: {}, 결제 번호: {}",
+				approval.scheduleId(), approval.paymentId(), e);
+		}
 	}
 
 	/** 승인 시작에 쓰려고 읽은 값. 토스에 보내는 금액은 요청이 아니라 서버가 저장한 금액이다. */
-	private record Approval(Long paymentId, Long bookingId, String orderId, int amount) {
+	private record Approval(Long paymentId, Long bookingId, Long scheduleId, String orderId, int amount) {
 	}
 
 	/** 내 결제의 예매 번호를 찾는다. 없는 주문 ID 와 남의 결제는 같은 404 로 답해서 주문 ID 가 존재하는지 알려주지 않는다. */
@@ -137,13 +155,14 @@ public class PaymentFacade {
 		if (booking.getStatus() != BookingStatus.PENDING || !booking.getExpiresAt().isAfter(now)) {
 			throw new BusinessException(BookingExceptionCode.BOOKING_NOT_PAYABLE);
 		}
-		// 점유를 늘리기 전에 막는다. 중지 전에 승인 중이 된 결제는 이 단계를 이미 지나서 그대로 완료된다.
-		bookingService.validateScheduleNotPaused(booking);
+		// 점유를 늘리기 전에 막는다. 중지·연기 전에 승인 중이 된 결제는 이 단계를 이미 지나서 그대로 완료된다.
+		bookingService.validateSchedulePayable(booking);
 
 		if (!attempted) {
 			extendHold(booking, now);
 		}
-		return new Approval(payment.getId(), booking.getId(), payment.getOrderId(), payment.getAmount());
+		return new Approval(payment.getId(), booking.getId(), booking.getScheduleId(), payment.getOrderId(),
+			payment.getAmount());
 	}
 
 	/**

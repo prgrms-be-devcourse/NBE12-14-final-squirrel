@@ -83,7 +83,7 @@ public class BookingCancelFacade {
 		BookingCancelPlan plan = bookingService.planCancel(userId, bookingId, bookingSeatIds, now);
 
 		Payment payment = paymentService.getRefundable(bookingId);
-		Refund refund = refundService.start(payment, bookingId, plan.refundAmount(), RefundReasonType.USER_CANCEL, now);
+		Refund refund = refundService.start(payment, bookingId, plan.refundAmount(), reasonType(plan), now);
 		paymentService.applyCancel(payment, plan.fullyCanceled());
 
 		List<Long> scheduleSeatIds = bookingService.applyCancel(plan, refund.getId(), now);
@@ -102,7 +102,7 @@ public class BookingCancelFacade {
 		if (plan.refundAmount() > 0) {
 			try {
 				paymentGateway.cancel(canceled.paymentKey(), plan.refundAmount(),
-					RefundReasonType.USER_CANCEL.getGatewayReason(), canceled.idempotencyKey());
+					reasonType(plan).getGatewayReason(), canceled.idempotencyKey());
 			} catch (GatewayRejectedException e) {
 				failReason = e.getCode() + ": " + e.getMessage();
 			} catch (GatewayUnavailableException e) {
@@ -124,6 +124,11 @@ public class BookingCancelFacade {
 			log.error("토스 환불 결과를 기록하지 못했다. 환불 번호: {}", canceled.refundId(), e);
 			return RefundStatus.PROCESSING;
 		}
+	}
+
+	/** 재시도(RefundSender)가 저장한 사유를 그대로 보내므로, 처음 요청도 저장하는 사유와 같아야 한다. */
+	private static RefundReasonType reasonType(BookingCancelPlan plan) {
+		return plan.postponed() ? RefundReasonType.POSTPONE_CANCEL : RefundReasonType.USER_CANCEL;
 	}
 
 	private static String bookingLock(Long bookingId) {

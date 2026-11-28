@@ -320,6 +320,14 @@ body {
 .arena-seat:hover {
   opacity: 0.95;
 }
+/* 판매자 보류석 화면의 보류된 좌석 */
+.arena-seat-reserved {
+  fill: var(--warn);
+  opacity: 0.9;
+}
+.arena-seat-reserved:hover {
+  opacity: 1;
+}
 .arena-seat-picked {
   fill: var(--accent);
   opacity: 1;
