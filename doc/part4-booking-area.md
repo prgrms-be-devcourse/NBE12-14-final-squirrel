@@ -61,6 +61,7 @@
 |  | 배송 주소 | `recipient_address` | String | NULL | 배송일 때만 |
 |  | 택배사 | `carrier` | String | NULL | 판매자가 발송 처리할 때 입력 |
 |  | 송장번호 | `tracking_no` | String | NULL | 판매자가 발송 처리할 때 입력 |
+|  | 발송 일시 | `shipped_at` | LocalDateTime | NULL | 처음 송장을 넣은 시각. 송장을 고쳐도 바뀌지 않음. 택배사·송장번호·발송 일시는 셋 다 비거나 셋 다 있고, 있으면 배송 예매만 (CHECK `ck_booking_shipment`, 2026-11-27 설계) |
 |  | 티켓 금액 | `ticket_amount` | Integer | NOT NULL | 좌석 가격 합계 |
 |  | 예매 수수료 | `booking_fee_amount` | Integer | NOT NULL | 좌석 수 x 공연의 예매 수수료 |
 |  | 총 결제 금액 | `total_amount` | Integer | NOT NULL | 티켓 금액 + 예매 수수료 (최초 금액, 취소해도 바뀌지 않음) |
@@ -126,6 +127,8 @@ PENDING ──결제 성공──→ PAID ──일부 좌석 취소──→ PA
 **Q. 배송은 어떻게 저장하나요?**
 
 `booking`의 일반 컬럼(받는 사람, 연락처, 주소, 택배사, 송장번호)에 저장합니다. **배송 테이블은 만들지 않습니다.** 판매자가 발송 처리할 때 택배사와 송장번호를 입력하고, 사용자 화면은 택배사의 배송 조회 주소에 송장번호를 붙여 연결합니다. 택배사 조회 주소 형식은 바뀔 수 있어서 설정으로 관리합니다. (확장: 배송 테이블, 배송 상태 추적)
+
+발송 처리는 단건 입력과, 배송 대상을 내려받아 송장을 채운 파일을 한 번에 올리는 일괄 입력을 함께 둡니다. 발송 일시(`shipped_at`)로 "아직 보내지 않은 예매"를 가립니다. CHECK에 예매 상태 조건은 넣지 않습니다. 발송한 뒤에도 회차·공연 취소로 전체 취소될 수 있어서, 상태는 발송 처리의 상태 조건부 UPDATE가 맡습니다. (`api-spec` SLR-40~42, 2026-11-27 설계)
 
 ---
 
@@ -414,7 +417,7 @@ WHERE b.user_id = :userId AND b.performance_id = :performanceId AND bs.active
 | 예매 취소 (전체·일부) | `booking_seat`, `booking`, `refund`, `payment`, `schedule_seat` | 규정 계산 → 좌석 취소 → 토스 부분 취소 |
 | 만료 처리 (스케줄러) | `schedule_seat`, `booking` | HELD, PENDING 정리 |
 | 판매자 예매 목록 | `booking`, `booking_seat` | 회차별 조회, 내 사업체 공연만 |
-| 배송 처리 (판매자) | `booking` | 택배사, 송장번호 입력 |
+| 배송 처리 (판매자) | `booking` | 배송 대상 내려받기, 택배사·송장번호 입력(단건·일괄), 처음 입력 때 발송 일시 기록. 배송·결제 완료(일부 취소 포함) 예매만 조건부 UPDATE |
 | 공연·회차 취소 시 일괄 환불 | `booking`, `refund`, `payment` | 수수료 0% 환불 일괄 생성 |
 | 환불 실패 재처리 (관리자) | `refund` | 실패 건 재요청 (5부) |
 
