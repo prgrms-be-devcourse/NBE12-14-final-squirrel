@@ -18,6 +18,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>판매가 일시 중지된 회차는 줄을 유지하고 입장만 멈춘다. 중지·재개는 대기열을 직접 건드리지 않고 여기서 회차 상태를 읽어
  * 알아본다. (표시를 쓰고 지우는 방식은 지우기에 실패하면 줄이 계속 멈춘다) 그래서 반영까지 기억하는 시간만큼 늦을 수 있다.
+ *
+ * <p>취소되거나 일정 미정으로 연기된 회차는 언제 다시 팔지 몰라 줄을 유지하지 않고, 기다리던 사람을 빼고 알린다.
  */
 @Component
 @RequiredArgsConstructor
@@ -27,10 +29,11 @@ public class QueueFacade {
 	private final QueueService queueService;
 
 	/**
-	 * 판매 중이 아닌 회차는 BOOKING002, 일시 중지한 회차는 BOOKING012, 없는 회차는 BOOKING004 로 거절한다. (예매와 같은 기준)
+	 * 판매 중이 아닌 회차는 BOOKING002, 일시 중지한 회차는 BOOKING012, 일정 미정으로 연기한 회차는 BOOKING013,
+	 * 없는 회차는 BOOKING004 로 거절한다. (예매와 같은 기준)
 	 * 이메일 인증은 가입 때 마치므로 여기서 확인하지 않는다. 오픈 순간 입장이 몰리는 곳이라 모든 입장에 DB 조회를 붙이지 않으려는 것이다.
 	 * (탈퇴한 회원은 입장할 수 있어도 예매 단계의 회원 조회에서 막힌다)
-	 * 중지·취소된 회차라도 이미 대기·입장한 사람의 재진입(새로고침)은 거절하지 않는다. 거절하면 순번을 지키기 어렵다.
+	 * 중지·연기·취소된 회차라도 이미 대기·입장한 사람의 재진입(새로고침)은 거절하지 않는다. 거절하면 순번을 지키기 어렵다.
 	 */
 	public QueueResponse enter(Long userId, Long scheduleId) {
 		ScheduleStatus scheduleStatus = findScheduleStatus(scheduleId);
@@ -38,7 +41,7 @@ public class QueueFacade {
 		if (halted) {
 			QueueResponse joined = queueService.findJoined(userId, scheduleId);
 			if (joined.status() != QueueState.NONE) {
-				return afterCancelCheck(userId, scheduleId, scheduleStatus, joined);
+				return afterClosedCheck(userId, scheduleId, scheduleStatus, joined);
 			}
 		}
 		// 중지로 기억하고 있으면 입장 가능 표시가 남아 있어도 DB 를 다시 확인한다. 중지 직후 새 사람이 들어오지 않게 한다.
@@ -52,22 +55,24 @@ public class QueueFacade {
 	public QueueResponse status(Long userId, Long scheduleId) {
 		ScheduleStatus scheduleStatus = findScheduleStatus(scheduleId);
 		QueueResponse response = queueService.status(userId, scheduleId, isHalted(scheduleStatus));
-		return afterCancelCheck(userId, scheduleId, scheduleStatus, response);
+		return afterClosedCheck(userId, scheduleId, scheduleStatus, response);
 	}
 
 	public void leave(Long userId, Long scheduleId) {
 		queueService.leave(userId, scheduleId);
 	}
 
-	/** 취소된 회차를 기다리는 사람은 줄에서 빼고 알린다. 그 밖에는 받은 상태 그대로다. paused 는 일시 중지일 때만 남긴다. */
-	private QueueResponse afterCancelCheck(Long userId, Long scheduleId, ScheduleStatus scheduleStatus,
+	/** 취소·연기된 회차를 기다리는 사람은 줄에서 빼고 알린다. 그 밖에는 받은 상태 그대로다. paused 는 일시 중지일 때만 남긴다. */
+	private QueueResponse afterClosedCheck(Long userId, Long scheduleId, ScheduleStatus scheduleStatus,
 		QueueResponse response) {
-		if (scheduleStatus != ScheduleStatus.CANCELED) {
+		if (scheduleStatus != ScheduleStatus.CANCELED && scheduleStatus != ScheduleStatus.POSTPONED) {
 			return response;
 		}
 		if (response.status() == QueueState.WAITING) {
 			queueService.leave(userId, scheduleId);
-			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE, "취소된 회차입니다.");
+			throw scheduleStatus == ScheduleStatus.CANCELED
+				? new BusinessException(BookingExceptionCode.SCHEDULE_NOT_ON_SALE, "취소된 회차입니다.")
+				: new BusinessException(BookingExceptionCode.SCHEDULE_POSTPONED);
 		}
 		return response.status() == QueueState.ADMITTED
 			? QueueResponse.admitted(response.expiresAt(), false) : response;
@@ -91,6 +96,7 @@ public class QueueFacade {
 	}
 
 	private static boolean isHalted(ScheduleStatus scheduleStatus) {
-		return scheduleStatus == ScheduleStatus.PAUSED || scheduleStatus == ScheduleStatus.CANCELED;
+		return scheduleStatus == ScheduleStatus.PAUSED || scheduleStatus == ScheduleStatus.CANCELED
+			|| scheduleStatus == ScheduleStatus.POSTPONED;
 	}
 }

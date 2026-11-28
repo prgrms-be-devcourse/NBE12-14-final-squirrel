@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { CAPTCHA_HEADER, getCaptchaToken } from "@/lib/captcha";
 import type { QueueStatus } from "@/lib/types";
-import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
+import { SALE_PAUSED_CODE, SCHEDULE_POSTPONED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Loading } from "@/components/ui";
 
 // 대기열 입구. 서버는 회차마다 정원만큼만 들여보내고, 입장하지 않으면 구역·좌석 조회와 좌석 점유가 403(QUEUE000)이다.
@@ -20,6 +20,7 @@ type Phase =
   | { kind: "waiting"; position: number; waitingCount: number; paused: boolean }
   | { kind: "admitted" }
   | { kind: "salePaused" }
+  | { kind: "postponed"; wasWaiting: boolean }
   | { kind: "error"; message: string; retryable: boolean };
 
 export function QueueGate({
@@ -78,6 +79,7 @@ export function QueueGate({
 
     function fail(error: unknown) {
       if (cancelled) return;
+      const wasWaiting = waitingRef.current;
       waitingRef.current = false;
       joinedRef.current = false;
       if (error instanceof ApiError && error.status === 401) {
@@ -87,6 +89,11 @@ export function QueueGate({
       // 새로 줄을 서려는데 중지된 회차다. 이미 기다리는 사람은 오류가 아니라 paused 상태를 받아 순번을 지킨다.
       if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) {
         setPhase({ kind: "salePaused" });
+        return;
+      }
+      // 일정 미정 연기는 기다리던 사람도 서버가 줄에서 뺀다.
+      if (error instanceof ApiError && error.code === SCHEDULE_POSTPONED_CODE) {
+        setPhase({ kind: "postponed", wasWaiting });
         return;
       }
       setPhase({
@@ -170,6 +177,14 @@ export function QueueGate({
   if (phase.kind === "entering") return <Loading label="대기열에 입장하는 중" />;
   if (phase.kind === "salePaused") {
     return <SalePausedModal href={backHref}>지금은 예매할 수 없습니다. 재개되면 다시 예매할 수 있습니다</SalePausedModal>;
+  }
+  if (phase.kind === "postponed") {
+    return (
+      <SalePausedModal href={backHref} title="공연이 연기되었습니다">
+        일정이 정해지지 않아 지금은 예매할 수 없습니다
+        {phase.wasWaiting && ". 대기 순번은 사라졌습니다"}
+      </SalePausedModal>
+    );
   }
 
   return (

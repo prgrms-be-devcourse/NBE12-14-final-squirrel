@@ -6,6 +6,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.CommonGuide;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.entity.SchedulePostponement;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.CancelPolicyRuleRepository;
 import com.squirrel.tickting.domain.performance.infra.repository.PerformanceImageRepository;
@@ -54,6 +55,7 @@ public class UserPerformanceService {
 	 * 판매 상태만 여기서 현재 시각으로 계산한다. (공연·회차 엔티티를 읽지 않아서 지연 로딩 쿼리도 없다)
 	 *   - 취소된 회차는 공연 일시에서 뺀다. 회차가 전부 취소된 공연은 일시가 비고(null) 판매 상태가 종료다.
 	 *   - 아직 시작하지 않은 회차에 일시 중지는 있고 판매 중은 없으면 일시 중지다.
+	 *   - 아직 시작하지 않은 판매 중·일시 중지 회차가 없고 일정 미정 연기 회차가 있으면 연기다.
 	 *   - 매진 판단은 아직 시작하지 않은 판매 중 회차의 AVAILABLE 좌석만 본다. 임시 점유(HELD)만 남았으면 지금은 살 수 없으니 매진이고,
 	 *     점유가 풀려 AVAILABLE 로 돌아오면 다음 조회부터 다시 판매 중이 된다. (상태를 저장하지 않고 계산하므로 따로 되돌릴 일이 없다)
 	 * 현재 시각은 여기서 한 번만 구해서 남은 좌석 판단과 판매 상태 계산에 같이 쓴다.
@@ -71,7 +73,7 @@ public class UserPerformanceService {
 			allGenres ? Genre.values()[0] : genre, allRegions, allRegions ? "" : region.trim(),
 			LikeUtil.containsPattern(keyword), now, sorted);
 		return rows.map(row -> UserPerformanceResponse.Summary.from(row, SaleStatus.of(row.saleOpenAt(),
-			row.saleCloseAt(), row.lastStartAt(), row.paused(), row.hasAvailableSeat(), now)));
+			row.saleCloseAt(), row.lastStartAt(), row.paused(), row.postponed(), row.hasAvailableSeat(), now)));
 	}
 
 	/**
@@ -80,7 +82,8 @@ public class UserPerformanceService {
 	 *
 	 *   - 회차: 취소된 회차는 뺀다. 공연 목록의 첫·마지막 회차 일시와 같은 기준이다.
 	 *     판매 상태는 회차마다 목록과 같은 SaleStatus 규칙으로 계산한다. (마지막 회차 자리에 그 회차의 시작 일시)
-	 *     일시 중지 회차는 판매 상태도 일시 중지다. 연기는 판매 상태에 섞지 않고 회차 상태(status)로 따로 보여 준다.
+	 *     일시 중지 회차는 판매 상태도 일시 중지이고, 일정 미정 연기 회차는 연기다. 날짜를 바꿔 연기한 회차는 평소 판매 상태 그대로다.
+	 *   - 연기 안내: 일정 미정이면 늘, 날짜 연기면 무료 취소 마감 전까지 담는다.
 	 *   - 공통 안내: 유형마다 한 행이다. 아직 넣지 않은 유형은 응답에서 null 이다.
 	 */
 	@Transactional(readOnly = true)
@@ -107,12 +110,17 @@ public class UserPerformanceService {
 			userPerformanceRepository.findCommonGuides()));
 	}
 
-	/** 중지 사유는 판매 상태가 PAUSED 인 회차에만 담는다. 판매가 끝난 회차의 지난 사유는 예매자에게 필요 없다. */
+	/**
+	 * 중지 사유는 판매 상태가 PAUSED 인 회차에만 담는다. 판매가 끝난 회차의 지난 사유는 예매자에게 필요 없다.
+	 * 연기 이력은 지연 로딩이고 default_batch_fetch_size 가 회차들의 이력을 한 번에 읽는다.
+	 */
 	private ScheduleItem toScheduleItem(Performance performance, PerformanceSchedule schedule, boolean hasAvailableSeat,
 		LocalDateTime now) {
 		SaleStatus saleStatus = SaleStatus.of(performance.getSaleOpenAt(), performance.getSaleCloseAt(),
-			schedule.getStartAt(), schedule.getStatus() == ScheduleStatus.PAUSED, hasAvailableSeat, now);
-		return new ScheduleItem(schedule, saleStatus, saleStatus == SaleStatus.PAUSED ? schedule.getPauseReason() : null);
+			schedule.getStartAt(), schedule.getStatus() == ScheduleStatus.PAUSED,
+			schedule.getStatus() == ScheduleStatus.POSTPONED, hasAvailableSeat, now);
+		return new ScheduleItem(schedule, saleStatus, saleStatus == SaleStatus.PAUSED ? schedule.getPauseReason() : null,
+			schedule.findLatestPostponement().filter(latest -> latest.isFreeCancelOpen(now)).orElse(null));
 	}
 
 	/**
@@ -166,8 +174,10 @@ public class UserPerformanceService {
 	/**
 	 * 상세의 회차 하나와 그 회차의 판매 상태.
 	 *
-	 * @param pauseReason 예매자에게 보여 줄 중지 사유. 없으면 null
+	 * @param pauseReason  예매자에게 보여 줄 중지 사유. 없으면 null
+	 * @param postponement 예매자에게 보여 줄 연기. 없으면 null
 	 */
-	public record ScheduleItem(PerformanceSchedule schedule, SaleStatus saleStatus, String pauseReason) {
+	public record ScheduleItem(PerformanceSchedule schedule, SaleStatus saleStatus, String pauseReason,
+		SchedulePostponement postponement) {
 	}
 }

@@ -6,9 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { ApiError, api, errorText, useApi } from "@/lib/api";
 import { clearBooking, useCachedBooking } from "@/lib/booking-cache";
-import { dateTimeText, gradeLabel, timeText, won } from "@/lib/format";
+import { gradeLabel, scheduleText, timeText, won } from "@/lib/format";
 import type { BookingDetail, BookingStatus, PaymentConfirmed, PaymentReady, PerformanceDetail } from "@/lib/types";
-import { SALE_PAUSED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
+import { SALE_PAUSED_CODE, SCHEDULE_POSTPONED_CODE, SalePausedModal } from "@/components/sale-paused-modal";
 import { Ticket } from "@/components/ticket";
 import { ErrorBox, Loading } from "@/components/ui";
 
@@ -114,10 +114,13 @@ export default function PayPage() {
       ? fromDetail(detail.data)
       : null;
   const performance = useApi<PerformanceDetail>(view ? `/api/v1/performances/${view.performanceId}` : null);
-  // 중지된 회차의 결제 화면에 들어왔거나, 결제를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
-  const [rejected, setRejected] = useState(false);
-  const paused =
-    rejected || performance.data?.schedules.find((s) => s.scheduleId === view?.scheduleId)?.status === "PAUSED";
+  // 중지·연기된 회차의 결제 화면에 들어왔거나, 결제를 눌러 서버가 거절하면 알린다. 막는 것은 서버다.
+  // 날짜만 바꾼 연기는 이 화면이 연기 전에 만든 예매인지 알 수 없어서 결제를 눌렀을 때 서버가 알려 준다.
+  const [rejected, setRejected] = useState<string | null>(null);
+  const schedule = performance.data?.schedules.find((s) => s.scheduleId === view?.scheduleId);
+  const postponed = rejected === SCHEDULE_POSTPONED_CODE || schedule?.status === "POSTPONED";
+  const paused = !postponed && (rejected === SALE_PAUSED_CODE || schedule?.status === "PAUSED");
+  const blocked = paused || postponed;
 
   const now = useNow(1000);
   const [step, setStep] = useState<Step>("review");
@@ -246,7 +249,8 @@ export default function PayPage() {
       clearBooking(b.bookingId);
       router.push("/bookings");
     } catch (error) {
-      if (error instanceof ApiError && error.code === SALE_PAUSED_CODE) setRejected(true);
+      if (error instanceof ApiError && (error.code === SALE_PAUSED_CODE || error.code === SCHEDULE_POSTPONED_CODE))
+        setRejected(error.code);
       else if (error instanceof ApiError) setMessage(errorText(error, "결제에 실패했습니다"));
       else if (isTossError(error)) {
         // 구매자가 결제창을 닫은 경우도 여기로 온다. 실패가 아니라 취소라서 안내만 한다.
@@ -287,7 +291,7 @@ export default function PayPage() {
             <>
               <p className="text-xs text-muted">예매번호 {b.bookingNo}</p>
               <h2 className="mt-2 text-xl leading-snug font-semibold">{b.title}</h2>
-              {b.startAt && <p className="mt-1 text-sm text-secondary">{dateTimeText(b.startAt)}</p>}
+              {b.startAt && <p className="mt-1 text-sm text-secondary">{scheduleText(b.startAt, schedule?.status)}</p>}
             </>
           }
           stub={
@@ -323,7 +327,7 @@ export default function PayPage() {
         <section className="card space-y-2 p-5 text-sm">
           <p className="text-xs text-muted">예매번호 {b.bookingNo}</p>
           <p className="font-medium">{b.title}</p>
-          {b.startAt && <p className="text-secondary">{dateTimeText(b.startAt)}</p>}
+          {b.startAt && <p className="text-secondary">{scheduleText(b.startAt, schedule?.status)}</p>}
           <p className="text-secondary">
             좌석 {b.seats.length}석 · {receiveType === "DELIVERY" ? "배송" : "현장 수령"}
           </p>
@@ -353,6 +357,12 @@ export default function PayPage() {
               지금은 결제할 수 없습니다.
               {b.expiresAt &&
                 ` 선택한 좌석은 ${timeText(b.expiresAt)}까지 유지되며, 그 안에 재개되면 내 예매에서 결제할 수 있습니다`}
+              {schedule?.postponement && ". 일정이 바뀌기 전에 만든 예매는 재개되어도 결제할 수 없습니다"}
+            </SalePausedModal>
+          )}
+          {postponed && !busy && (
+            <SalePausedModal href={`/performances/${b.performanceId}`} title="공연 일정이 바뀌었습니다">
+              결제할 수 없습니다. 바뀐 일정을 확인한 뒤 다시 예매해 주세요
             </SalePausedModal>
           )}
 
@@ -421,7 +431,7 @@ export default function PayPage() {
                   {message}
                 </p>
               )}
-              <button type="button" className="btn btn-primary btn-lg w-full" disabled={paused} onClick={goPay}>
+              <button type="button" className="btn btn-primary btn-lg w-full" disabled={blocked} onClick={goPay}>
                 결제 진행하기
               </button>
               <p className="text-center text-xs text-muted">내용을 확인한 뒤 누르면 결제 수단을 고를 수 있습니다</p>
@@ -449,7 +459,7 @@ export default function PayPage() {
               <button
                 type="button"
                 className="btn btn-primary btn-lg w-full"
-                disabled={busy || paused || payUnavailable || (useToss && widgetState !== "ready")}
+                disabled={busy || blocked || payUnavailable || (useToss && widgetState !== "ready")}
                 onClick={pay}
               >
                 {busy ? "결제 처리 중" : `${won(b.totalAmount)} 결제하기`}

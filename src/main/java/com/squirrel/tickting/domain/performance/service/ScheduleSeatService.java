@@ -7,10 +7,14 @@ import com.squirrel.tickting.domain.performance.type.ScheduleStatus;
 import com.squirrel.tickting.domain.performance.type.SeatStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.BookingExceptionCode;
+import com.squirrel.tickting.global.exception.code.PerformanceExceptionCode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -119,7 +123,77 @@ public class ScheduleSeatService {
 		}
 	}
 
+	/**
+	 * 고른 좌석의 판매자 보류를 지정(AVAILABLE → RESERVED)하거나 해제(RESERVED → AVAILABLE)한다. 공연 락 안의 트랜잭션에서 부른다.
+	 * 바꿀 수 없는 좌석은 건너뛰고 지금 상태를 알려 준다.
+	 * 바뀐 좌석은 "보류였는지"가 뒤집힌 좌석이다. RESERVED 를 만들거나 없애는 것은 공연 락을 잡는 판매자 흐름뿐이라 뒤집혔으면 이 요청이 바꾼 것이다.
+	 * AVAILABLE 로는 판단할 수 없다. 해제 중에 점유 만료·예매 취소가 다른 좌석을 AVAILABLE 로 되돌릴 수 있다.
+	 *
+	 * @param seatIds 중복이 없는 좌석 번호
+	 */
+	@Transactional
+	public SeatReservationChange changeReservation(Long scheduleId, Set<Long> seatIds, boolean reserve,
+		LocalDateTime now) {
+		List<ScheduleSeat> before = scheduleSeatRepository.findWithLocationByScheduleIdAndIdIn(scheduleId, seatIds);
+		if (before.size() != seatIds.size()) {
+			throw new BusinessException(PerformanceExceptionCode.SELLER_SEAT_NOT_FOUND);
+		}
+		Set<Long> reservedBefore = before.stream()
+			.filter(seat -> seat.getStatus() == SeatStatus.RESERVED)
+			.map(ScheduleSeat::getId)
+			.collect(Collectors.toSet());
+		scheduleSeatRepository.changeStatus(scheduleId, seatIds, reservationFrom(reserve), reservationTo(reserve), now);
+
+		List<ScheduleSeat> changed = new ArrayList<>();
+		List<ScheduleSeat> skipped = new ArrayList<>();
+		scheduleSeatRepository.findWithLocationByScheduleIdAndIdIn(scheduleId, seatIds).stream()
+			.sorted(Comparator.comparing(ScheduleSeat::getId))
+			.forEach(seat -> {
+				boolean flipped = reservedBefore.contains(seat.getId()) != (seat.getStatus() == SeatStatus.RESERVED);
+				(flipped ? changed : skipped).add(seat);
+			});
+		if (changed.isEmpty()) {
+			throw noSeatToChange(reserve);
+		}
+		return new SeatReservationChange(changed, skipped);
+	}
+
+	/**
+	 * 구역을 통째로 지정·해제한다. 구역마다 UPDATE 한 문장이라 돌려받은 행 수가 곧 바뀐 수다.
+	 *
+	 * @param zoneIds 그 회차 공연장의 구역인지 확인한, 중복 없는 번호
+	 * @return zoneIds 와 같은 순서의 구역별 바뀐 좌석 수
+	 */
+	@Transactional
+	public List<Integer> changeZoneReservation(Long scheduleId, List<Long> zoneIds, boolean reserve, LocalDateTime now) {
+		List<Integer> changedSeats = zoneIds.stream()
+			.map(zoneId -> scheduleSeatRepository.changeZoneStatus(scheduleId, zoneId, reservationFrom(reserve),
+				reservationTo(reserve), now))
+			.toList();
+		if (changedSeats.stream().allMatch(count -> count == 0)) {
+			throw noSeatToChange(reserve);
+		}
+		return changedSeats;
+	}
+
+	private static SeatStatus reservationFrom(boolean reserve) {
+		return reserve ? SeatStatus.AVAILABLE : SeatStatus.RESERVED;
+	}
+
+	private static SeatStatus reservationTo(boolean reserve) {
+		return reserve ? SeatStatus.RESERVED : SeatStatus.AVAILABLE;
+	}
+
+	private static BusinessException noSeatToChange(boolean reserve) {
+		return new BusinessException(reserve ? PerformanceExceptionCode.NO_SEAT_TO_RESERVE
+			: PerformanceExceptionCode.NO_SEAT_TO_RELEASE);
+	}
+
 	private static boolean isExcludedFromSale(ScheduleSeat seat) {
 		return seat.getStatus() == SeatStatus.BLOCKED || seat.getStatus() == SeatStatus.RESERVED;
+	}
+
+	/** 보류 지정·해제 결과. 두 목록 모두 좌석 번호순이고, 좌석은 바꾼 뒤 다시 읽은 값이다. */
+	public record SeatReservationChange(List<ScheduleSeat> changed, List<ScheduleSeat> skipped) {
 	}
 }

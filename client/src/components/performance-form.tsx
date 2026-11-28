@@ -80,6 +80,9 @@ export function PerformanceFormView({
 
   // 공개된 공연은 공연장과 취소 규정을 바꿀 수 없다
   const locked = existing?.status === "PUBLISHED";
+  // 지금 공연장이 선택 목록에 없을 수 있다(사용 중지됐거나 목록 밖). 그래도 지금 값이 보여야 해서 따로 넣는다.
+  const current =
+    existing && !venues.data?.content.some((venue) => venue.venueId === existing.venue.venueId) ? existing.venue : null;
 
   const set =
     (key: keyof Values) =>
@@ -142,6 +145,12 @@ export function PerformanceFormView({
           <Field label="공연장" hint={locked ? "공개된 공연은 바꿀 수 없습니다" : "작성 중일 때만 바꿀 수 있습니다"}>
             <select className="input" value={v.venueId} onChange={set("venueId")} disabled={locked} required>
               <option value="">선택하세요</option>
+              {current && (
+                <option value={current.venueId}>
+                  {current.name}
+                  {current.status === "INACTIVE" ? " (사용 중지)" : ""}
+                </option>
+              )}
               {venues.data?.content.map((venue) => (
                 <option key={venue.venueId} value={venue.venueId}>
                   {venue.name} · {venue.region}

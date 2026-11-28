@@ -76,10 +76,10 @@ public class UserBookingService {
 		Booking booking = userBookingRepository.findByIdAndUserId(bookingId, userId)
 			.orElseThrow(() -> new BusinessException(BookingExceptionCode.BOOKING_NOT_FOUND));
 		CancelPolicyCalculator.Quote quote = cancelPolicyCalculator.quote(booking, LocalDateTime.now());
-		return UserBookingResponse.Detail.from(booking, readCancelPolicy(booking), quote.cancelable(), quote.feeRate());
+		return UserBookingResponse.Detail.from(booking, readCancelPolicy(booking), quote);
 	}
 
-	/** 탈퇴를 막아야 하는 진행 중인 예매(결제 대기, 공연이 시작하지 않은 결제 완료)가 있는지. */
+	/** 탈퇴를 막아야 하는 진행 중인 예매(결제 대기, 공연이 시작하지 않았거나 취소돼 환불을 기다리는 결제 완료)가 있는지. */
 	@Transactional(readOnly = true)
 	public boolean hasOngoingBooking(Long userId, LocalDateTime now) {
 		return userBookingRepository.existsOngoing(userId, now);

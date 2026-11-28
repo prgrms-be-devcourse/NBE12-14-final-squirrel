@@ -11,6 +11,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -56,10 +57,10 @@ public class InquiryHistory extends CreatedTimeEntity {
 	@Column(nullable = false, length = 2000)
 	private String content;
 
-	/** 그 순간의 첨부 사진 주소 목록(JSON 배열). 읽기만 하므로 문자열로 둔다. */
+	/** 그 순간의 첨부 사진 주소 목록(JSON 배열). 관리자 상세에서 목록 그대로 보여 주려고 문의와 같은 타입으로 둔다. */
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(nullable = false, columnDefinition = "jsonb")
-	private String imageUrls;
+	private List<String> imageUrls;
 
 	@Column(length = 2000)
 	private String answer;

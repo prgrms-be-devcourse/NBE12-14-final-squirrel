@@ -4,6 +4,7 @@ import com.squirrel.tickting.domain.performance.infra.entity.CancelPolicyRule;
 import com.squirrel.tickting.domain.performance.infra.entity.Performance;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceImage;
 import com.squirrel.tickting.domain.performance.infra.entity.PerformanceSchedule;
+import com.squirrel.tickting.domain.performance.infra.entity.SchedulePostponement;
 import com.squirrel.tickting.domain.performance.infra.entity.SeatGrade;
 import com.squirrel.tickting.domain.performance.infra.entity.ZoneGrade;
 import com.squirrel.tickting.domain.performance.infra.repository.UserPerformanceRepository.PublishedRow;
@@ -216,12 +217,14 @@ public class UserPerformanceResponse {
 		Long scheduleId,
 		@Schema(description = "공연 일시")
 		LocalDateTime startAt,
-		@Schema(description = "회차 상태. PAUSED(일시 중지)·POSTPONED(연기)면 화면은 판매 상태보다 이 값을 먼저 보여 준다")
+		@Schema(description = "회차 상태. PAUSED(일시 중지)·POSTPONED(일정 미정 연기)면 화면은 판매 상태보다 이 값을 먼저 보여 준다")
 		ScheduleStatus status,
 		@Schema(description = "판매 상태 (계산값). 판매 기간·회차 시작 일시·일시 중지 여부·남은 좌석으로 정한다")
 		SaleStatus saleStatus,
 		@Schema(description = "판매 일시 중지 사유. saleStatus 가 PAUSED 인 회차에만 있고, 그 밖은 null", example = "좌석 점검")
-		String pauseReason
+		String pauseReason,
+		@Schema(description = "연기 안내. 일정 미정이면 늘, 날짜 연기면 무료 취소 마감 전까지 있고 그 밖은 null", nullable = true)
+		Postponement postponement
 	) {
 
 		public static Schedule from(UserPerformanceService.ScheduleItem item) {
@@ -231,7 +234,26 @@ public class UserPerformanceResponse {
 				.status(item.schedule().getStatus())
 				.saleStatus(item.saleStatus())
 				.pauseReason(item.pauseReason())
+				.postponement(item.postponement() == null ? null : Postponement.from(item.postponement()))
 				.build();
+		}
+	}
+
+	@Schema(name = "UserPerformanceSchedulePostponement", description = "회차 연기 안내")
+	public record Postponement(
+		@Schema(description = "원래 공연 일시")
+		LocalDateTime oldStartAt,
+		@Schema(description = "새 공연 일시. 일정 미정이면 null", nullable = true)
+		LocalDateTime newStartAt,
+		@Schema(description = "연기 사유", example = "출연자 건강 문제로 연기합니다")
+		String reason,
+		@Schema(description = "연기 전 예매를 수수료 없이 취소할 수 있는 마감. 일정 미정이면 null(확정 전까지)", nullable = true)
+		LocalDateTime freeCancelUntil
+	) {
+
+		static Postponement from(SchedulePostponement postponement) {
+			return new Postponement(postponement.getOldStartAt(), postponement.getNewStartAt(), postponement.getReason(),
+				postponement.findDeadline());
 		}
 	}
 
