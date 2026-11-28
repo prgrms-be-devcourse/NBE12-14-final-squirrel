@@ -139,6 +139,8 @@
 | ADM-11 | 공연장 사용 중지 | POST `/api/v1/admin/venues/{venueId}/deactivate` | 구현됨 |
 | ADM-12 | 공연장 사용 재개 | POST `/api/v1/admin/venues/{venueId}/activate` | 구현됨 |
 | ADM-13 | 공연장 중지 영향 미리보기 | GET `/api/v1/admin/venues/{venueId}/impact` | 구현됨 |
+| ADM-17 | 공통 안내 목록 | GET `/api/v1/admin/common-guides` | 구현됨 |
+| ADM-18 | 공통 안내 수정 | PUT `/api/v1/admin/common-guides/{type}` | 구현됨 |
 | IMG-01 | 이미지 업로드 | POST `/api/v1/images` | 구현됨 |
 | INQ-01 | 문의 유형 목록 (예매자) | GET `/api/v1/inquiries/categories` | 구현됨 |
 | INQ-02 | 문의 작성 (예매자) | POST `/api/v1/inquiries` | 구현됨 |
@@ -3540,6 +3542,36 @@ Query: `authorType`(`USER`/`SELLER`), `status`(`WAITING`/`ANSWERED`), `deleted`(
 **응답 200**: ADM-15와 같은 문의 상세(답변 반영)
 
 **에러**: 400 `COMMON000` 답변 누락·2,000자 초과 · 403 `AUTH100` · 404 `INQUIRY001` 없는 문의, 삭제된 문의 · 409 `INQUIRY003` 이미 답변한 문의(동시에 다른 답변이 먼저 끝났거나 작성자가 먼저 지운 경우도)
+
+### ADM-17 공통 안내 목록 — `GET /api/v1/admin/common-guides` (관리자, 구현됨)
+
+모든 공연 상세에 똑같이 붙는 공통 안내(PFM-02의 `commonGuide`)를 유형마다 한 줄씩 줍니다. **아직 넣지 않은 유형도** `content` 등을 `null`로 함께 줍니다. (운영 DB에는 공통 안내 시드가 없어서 관리자가 처음 저장할 때 생깁니다)
+
+```json
+"data": [
+  { "type": "BOOKING_GUIDE", "typeName": "예매 안내", "content": "좌석을 선택한 뒤 7분 안에 결제해야 합니다.", "updatedBy": 1, "updatedAt": "2026-11-29T10:00:00" },
+  { "type": "REFUND_GUIDE", "typeName": "환불 안내", "content": null, "updatedBy": null, "updatedAt": null }
+]
+```
+
+**에러**: 403 `AUTH100`
+
+### ADM-18 공통 안내 수정 — `PUT /api/v1/admin/common-guides/{type}` (관리자, 구현됨)
+
+`type`: `BOOKING_GUIDE` 예매 안내 / `REFUND_GUIDE` 환불 안내
+
+```json
+{ "content": "좌석을 선택한 뒤 7분 안에 결제해야 합니다." }
+```
+
+- `content`: 필수, 최대 2,000자(임시), 일반 텍스트(줄바꿈 가능). 앞뒤 공백은 잘라 저장합니다.
+- 그 유형의 내용을 **통째로 바꾸고, 아직 없으면 새로 만듭니다.** 공연 상세에는 다음 조회부터 바로 보입니다.
+- 두 관리자가 동시에 고치면 행을 잠가 한 명씩 차례로 바뀌고 **나중에 저장한 쪽**이 남습니다. 같은 유형을 동시에 처음 만들면 하나만 남고 나머지는 409 `COMMON003`입니다.
+- 감사 로그 `COMMON_GUIDE`/`UPDATE`(수정과 한 트랜잭션): 전후 `type`·`content`. 처음 만들었으면 전 값은 비웁니다.
+
+**응답 200**: ADM-17의 한 줄과 같은 모양(수정 반영)
+
+**에러**: 400 `COMMON000` 내용 누락·2,000자 초과·없는 유형 · 403 `AUTH100` · 409 `COMMON003` 같은 유형을 동시에 처음 만듦
 
 ## 6. 이미지 (`/api/v1/images/**`)
 
