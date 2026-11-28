@@ -3,8 +3,10 @@ package com.squirrel.tickting.domain.booking.controller;
 import com.squirrel.tickting.domain.booking.dto.BookingRequest;
 import com.squirrel.tickting.domain.booking.dto.SellerBookingResponse;
 import com.squirrel.tickting.domain.booking.facade.SellerBookingFacade;
+import com.squirrel.tickting.domain.booking.facade.SellerDeliveryFacade;
 import com.squirrel.tickting.domain.booking.service.BookingQueryService;
 import com.squirrel.tickting.domain.booking.service.BookingScope;
+import com.squirrel.tickting.domain.booking.service.SellerDeliveryService;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
 import com.squirrel.tickting.global.response.ApiResponse;
@@ -14,6 +16,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
@@ -25,11 +28,13 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Seller - Booking", description = "판매자의 예매 조회 API")
+@Tag(name = "Seller - Booking", description = "판매자의 예매 조회·발송 처리 API")
 @RestController
 @RequestMapping("/api/v1/seller")
 @RequiredArgsConstructor
@@ -41,6 +46,8 @@ public class SellerBookingController {
 
 	private final SellerBookingFacade sellerBookingFacade;
 	private final BookingQueryService bookingQueryService;
+	private final SellerDeliveryFacade sellerDeliveryFacade;
+	private final SellerDeliveryService sellerDeliveryService;
 
 	/** 범위는 토큰의 사업체 번호로만 만든다. 요청으로 사업체 번호를 받으면 남의 사업체 예매를 볼 수 있다. */
 	@Operation(summary = "내 사업체 예매 목록",
@@ -72,6 +79,51 @@ public class SellerBookingController {
 	) {
 		SellerBookingResponse.Summary response = bookingQueryService.getDetail(
 			new BookingScope.OfBusiness(account.getBusinessId()), bookingId, SellerBookingResponse.Summary::from);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "배송 대상 목록",
+		description = "내 사업체 공연에서 발송할 수 있는 예매(배송, 결제 완료·일부 취소)를 페이지 없이 모두 준다. 파일로 내려받는 용도다. "
+			+ "shipped=false(기본)면 발송 전, true 면 발송한 예매만 준다. 회차 시작 시각, 예매 시각 순이다. "
+			+ "남의 공연·없는 공연은 404(PERFORMANCE000)다.")
+	@GetMapping("/performances/{performanceId}/deliveries")
+	public ResponseEntity<ApiResponse<List<SellerBookingResponse.DeliveryTarget>>> deliveries(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId,
+		@Parameter(description = "이 회차만. 비우면 모든 회차")
+		@RequestParam(required = false) Long scheduleId,
+		@RequestParam(defaultValue = "false") boolean shipped
+	) {
+		List<SellerBookingResponse.DeliveryTarget> response = sellerDeliveryFacade.getTargets(
+			account.getBusinessId(), performanceId, scheduleId, shipped);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "송장 일괄 입력",
+		description = "예매 번호로 찾아 택배사·송장번호를 한꺼번에 넣는다. 형식 오류·모르는 택배사·예매 번호 중복·건수 초과는 "
+			+ "전체를 400 으로 거절하고, 없는 예매·현장 수령·취소된 예매는 그 행만 실패로 돌려준다.")
+	@PutMapping("/performances/{performanceId}/deliveries")
+	public ResponseEntity<ApiResponse<SellerBookingResponse.ShipmentResult>> shipAll(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long performanceId,
+		@Valid @RequestBody BookingRequest.TrackingBulk request
+	) {
+		SellerBookingResponse.ShipmentResult response = sellerDeliveryFacade.shipAll(account.getBusinessId(),
+			performanceId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@Operation(summary = "송장 입력 (단건)",
+		description = "예매 하나의 택배사·송장번호를 넣거나 고친다. 발송 일시는 처음 넣은 시각을 유지한다. "
+			+ "남의 예매 404(BOOKING006), 현장 수령 409(BOOKING014), 발송할 수 없는 상태 409(BOOKING015).")
+	@PutMapping("/bookings/{bookingId}/delivery")
+	public ResponseEntity<ApiResponse<SellerBookingResponse.Summary>> ship(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long bookingId,
+		@Valid @RequestBody BookingRequest.Tracking request
+	) {
+		SellerBookingResponse.Summary response = sellerDeliveryService.ship(account.getBusinessId(), bookingId,
+			request);
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
