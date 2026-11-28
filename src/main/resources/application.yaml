@@ -118,6 +118,27 @@ app:
     expiry-enabled: true
     expiry-interval: 1m
     expiry-batch-size: 500
+    # 발송 처리. 택배사는 이 목록의 코드만 받는다. 조회 주소는 끝에 송장번호를 붙여 쓰고, 택배사가 바꿀 수 있어서 설정에 둔다.
+    delivery:
+      # 송장 일괄 입력에서 한 번에 받는 건수 (임시값)
+      bulk-max-size: 1000
+      carriers:
+        - code: CJ
+          name: CJ대한통운
+          tracking-url: "https://trace.cjlogistics.com/next/tracking.html?wblNo="
+        - code: EPOST
+          name: 우체국택배
+          tracking-url: "https://service.epost.go.kr/trace.RetrieveDomRigiTraceList.comm?displayHeader=N&sid1="
+        - code: HANJIN
+          name: 한진택배
+          tracking-url: "https://www.hanjin.com/kor/CMS/DeliveryMgr/WaybillResult.do?mCode=MN038&schLang=KR&wblnumText2="
+        # 페이지가 열리는 것까지만 확인했다. 실제 송장번호로 조회되는지는 확인하지 못했다
+        - code: LOTTE
+          name: 롯데택배
+          tracking-url: "https://www.lotteglogis.com/home/reservation/tracking/linkView?InvNo="
+        - code: LOGEN
+          name: 로젠택배
+          tracking-url: "https://www.ilogen.com/web/personal/trace/"
   queue:
     # 회차별 대기열. 끄면 누구나 바로 입장한 것으로 본다. (테스트·로컬 확인용. 운영은 켠다)
     enabled: true

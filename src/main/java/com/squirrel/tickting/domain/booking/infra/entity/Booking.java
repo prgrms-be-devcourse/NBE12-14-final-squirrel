@@ -144,6 +144,10 @@ public class Booking extends BaseTimeEntity {
 	@Column(length = 50)
 	private String trackingNo;
 
+	/** 처음 송장을 넣은 시각. 송장을 고쳐도 바뀌지 않는다. 택배사·송장번호와 함께 리포지토리의 조건부 UPDATE 로만 바꾼다. */
+	@Column
+	private LocalDateTime shippedAt;
+
 	/** 좌석 가격 합계 */
 	@Column(nullable = false)
 	private Integer ticketAmount;

@@ -2,8 +2,11 @@ package com.squirrel.tickting.domain.booking.dto;
 
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.List;
@@ -24,6 +27,45 @@ public class BookingRequest {
 	/** 예매 취소. 예매 좌석 번호를 비우면(생략·빈 목록) 남은 좌석 전부를 취소한다. */
 	public record Cancel(
 		List<@NotNull(message = "예매 좌석 번호가 비어 있습니다.") Long> bookingSeatIds
+	) {
+	}
+
+	private static final String TRACKING_NO_PATTERN = "[A-Za-z0-9-]{1,50}";
+	private static final String TRACKING_NO_MESSAGE = "송장번호는 영문·숫자·하이픈 1~50자로 입력해 주세요.";
+
+	/** 송장 단건 입력(SLR-41). 택배사 코드가 설정 목록에 있는지는 서비스가 확인한다. */
+	public record Tracking(
+		@Schema(description = "택배사 코드", example = "CJ")
+		@NotBlank(message = "택배사를 선택해 주세요.")
+		String carrier,
+
+		@Schema(description = "송장번호", example = "123456789012")
+		@NotNull(message = TRACKING_NO_MESSAGE)
+		@Pattern(regexp = TRACKING_NO_PATTERN, message = TRACKING_NO_MESSAGE)
+		String trackingNo
+	) {
+	}
+
+	/** 송장 일괄 입력(SLR-42). 건수 상한(설정)·택배사 코드·예매 번호 중복은 서비스가 확인한다. */
+	public record TrackingBulk(
+		@NotEmpty(message = "송장을 한 건 이상 넣어 주세요.")
+		List<@NotNull(message = "항목이 비어 있습니다.") @Valid TrackingRow> items
+	) {
+	}
+
+	public record TrackingRow(
+		@Schema(description = "예매 번호 (예매자에게 보이는 번호)", example = "20261125KCZB03R")
+		@NotBlank(message = "예매 번호를 입력해 주세요.")
+		String bookingNo,
+
+		@Schema(description = "택배사 코드", example = "CJ")
+		@NotBlank(message = "택배사를 선택해 주세요.")
+		String carrier,
+
+		@Schema(description = "송장번호", example = "123456789012")
+		@NotNull(message = TRACKING_NO_MESSAGE)
+		@Pattern(regexp = TRACKING_NO_PATTERN, message = TRACKING_NO_MESSAGE)
+		String trackingNo
 	) {
 	}
 

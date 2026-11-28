@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useRouteParams } from "@/lib/route-params";
 import { useApi } from "@/lib/api";
+import { carrierName } from "@/lib/delivery";
 import { BOOKING_BADGE, BOOKING_LABEL, dateTimeText, gradeLabel, won } from "@/lib/format";
 import type { BookingStatus, Page, ScheduleBooking, TicketGroup } from "@/lib/types";
 import { ConsoleTitle, Table } from "@/components/console";
@@ -123,6 +124,12 @@ export default function ScheduleBookingsPage() {
                       {b.delivery.recipientName} · {b.delivery.recipientPhone}
                       <br />
                       {b.delivery.recipientAddress}
+                      {b.delivery.carrier && (
+                        <>
+                          <br />
+                          {carrierName(b.delivery.carrier)} {b.delivery.trackingNo}
+                        </>
+                      )}
                     </span>
                   )}
                 </td>

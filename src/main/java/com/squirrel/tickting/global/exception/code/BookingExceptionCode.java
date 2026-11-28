@@ -37,11 +37,18 @@ public enum BookingExceptionCode implements ExceptionCode {
 	SEAT_NOT_CANCELABLE("BOOKING010", HttpStatus.BAD_REQUEST, "취소할 수 없는 좌석이 포함되어 있습니다."),
 	/** 판매가 일시 중지된 회차를 점유·결제하거나 대기열에 새로 들어가려 함. 화면은 이 코드를 보고 알린 뒤 공연 상세로 보낸다 */
 	SCHEDULE_SALE_PAUSED("BOOKING012", HttpStatus.CONFLICT, "판매가 일시 중지된 회차입니다."),
+
+	/** 현장 수령 예매에 송장을 넣으려 함 */
+	NOT_DELIVERY_BOOKING("BOOKING014", HttpStatus.CONFLICT, "배송 예매가 아닙니다."),
+	/** 결제 완료(PAID)·일부 취소(PARTIAL_CANCELED)가 아니라 발송할 수 없음. 읽은 뒤 그사이 취소돼 UPDATE 가 0행일 때도 같다 */
+	BOOKING_NOT_SHIPPABLE("BOOKING015", HttpStatus.CONFLICT, "발송할 수 없는 예매입니다.");
+
 	/**
 	 * 일정 미정으로 연기된 회차를 점유하거나 대기열에 서려 함(대기 중이던 사람 포함). 결제는 미정인 회차와,
 	 * 연기하기 전에 만든 결제 대기 예매를 막고 메시지를 바꿔 쓴다
 	 */
 	SCHEDULE_POSTPONED("BOOKING013", HttpStatus.CONFLICT, "연기된 회차라 지금은 예매할 수 없습니다.");
+
 
 	private final String code;
 	private final HttpStatus status;

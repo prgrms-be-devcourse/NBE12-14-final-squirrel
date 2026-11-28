@@ -120,6 +120,9 @@
 | SLR-25 | 작성 중 공연 삭제 | DELETE `/api/v1/seller/performances/{performanceId}` | 구현됨 |
 | SLR-26 | 회차 판매 일시 중지 | POST `/api/v1/seller/performances/{performanceId}/schedules/pause` | 구현됨 |
 | SLR-27 | 회차 판매 재개 | POST `/api/v1/seller/performances/{performanceId}/schedules/resume` | 구현됨 |
+| SLR-40 | 배송 대상 목록 | GET `/api/v1/seller/performances/{performanceId}/deliveries` | 구현됨 |
+| SLR-41 | 송장 입력 (단건) | PUT `/api/v1/seller/bookings/{bookingId}/delivery` | 구현됨 |
+| SLR-42 | 송장 일괄 입력 | PUT `/api/v1/seller/performances/{performanceId}/deliveries` | 구현됨 |
 | SLR-28 | 회차 연기 | POST `/api/v1/seller/schedules/{scheduleId}/postpone` | 구현됨 |
 | SLR-29 | 연기 회차 새 일정 확정 | POST `/api/v1/seller/schedules/{scheduleId}/postpone/confirm` | 구현됨 |
 | SLR-30 | 회차 구역별 보류석 현황 | GET `/api/v1/seller/schedules/{scheduleId}/zones` | 구현됨 |
@@ -2930,6 +2933,122 @@ Query: `title`, `status`(여러 개), `from`, `to`, `page`, `size` — BKG-04의
 
 - 내 사업체 공연의 예매 하나를 상태와 상관없이 줍니다. 응답은 SLR-23 항목과 같은 모양입니다.
 - 다른 사업체 공연의 예매·없는 예매는 404 `BOOKING006`입니다. (번호가 있는지 알려주지 않으려고 같은 응답)
+- SLR-18·23·24의 `delivery`에는 `carrier`, `trackingNo`, `shippedAt`도 있습니다. (발송 처리 SLR-40~42, 발송 전이면 모두 `null`)
+
+### 발송 처리 (SLR-40~42) 공통 규칙
+
+> 2026-11-27 설계, 2026-11-28 구현. 배송 테이블은 만들지 않고 `booking`의 택배사·송장번호와 새 컬럼 `shipped_at`에 저장합니다(`part4` 4-2). 판매자는 택배사 시스템과 파일을 주고받아 송장을 매기는 것이 보통이라, **배송 대상을 내려받고(SLR-40) 송장을 채운 파일을 한 번에 올리는(SLR-42)** 흐름을 기본으로 하고, 오타 수정·몇 건 발송은 단건(SLR-41)으로 합니다. 택배사 API 연동(송장 자동 발급, 배송 상태 추적)은 판매자마다 택배 계약이 달라 하지 않습니다(`doc/later`).
+
+| 항목 | 규칙 |
+|---|---|
+| 쓰는 사람 | 대표·담당자 모두 (발송은 담당자 업무). 사업체 번호는 토큰에서 꺼냄 |
+| 발송할 수 있는 예매 | 수령 방법 `DELIVERY`이고 상태가 결제 완료(`PAID`)·일부 취소(`PARTIAL_CANCELED`) |
+| 택배사 | 설정 목록의 코드만 받음(`app.booking.delivery.carriers`: 코드·이름·조회 주소 틀). 처음 목록은 `CJ`(CJ대한통운), `EPOST`(우체국택배), `HANJIN`(한진택배), `LOTTE`(롯데택배), `LOGEN`(로젠택배) (임시). 조회 주소(`tracking-url`)는 끝에 송장번호를 붙여 씀. 값은 `application.yaml`. 2026-11-28에 가짜 송장번호로 열어 CJ·우체국·한진·로젠은 번호를 읽는 것을 확인했고, **롯데는 페이지가 열리는 것까지만 확인**(실제 송장으로 확인 필요) |
+| 송장번호 | 필수, 영문·숫자·하이픈 1~50자 (임시). 같은 송장번호를 여러 예매에 넣을 수 있음 (한 사람의 예매 여러 건을 한 상자로 보내는 경우) |
+| 다시 입력하면 | 택배사·송장번호를 덮어씀(오타 수정). **발송 시각(`shippedAt`)은 처음 값을 유지**해서 같은 파일을 다시 올려도 발송일이 바뀌지 않음 |
+| 발송 시각 | 처음 송장을 넣은 시각 |
+| 동시 입력 | 락 없이 나중 요청의 값이 남음. 그사이 예매가 취소되면 상태 조건부 UPDATE가 막음 |
+| 발송 뒤 예매자 취소 (BKG-06) | 발송한 예매는 온라인 취소를 막고 문의로 안내하는 방향. 예매 취소 담당(C님)과 정한 뒤 BKG-06에 반영 (미확정) |
+| 예매자 화면 (BKG-05) | `delivery`에 `shippedAt`과 조회 주소(`trackingUrl`, 설정의 틀에 송장번호를 붙임)를 더함. 예매자 조회 담당(B님)과 정한 뒤 BKG-05에 반영 (미확정) |
+
+### SLR-40 배송 대상 목록 — `GET /api/v1/seller/performances/{performanceId}/deliveries` (구현됨)
+
+Query: `scheduleId`(선택), `shipped`(선택, 기본 `false`)
+
+- 내 사업체 공연의 발송할 수 있는 예매(위 공통 규칙)를 줍니다. 판매자가 파일로 내려받아 택배사 시스템에 올리는 용도입니다.
+- `shipped=false`(기본)이면 아직 발송하지 않은 예매만, `true`면 발송한 예매만 줍니다. `scheduleId`를 주면 그 회차만 줍니다. (다른 공연의 회차면 빈 목록)
+- **페이징 없이 전부** 줍니다. 파일 하나로 내려받기 위해서입니다. 한 공연의 배송 예매는 많아야 좌석 수 ÷ 1인 최대 매수 정도라고 보고(추정, 재 보지 않음) 상한을 두지 않습니다.
+- 정렬은 회차 시작 시각 순, 같으면 예매 시각 순(먼저 산 예매 먼저)으로 고정입니다.
+- 파일(CSV·엑셀) 만들기는 프론트가 합니다. 엑셀에서 열 때 한글이 깨지지 않게 CSV면 BOM을 붙입니다.
+- 취소된 공연·작성 중 공연도 조회할 수 있습니다. (발송할 수 있는 예매가 없으면 빈 목록)
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": [
+    {
+      "bookingId": 1001,
+      "bookingNo": "20261125KCZB03R",
+      "scheduleId": 31,
+      "scheduleStartAt": "2026-12-20T19:00:00",
+      "recipientName": "김받는",
+      "recipientPhone": "01099990000",
+      "recipientAddress": "서울 가상구 1",
+      "seatCount": 2,
+      "carrier": null,
+      "trackingNo": null,
+      "shippedAt": null
+    }
+  ]
+}
+```
+
+- `seatCount`는 남은 표 장수입니다. 봉투에 넣을 티켓 수를 맞추는 데 씁니다.
+
+**에러** (확인 순서대로): 403 `AUTH100` 판매자가 아님 · 400 `COMMON000` `shipped`·`scheduleId` 형식 오류 · 404 `PERFORMANCE000` 남의 공연·없는 공연
+
+### SLR-41 송장 입력 (단건) — `PUT /api/v1/seller/bookings/{bookingId}/delivery` (구현됨)
+
+```json
+{ "carrier": "CJ", "trackingNo": "123456789012" }
+```
+
+- 예매 하나의 택배사·송장번호를 넣거나 고칩니다. 처음 넣으면 발송 시각이 채워집니다.
+- 응답은 SLR-24와 같은 모양(바뀐 예매)입니다.
+
+**에러** (확인 순서대로)
+
+| HTTP | 코드 | 언제 |
+|---|---|---|
+| 403 | `AUTH100` | 판매자가 아님 |
+| 400 | `COMMON000` | 형식 오류, 목록에 없는 택배사 코드 |
+| 404 | `BOOKING006` | 남의 예매·없는 예매 (번호가 있는지 알려주지 않으려고 같은 응답) |
+| 409 | `BOOKING014` | 배송 예매가 아님 (현장 수령) |
+| 409 | `BOOKING015` | 발송할 수 없는 상태 (결제 대기·만료·전체 취소). 읽은 뒤 그사이 취소돼 UPDATE가 0행일 때도 같은 코드 |
+
+### SLR-42 송장 일괄 입력 — `PUT /api/v1/seller/performances/{performanceId}/deliveries` (구현됨)
+
+```json
+{
+  "items": [
+    { "bookingNo": "20261125KCZB03R", "carrier": "CJ", "trackingNo": "123456789012" },
+    { "bookingNo": "20261125QWER12T", "carrier": "CJ", "trackingNo": "123456789013" }
+  ]
+}
+```
+
+- SLR-40로 내려받은 파일에 송장을 채워 올린 것을 한 번에 반영합니다. 파일 읽기는 프론트가 하고 서버는 JSON 배열을 받습니다. 예매는 파일에 보이는 **예매 번호**로 찾습니다.
+- 한 번에 1~1,000건(임시, 설정 `app.booking.delivery.bulk-max-size`)입니다.
+- **형식 오류는 요청 전체를 거절**합니다(400). 파일 자체가 잘못된 것이라 고쳐서 다시 올려야 하기 때문입니다. 메시지에 `items[3].trackingNo: …`처럼 몇 번째 항목인지(0부터)가 나옵니다. 한 요청에 같은 예매 번호가 두 번 나와도 400입니다.
+- **상태 오류는 그 행만 실패**하고 나머지는 반영합니다. 올리는 사이 취소된 예매 때문에 파일 전체를 다시 올리지 않게 하려는 것입니다.
+- 이미 발송한 예매는 덮어씁니다(공통 규칙). 같은 파일을 다시 올려도 결과가 같습니다.
+- 조회 한 번과 UPDATE 한 번으로 처리해서 건수가 많아도 쿼리 수가 늘지 않습니다.
+
+**응답 200**
+
+```json
+{
+  "success": true,
+  "code": "0000",
+  "message": "",
+  "data": {
+    "total": 2,
+    "succeeded": 1,
+    "failed": [
+      { "row": 1, "bookingNo": "20261125QWER12T", "code": "BOOKING015", "message": "발송할 수 없는 예매입니다." }
+    ]
+  }
+}
+```
+
+- `row`는 `items`에서의 위치(0부터)입니다. 프론트가 파일의 줄 번호로 바꿔 보여 줍니다.
+- 행별 실패 코드: `BOOKING006` 없는 예매 번호·이 공연의 예매가 아님(구분하지 않음) · `BOOKING014` 배송 예매가 아님 · `BOOKING015` 발송할 수 없는 상태
+
+**에러** (요청 전체, 확인 순서대로): 403 `AUTH100` 판매자가 아님 · 400 `COMMON000` 형식 오류·택배사 코드·건수(0건, 1,000건 초과)·예매 번호 중복 · 404 `PERFORMANCE000` 남의 공연·없는 공연 · 409 `COMMON003` DB 제약 위반(서비스 검사를 통과했다면 일어나지 않는 경우. 한 UPDATE로 묶여 있어 전체가 반영되지 않음)
 
 ### SLR-19 취소 규정 목록 — `GET /api/v1/seller/cancel-policies` (구현됨)
 

@@ -2,8 +2,10 @@ package com.squirrel.tickting.domain.booking.dto;
 
 import com.squirrel.tickting.domain.booking.infra.entity.Booking;
 import com.squirrel.tickting.domain.booking.infra.entity.BookingSeat;
+import com.squirrel.tickting.domain.booking.infra.repository.BookingRepository;
 import com.squirrel.tickting.domain.booking.type.BookingStatus;
 import com.squirrel.tickting.domain.booking.type.ReceiveMethod;
+import com.squirrel.tickting.global.exception.ExceptionCode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -12,7 +14,7 @@ import java.util.stream.Collectors;
 import lombok.Builder;
 
 /**
- * 판매자의 회차별 예매 응답(SLR-18). 예매자용 응답과 모양이 달라서 이름을 구분했다.
+ * 판매자의 예매 조회(SLR-18·23·24)와 발송 처리(SLR-40~42) 응답. 예매자용 응답과 모양이 달라서 이름을 구분했다.
  * 판매자는 수수료 없이 "얼마짜리 표가 몇 장, 최종 얼마"만 본다. 처음 결제 총액·환불액·주문자 이메일은 담지 않는다.
  */
 public class SellerBookingResponse {
@@ -146,11 +148,79 @@ public class SellerBookingResponse {
 	public record Delivery(
 		String recipientName,
 		String recipientPhone,
-		String recipientAddress
+		String recipientAddress,
+		@Schema(description = "택배사 코드. 발송 전이면 null", example = "CJ")
+		String carrier,
+		@Schema(description = "송장번호. 발송 전이면 null")
+		String trackingNo,
+		@Schema(description = "발송 일시(처음 송장을 넣은 시각). 발송 전이면 null")
+		LocalDateTime shippedAt
 	) {
 
 		static Delivery from(Booking booking) {
-			return new Delivery(booking.getRecipientName(), booking.getRecipientPhone(), booking.getRecipientAddress());
+			return new Delivery(booking.getRecipientName(), booking.getRecipientPhone(), booking.getRecipientAddress(),
+				booking.getCarrier(), booking.getTrackingNo(), booking.getShippedAt());
+		}
+	}
+
+	@Builder
+	@Schema(name = "SellerDeliveryTarget", description = "배송 대상(발송할 수 있는 예매) 한 건")
+	public record DeliveryTarget(
+		Long bookingId,
+		@Schema(description = "예매 번호. 송장 일괄 입력에서 예매를 찾는 값", example = "20261125KCZB03R")
+		String bookingNo,
+		Long scheduleId,
+		LocalDateTime scheduleStartAt,
+		String recipientName,
+		String recipientPhone,
+		String recipientAddress,
+		@Schema(description = "남은 표 장수. 봉투에 넣을 티켓 수")
+		int seatCount,
+		String carrier,
+		String trackingNo,
+		LocalDateTime shippedAt
+	) {
+
+		public static DeliveryTarget from(BookingRepository.DeliveryTargetRow row) {
+			return DeliveryTarget.builder()
+				.bookingId(row.getBookingId())
+				.bookingNo(row.getBookingNo())
+				.scheduleId(row.getScheduleId())
+				.scheduleStartAt(row.getScheduleStartAt())
+				.recipientName(row.getRecipientName())
+				.recipientPhone(row.getRecipientPhone())
+				.recipientAddress(row.getRecipientAddress())
+				.seatCount(row.getSeatCount().intValue())
+				.carrier(row.getCarrier())
+				.trackingNo(row.getTrackingNo())
+				.shippedAt(row.getShippedAt())
+				.build();
+		}
+	}
+
+	@Schema(name = "SellerShipmentResult", description = "송장 일괄 입력 결과")
+	public record ShipmentResult(
+		@Schema(description = "올린 건수")
+		int total,
+		@Schema(description = "반영한 건수")
+		int succeeded,
+		@Schema(description = "반영하지 못한 행")
+		List<ShipmentFailure> failed
+	) {
+	}
+
+	@Schema(name = "SellerShipmentFailure", description = "송장을 반영하지 못한 행")
+	public record ShipmentFailure(
+		@Schema(description = "items 에서의 위치(0부터)")
+		int row,
+		String bookingNo,
+		@Schema(description = "BOOKING006 없는 예매, BOOKING014 배송 예매가 아님, BOOKING015 발송할 수 없는 상태")
+		String code,
+		String message
+	) {
+
+		public static ShipmentFailure of(int row, String bookingNo, ExceptionCode code) {
+			return new ShipmentFailure(row, bookingNo, code.getCode(), code.getMessage());
 		}
 	}
 

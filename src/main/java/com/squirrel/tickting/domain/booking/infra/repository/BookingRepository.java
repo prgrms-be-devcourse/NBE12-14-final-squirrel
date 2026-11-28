@@ -146,7 +146,94 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		""")
 	int markPartiallyCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
 
+
+	/**
+	 * 판매자의 배송 대상(SLR-40): 배송이고 결제 완료·일부 취소인 예매. shipped 로 발송 전·후를 고르고, 회차를 거르지 않으면
+	 * allSchedules 를 켠다(PostgreSQL 에서 null 파라미터가 타입 오류를 낸다). 파일 하나로 내려받아 페이징이 없어서,
+	 * 좌석 수까지 쿼리 한 번에 읽는다.
+	 */
+	@Query("""
+		SELECT b.id AS bookingId, b.bookingNo AS bookingNo, b.scheduleId AS scheduleId, s.startAt AS scheduleStartAt,
+		       b.recipientName AS recipientName, b.recipientPhone AS recipientPhone,
+		       b.recipientAddress AS recipientAddress,
+		       (SELECT COUNT(bs.id) FROM BookingSeat bs WHERE bs.bookingId = b.id AND bs.active = true) AS seatCount,
+		       b.carrier AS carrier, b.trackingNo AS trackingNo, b.shippedAt AS shippedAt
+		  FROM Booking b
+		  JOIN b.schedule s
+		 WHERE b.performanceId = :performanceId
+		   AND b.businessId = :businessId
+		   AND (:allSchedules = true OR b.scheduleId = :scheduleId)
+		   AND b.receiveType = com.squirrel.tickting.domain.booking.type.ReceiveMethod.DELIVERY
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		   AND ((:shipped = true AND b.shippedAt IS NOT NULL) OR (:shipped = false AND b.shippedAt IS NULL))
+		 ORDER BY s.startAt, b.createdAt, b.id
+		""")
+	List<DeliveryTargetRow> findDeliveryTargets(@Param("performanceId") Long performanceId,
+		@Param("businessId") Long businessId, @Param("allSchedules") boolean allSchedules,
+		@Param("scheduleId") long scheduleId, @Param("shipped") boolean shipped);
+
+	/**
+	 * 송장 한 건을 넣거나 고친다. 내 사업체의 배송 예매이고 결제 완료·일부 취소일 때만 바꾸고 바뀐 행 수를 돌려준다.
+	 * 상태 조건이 있어서 읽은 뒤 그사이 취소된 예매는 건드리지 않는다. 발송 일시는 처음 값을 남긴다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE Booking b
+		   SET b.carrier = :carrier,
+		       b.trackingNo = :trackingNo,
+		       b.shippedAt = COALESCE(b.shippedAt, :now),
+		       b.updatedAt = :now
+		 WHERE b.id = :id
+		   AND b.businessId = :businessId
+		   AND b.receiveType = com.squirrel.tickting.domain.booking.type.ReceiveMethod.DELIVERY
+		   AND b.status IN (com.squirrel.tickting.domain.booking.type.BookingStatus.PAID,
+		                    com.squirrel.tickting.domain.booking.type.BookingStatus.PARTIAL_CANCELED)
+		""")
+	int ship(@Param("id") Long id, @Param("businessId") Long businessId, @Param("carrier") String carrier,
+		@Param("trackingNo") String trackingNo, @Param("now") LocalDateTime now);
+
+	/**
+	 * 일괄 입력할 예매들의 수령 방법·상태를 한 번에 읽는다. 보낸 번호마다 한 행을 보낸 순서대로 돌려주고,
+	 * 없는 번호·이 공연의 예매가 아니면 두 값이 null 이다.
+	 */
+	@Query(value = """
+		SELECT b.receive_type AS receiveType, b.status AS status
+		  FROM unnest(:bookingNos) WITH ORDINALITY AS t(booking_no, ord)
+		  LEFT JOIN booking b ON b.booking_no = t.booking_no
+		   AND b.performance_id = :performanceId AND b.business_id = :businessId
+		 ORDER BY t.ord
+		""", nativeQuery = true)
+	List<ShipmentCandidateRow> findShipmentCandidates(@Param("performanceId") Long performanceId,
+		@Param("businessId") Long businessId, @Param("bookingNos") String[] bookingNos);
+
+	/**
+	 * 송장 여러 건을 UPDATE 한 번으로 넣고 바뀐 예매 번호를 돌려준다. 세 배열은 같은 위치끼리 한 건이다.
+	 * 조건은 ship 과 같다. 바뀐 번호를 돌려받아야 그사이 취소된 행을 알 수 있어서 @Modifying 대신 RETURNING 을 쓴다.
+	 * 그래서 영속성 컨텍스트를 비우지 않으므로, 같은 트랜잭션에서 예매 엔티티를 읽어 두고 부르면 안 된다.
+	 */
+	@Query(value = """
+		UPDATE booking b
+		   SET carrier = t.carrier,
+		       tracking_no = t.tracking_no,
+		       shipped_at = COALESCE(b.shipped_at, :now),
+		       updated_at = :now
+		  FROM unnest(:bookingNos, :carriers, :trackingNos) AS t(booking_no, carrier, tracking_no)
+		 WHERE b.booking_no = t.booking_no
+		   AND b.performance_id = :performanceId
+		   AND b.business_id = :businessId
+		   AND b.receive_type = 'DELIVERY'
+		   AND b.status IN ('PAID', 'PARTIAL_CANCELED')
+		RETURNING b.booking_no
+		""", nativeQuery = true)
+	List<String> shipAll(@Param("performanceId") Long performanceId, @Param("businessId") Long businessId,
+		@Param("bookingNos") String[] bookingNos, @Param("carriers") String[] carriers,
+		@Param("trackingNos") String[] trackingNos, @Param("now") LocalDateTime now);
+
+	/** 전체 취소 처리. 결제 완료·일부 취소인 예매만 바꾸고 전체 취소 일시를 남긴다. */
+
 	/** 예매자의 전체 취소 처리. 결제 완료·일부 취소이고 회차가 취소되지 않은 예매만 바꾸고 전체 취소 일시를 남긴다. */
+
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		UPDATE Booking b
@@ -161,6 +248,38 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		                      AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED)
 		""")
 	int markCanceled(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+
+	// ---------------------------------------------------------------- 조회 결과
+
+	interface DeliveryTargetRow {
+		Long getBookingId();
+
+		String getBookingNo();
+
+		Long getScheduleId();
+
+		LocalDateTime getScheduleStartAt();
+
+		String getRecipientName();
+
+		String getRecipientPhone();
+
+		String getRecipientAddress();
+
+		Long getSeatCount();
+
+		String getCarrier();
+
+		String getTrackingNo();
+
+		LocalDateTime getShippedAt();
+	}
+
+	interface ShipmentCandidateRow {
+		ReceiveMethod getReceiveType();
+
+		BookingStatus getStatus();
 
 	/** 주어진 회차들에서 주어진 상태인 예매 수. */
 	long countByScheduleIdInAndStatusIn(Collection<Long> scheduleIds, Collection<BookingStatus> statuses);
@@ -186,5 +305,6 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 		long getRefundTargetCount();
 
 		long getPendingCount();
+
 	}
 }
