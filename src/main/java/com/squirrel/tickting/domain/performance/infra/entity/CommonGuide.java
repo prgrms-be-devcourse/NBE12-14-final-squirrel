@@ -47,4 +47,10 @@ public class CommonGuide {
 	@LastModifiedDate
 	@Column(name = "updated_at", nullable = false)
 	private LocalDateTime updatedAt;
+
+	/** 내용을 통째로 바꾸고 수정한 관리자를 남긴다. 수정 시각은 저장할 때 채워진다. */
+	public void update(String content, Long adminId) {
+		this.content = content;
+		this.updatedBy = adminId;
+	}
 }
