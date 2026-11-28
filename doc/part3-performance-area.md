@@ -51,6 +51,7 @@ erDiagram
         LocalDateTime start_at
         enum status "ON_SALE PAUSED POSTPONED CANCELED"
         String pause_reason
+        String cancel_reason
         LocalDateTime seats_generated_at "판매 좌석 생성 시각, NULL이면 아직 안 만듦"
         LocalDateTime created_at
         LocalDateTime updated_at
@@ -194,6 +195,14 @@ erDiagram
 | `PUBLISHED` | 공개됨. 예매자 목록에 보임 |
 | `CANCELED` | 공연 전체 취소 |
 
+**Q. 공연이나 회차를 없애려면요?** (2026-11-27, SLR-15·16·25)
+
+- **작성 중(`DRAFT`) 공연은 삭제합니다.** 예매자에게 보인 적이 없어 이력을 남기지 않고 딸린 행까지 지웁니다(감사 로그는 남깁니다).
+- **공개(`PUBLISHED`) 공연은 취소합니다.** 공연을 `CANCELED`로 남기고, 시작 전이거나 일정 미정인 회차를 취소합니다. 이미 시작한 회차는 그대로 두고, 취소되지 않은 회차가 모두 시작한 공연은 취소할 수 없습니다.
+- 회차만 취소할 수도 있습니다(같은 조건). 마지막 회차를 취소해도 공연은 공개로 남습니다.
+- 작성 중 공연은 취소하지 않습니다. 그래서 취소 공연은 모두 공개한 적이 있고, 취소 규정 잠금(3-6)이 상태만 봐도 맞습니다.
+- 취소와 삭제는 되돌릴 수 없습니다. 취소된 회차의 환불은 5부 5-2 ④의 스케줄러가 하며 **추후 구현**입니다.
+
 **Q. 공연은 언제 공개할 수 있나요?**
 
 작성 중(`DRAFT`)인 공연이 아래를 모두 만족할 때만 공개(`PUBLISHED`)할 수 있습니다. 공개하면 되돌릴 수 없습니다.
@@ -262,6 +271,7 @@ erDiagram
 |  | 공연 일시 | `start_at` | LocalDateTime | NOT NULL |  |
 |  | 판매 상태 | `status` | enum | NOT NULL | ON_SALE 판매 중 / PAUSED 일시중지 / POSTPONED 연기 / CANCELED 회차 취소 |
 |  | 중지 사유 | `pause_reason` | String | NULL | 일시중지일 때만 |
+|  | 취소 사유 | `cancel_reason` | String(500) | NULL | 취소한 회차만. 회차 취소 환불의 상세 사유가 됨 (2026-11-27) |
 |  | 좌석 생성 일시 | `seats_generated_at` | LocalDateTime | NULL | 판매 좌석(`schedule_seat`)을 만든 시각. 비어 있으면 아직 안 만든 회차 (3-5) |
 |  | 생성일 | `created_at` | LocalDateTime | NOT NULL |  |
 |  | 수정일 | `updated_at` | LocalDateTime | NOT NULL |  |

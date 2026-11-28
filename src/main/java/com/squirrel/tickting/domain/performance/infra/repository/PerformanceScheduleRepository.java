@@ -121,6 +121,31 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
 		@Param("now") LocalDateTime now);
 
 	/**
+	 * 취소되지 않았고, 일정 미정(POSTPONED)이거나 아직 시작하지 않은 회차만 취소하고 바뀐 행 수를 돌려준다.
+	 * 일정 미정 회차는 원래 일시가 지났어도 열린 적이 없어 취소할 수 있다. 공연 취소(SLR-16)와 회차 취소(SLR-15)가 같은 조건을 쓴다.
+	 * 락이 듣지 않는 경우(Redis 장애·락 만료)에도 시작한 회차가 취소되어 관람이 끝난 예매까지 환불되지 않게 하는 상태 조건부 UPDATE 다.
+	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣고, 영속성 컨텍스트는 비우지 않는다.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE PerformanceSchedule s
+		   SET s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED,
+		       s.pauseReason = NULL,
+		       s.cancelReason = :reason,
+		       s.updatedAt = :now
+		 WHERE s.id IN :scheduleIds
+		   AND s.status <> com.squirrel.tickting.domain.performance.type.ScheduleStatus.CANCELED
+		   AND (s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.POSTPONED OR s.startAt > :now)
+		""")
+	int cancelAll(@Param("scheduleIds") Collection<Long> scheduleIds, @Param("reason") String reason,
+		@Param("now") LocalDateTime now);
+
+	/** 공연의 모든 회차를 지운다. 작성 중 공연을 삭제할 때만 쓴다. */
+	@Modifying(flushAutomatically = true)
+	@Query("DELETE FROM PerformanceSchedule s WHERE s.performance.id = :performanceId")
+	void deleteByPerformanceId(@Param("performanceId") Long performanceId);
+
+	/**
 	 * 이 공연의 회차 중, 주어진 공연장의 다른 회차와 시간이 겹치는 회차의 시작 일시. 빠른 순이다.
 	 * 회차가 차지하는 시간은 시작부터 러닝타임 + bufferMinutes 까지이고, 끝나는 시각과 다음 시작이 같으면 겹치지 않는다.
 	 * 이 공연의 회차는 새 러닝타임(runningTime)으로, 다른 공연의 회차는 그 공연의 러닝타임으로 계산한다.

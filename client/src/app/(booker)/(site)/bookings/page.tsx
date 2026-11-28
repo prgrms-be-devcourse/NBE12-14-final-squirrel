@@ -57,29 +57,39 @@ export default function BookingsPage() {
       {data && data.content.length > 0 && (
         <>
           <ul className="space-y-3">
-            {data.content.map((b) => (
-              <li key={b.bookingId}>
-                <Link
-                  href={b.status === "PENDING" ? `/bookings/${b.bookingId}/pay` : `/bookings/${b.bookingId}`}
-                  className="card flex gap-4 p-4 transition-colors hover:border-[rgba(25,27,33,0.35)]"
-                >
-                  <div className="w-16 shrink-0">
-                    <Poster title={b.performanceTitle} url={b.posterUrl} className="!rounded" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className={BOOKING_BADGE[b.status]}>{BOOKING_LABEL[b.status]}</span>
-                      <span className="text-xs text-muted">{b.bookingNo}</span>
+            {data.content.map((b) => {
+              // 전체 취소된 예매에는 붙이지 않는다. 환불을 기다리거나 결제할 수 없다는 것을 알려야 하는 예매만 표시한다.
+              const scheduleCanceled = b.scheduleStatus === "CANCELED" && b.status !== "CANCELED";
+              return (
+                <li key={b.bookingId}>
+                  <Link
+                    // 취소된 회차의 결제 대기 예매는 결제할 수 없어 안내가 있는 상세로 보낸다.
+                    href={
+                      b.status === "PENDING" && !scheduleCanceled
+                        ? `/bookings/${b.bookingId}/pay`
+                        : `/bookings/${b.bookingId}`
+                    }
+                    className="card flex gap-4 p-4 transition-colors hover:border-[rgba(25,27,33,0.35)]"
+                  >
+                    <div className="w-16 shrink-0">
+                      <Poster title={b.performanceTitle} url={b.posterUrl} className="!rounded" />
                     </div>
-                    <p className="mt-1 truncate font-medium">{b.performanceTitle}</p>
-                    <p className="text-sm text-muted">
-                      {scheduleText(b.scheduleStartAt, b.scheduleStatus)} · {b.seatCount}매
-                    </p>
-                  </div>
-                  <p className="self-center text-sm font-medium">{won(b.totalAmount)}</p>
-                </Link>
-              </li>
-            ))}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className={BOOKING_BADGE[b.status]}>{BOOKING_LABEL[b.status]}</span>
+                        {scheduleCanceled && <span className="badge badge-accent">회차 취소</span>}
+                        <span className="text-xs text-muted">{b.bookingNo}</span>
+                      </div>
+                      <p className="mt-1 truncate font-medium">{b.performanceTitle}</p>
+                      <p className="text-sm text-muted">
+                        {scheduleText(b.scheduleStartAt, b.scheduleStatus)} · {b.seatCount}매
+                      </p>
+                    </div>
+                    <p className="self-center text-sm font-medium">{won(b.totalAmount)}</p>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
           <Pagination page={data.page} totalPages={data.totalPages} onChange={setPage} />
         </>

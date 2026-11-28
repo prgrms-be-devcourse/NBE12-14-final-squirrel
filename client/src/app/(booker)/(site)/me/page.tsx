@@ -166,7 +166,7 @@ export default function MePage() {
           <section className="mt-12 border-t border-line pt-6">
             <h2 className="font-semibold">회원 탈퇴</h2>
             <p className="mt-2 text-sm text-secondary">
-              개인정보가 지워지고 되돌릴 수 없습니다. 결제 대기 중이거나 공연 전인 예매가 있으면 탈퇴할 수 없습니다.
+              개인정보가 지워지고 되돌릴 수 없습니다. 결제 대기 중이거나 공연 전인 예매, 취소되어 환불을 기다리는 예매가 있으면 탈퇴할 수 없습니다.
             </p>
             {confirmingWithdraw ? (
               <div className="mt-4 flex gap-2">

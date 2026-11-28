@@ -70,6 +70,25 @@ public class SellerScheduleController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	/** 감사 로그와 환불 대상 수가 다른 도메인이라 파사드를 부른다. 대표·담당자 모두 취소할 수 있다. */
+	@Operation(summary = "회차 취소",
+		description = "아직 시작하지 않은 회차를 취소한다. 되돌릴 수 없다. 판매 중·일시 중지·연기 회차, 일정 미정으로 연기한 회차(원래 일시가 지났어도), "
+			+ "작성 중 공연의 회차, 마지막 남은 회차도 취소할 수 있다. 취소 사유(500자 이하)가 필요하다(400). "
+			+ "취소된 공연·이미 취소한 회차는 409, 이미 시작한 회차는 400이다. "
+			+ "응답의 refundRequestedCount 는 취소 시점의 결제 완료·일부 취소 예매 수다. 환불은 수수료 없이 이 요청 뒤에 차례로 처리하고, "
+			+ "예매는 환불에 성공한 뒤에 취소로 바뀐다. 취소 회차는 결제와 예매자의 직접 취소가 막힌다. "
+			+ "다른 사업체의 회차이거나 없는 회차는 404 다. 같은 공연의 다른 변경과 겹쳐 1초 안에 끝나지 않으면 409 COMMON004(잠시 후 다시 시도)다.")
+	@PostMapping("/schedules/{scheduleId}/cancel")
+	public ResponseEntity<ApiResponse<SellerPerformanceResponse.ScheduleCanceled>> cancelSchedule(
+		@AuthenticationPrincipal CustomUserDetails account,
+		@PathVariable Long scheduleId,
+		@Valid @RequestBody SellerPerformanceRequest.Cancel request
+	) {
+		SellerPerformanceResponse.ScheduleCanceled response = sellerPerformanceFacade.cancelSchedule(account.getBusinessId(),
+			account.getId(), scheduleId, request);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	/** 감사 로그를 함께 남겨 파사드를 부른다. 대표·담당자 모두 중지할 수 있다. */
 	@Operation(summary = "회차 판매 일시 중지",
 		description = "공개(PUBLISHED) 공연의 회차 판매를 모두(all: true) 또는 골라서(scheduleIds) 일시 중지한다. 둘 중 하나만 보낸다. "

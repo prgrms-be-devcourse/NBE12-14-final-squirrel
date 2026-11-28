@@ -305,6 +305,35 @@ public class SellerPerformanceResponse {
 	) {
 	}
 
+	/** 회차 취소(SLR-15) 결과. */
+	@Builder
+	@Schema(name = "SellerPerformanceScheduleCanceled", description = "회차 취소 결과")
+	public record ScheduleCanceled(
+		@Schema(description = "회차 번호")
+		Long scheduleId,
+		@Schema(description = "회차 상태", example = "CANCELED")
+		ScheduleStatus status,
+		@Schema(description = "환불 대상 예매 수(취소 시점의 결제 완료·일부 취소 예매. 좌석 수가 아니다). 환불은 이 요청 뒤에 차례로 처리한다",
+			example = "120")
+		long refundRequestedCount
+	) {
+	}
+
+	/** 공연 취소(SLR-16) 결과. */
+	@Builder
+	@Schema(name = "SellerPerformanceCanceled", description = "공연 취소 결과")
+	public record Canceled(
+		@Schema(description = "공연 번호")
+		Long performanceId,
+		@Schema(description = "공연 상태", example = "CANCELED")
+		PerformanceStatus status,
+		@Schema(description = "이번 요청으로 취소한 회차 수. 먼저 따로 취소한 회차는 세지 않는다", example = "2")
+		int canceledScheduleCount,
+		@Schema(description = "이번에 취소한 회차의 환불 대상 예매 수(결제 완료·일부 취소 예매. 좌석 수가 아니다)", example = "245")
+		long refundRequestedCount
+	) {
+	}
+
 	/** 회차 추가(SLR-12) 결과. */
 	@Schema(name = "SellerPerformanceScheduleCreated", description = "회차 추가 결과")
 	public record ScheduleCreated(

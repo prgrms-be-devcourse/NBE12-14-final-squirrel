@@ -54,7 +54,7 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 	);
 
 	/**
-	 * 공연의 모든 회차의 판매 좌석을 지운다. 작성 중(DRAFT) 공연의 공연장을 바꿀 때만 쓴다.
+	 * 공연의 모든 회차의 판매 좌석을 지운다. 작성 중(DRAFT) 공연의 공연장을 바꾸거나 공연을 삭제할 때만 쓴다.
 	 * 영속성 컨텍스트는 비우지 않는다. 호출한 쪽이 같은 트랜잭션에서 이미 읽어 바꾼 공연 엔티티가 저장되지 않고 사라지기 때문이다.
 	 */
 	@Modifying(flushAutomatically = true)
