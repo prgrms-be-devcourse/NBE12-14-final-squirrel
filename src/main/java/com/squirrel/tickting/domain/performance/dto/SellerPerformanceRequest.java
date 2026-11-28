@@ -178,6 +178,77 @@ public class SellerPerformanceRequest {
 	) {
 	}
 
+	/**
+	 * 회차 연기(SLR-28) 본문. newStartAt 을 비우면 일정 미정이다. 마감을 새 일정 없이 보냈는지, 새 일정보다 늦은지는
+	 * 두 값의 관계라 서비스가 본다.
+	 */
+	@Schema(name = "SellerSchedulePostponeRequest", description = "회차 연기 요청")
+	public record SchedulePostpone(
+
+		@NotBlank(message = "연기 사유를 입력해 주세요.")
+		@Size(max = 255, message = "연기 사유는 255자 이하로 입력해 주세요.")
+		@Schema(description = "연기 사유. 예매자 공연 상세에도 보인다", example = "출연자 건강 문제로 연기합니다")
+		String reason,
+
+		@Future(message = "새 공연 일시는 지금보다 늦어야 합니다.")
+		@Schema(description = "새 공연 일시. 비우면 일정 미정", example = "2026-12-27T19:00:00", nullable = true)
+		LocalDateTime newStartAt,
+
+		@Future(message = "무료 취소 마감은 지금보다 늦어야 합니다.")
+		@Schema(description = "무료 취소 마감. newStartAt 이 있을 때만 보내고, 비우면 서버가 정한다",
+			example = "2026-12-20T23:59:00", nullable = true)
+		LocalDateTime freeCancelUntil
+	) {
+
+		public SchedulePostpone {
+			reason = trim(reason);
+		}
+	}
+
+	/** 연기 회차 새 일정 확정(SLR-29) 본문. */
+	@Schema(name = "SellerSchedulePostponeConfirmRequest", description = "연기 회차 새 일정 확정 요청")
+	public record SchedulePostponeConfirm(
+
+		@NotNull(message = "새 공연 일시를 입력해 주세요.")
+		@Future(message = "새 공연 일시는 지금보다 늦어야 합니다.")
+		@Schema(description = "새 공연 일시", example = "2027-01-10T19:00:00")
+		LocalDateTime newStartAt,
+
+		@Future(message = "무료 취소 마감은 지금보다 늦어야 합니다.")
+		@Schema(description = "무료 취소 마감. 비우면 서버가 정한다", example = "2027-01-03T23:59:00", nullable = true)
+		LocalDateTime freeCancelUntil
+	) {
+	}
+
+	/** 보류석 지정(SLR-32)·해제(SLR-33) 본문. 둘 중 정확히 하나라는 규칙은 필드 간 관계라 서비스가 본다. */
+	@Schema(name = "SellerSeatSelectionRequest", description = "보류석 지정·해제 대상. seatIds 와 zoneIds 중 하나만 보낸다")
+	public record SeatSelection(
+
+		@Size(min = 1, max = 500, message = "좌석은 1개 이상 500개 이하로 선택해 주세요.")
+		@Schema(description = "판매 좌석 번호. 같은 번호는 한 번으로 본다", example = "[9301, 9302]", nullable = true)
+		List<@NotNull(message = "좌석 번호를 입력해 주세요.") Long> seatIds,
+
+		@Size(min = 1, message = "구역을 하나 이상 선택해 주세요.")
+		@Schema(description = "구역을 통째로 바꿀 때의 구역 번호", example = "[12, 13]", nullable = true)
+		List<@NotNull(message = "구역 번호를 입력해 주세요.") Long> zoneIds
+	) {
+	}
+
+	/** 회차 취소(SLR-15)·공연 취소(SLR-16) 본문. 사유는 환불의 상세 사유가 되고 예매자 환불 내역에 남는 값이라 비울 수 없다. */
+	@Schema(name = "SellerCancelRequest", description = "회차·공연 취소 요청")
+	public record Cancel(
+
+		@NotBlank(message = "취소 사유를 입력해 주세요.")
+		@Size(max = 500, message = "취소 사유는 500자 이하로 입력해 주세요.")
+		@Schema(description = "취소 사유", example = "출연자 사정으로 취소")
+		String reason
+	) {
+
+		public Cancel {
+			reason = trim(reason);
+		}
+	}
+
 	private static String trim(String value) {
 		return value == null ? null : value.trim();
 	}

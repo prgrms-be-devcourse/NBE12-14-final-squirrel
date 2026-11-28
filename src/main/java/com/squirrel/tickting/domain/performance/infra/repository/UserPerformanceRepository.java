@@ -25,8 +25,8 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 	/**
 	 * 공개(PUBLISHED)된 공연 목록·검색. 응답에 쓰는 값만 한 번에 읽는다. 결과는 맨 아래 PublishedRow record 로 받는다.
 	 * 공연 엔티티를 읽으면 쓰지 않는 컬럼(긴 text 3개 등)과 회차·공연장 지연 로딩 쿼리가 따라와서 앱 CPU 가 컸다. (부하 테스트 JFR)
-	 * 첫·마지막 회차 일시(취소된 회차는 뺀다), "일시 중지 상태인지", "판매 가능 좌석이 있는지"는 공연마다 서브쿼리로 계산한다.
-	 * 뒤의 둘은 아직 시작 전인 회차만 본다. 좌석은 판매 중(ON_SALE) 회차 것만 센다. (중지한 회차의 좌석은 지금 살 수 없다)
+	 * 첫·마지막 회차 일시(취소된 회차는 뺀다), "일시 중지 상태인지", "일정 미정 연기 상태인지", "판매 가능 좌석이 있는지"는
+	 * 공연마다 서브쿼리로 계산한다. 중지·좌석은 아직 시작 전인 회차만 보고, 미정 연기 회차는 원래 일시가 지나도 센다. 좌석은 판매 중(ON_SALE) 회차 것만 센다. (중지한 회차의 좌석은 지금 살 수 없다)
 	 * 정렬이 공연 테이블의 값(등록 시각)이라 DB 에서 정렬과 페이지 자르기가 끝난다.
 	 *
 	 *   - allGenres, genre: 장르를 고르지 않으면 allGenres 가 true 이고 genre 는 보지 않는다. (아무 값이나 넘긴다. null 파라미터는 PostgreSQL 에서 타입 오류를 낸다)
@@ -56,6 +56,17 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 		         SELECT 1 FROM PerformanceSchedule s
 		          WHERE s.performance.id = p.id
 		            AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.ON_SALE
+		            AND s.startAt > :now)
+		       THEN true ELSE false END,
+		       CASE WHEN EXISTS (
+		         SELECT 1 FROM PerformanceSchedule s
+		          WHERE s.performance.id = p.id
+		            AND s.status = com.squirrel.tickting.domain.performance.type.ScheduleStatus.POSTPONED)
+		         AND NOT EXISTS (
+		         SELECT 1 FROM PerformanceSchedule s
+		          WHERE s.performance.id = p.id
+		            AND s.status IN (com.squirrel.tickting.domain.performance.type.ScheduleStatus.ON_SALE,
+		                             com.squirrel.tickting.domain.performance.type.ScheduleStatus.PAUSED)
 		            AND s.startAt > :now)
 		       THEN true ELSE false END,
 		       CASE WHEN EXISTS (
@@ -249,10 +260,11 @@ public interface UserPerformanceRepository extends Repository<Performance, Long>
 	 * @param firstStartAt      취소되지 않은 회차 중 가장 이른 공연 일시. 회차가 없으면 null
 	 * @param lastStartAt       취소되지 않은 회차 중 가장 늦은 공연 일시. 회차가 없으면 null
 	 * @param paused            아직 시작하지 않은 회차에 일시 중지는 있고 판매 중은 없는지
+	 * @param postponed         아직 시작하지 않은 판매 중·일시 중지 회차는 없고 일정 미정 연기 회차가 있는지
 	 * @param hasAvailableSeat  아직 시작하지 않은 판매 중 회차에 판매 가능(AVAILABLE) 좌석이 하나라도 있는지
 	 */
 	record PublishedRow(Long id, String title, Genre genre, String posterUrl, Integer ageLimit, String venueName,
 		String region, LocalDateTime saleOpenAt, LocalDateTime saleCloseAt, LocalDateTime firstStartAt,
-		LocalDateTime lastStartAt, Boolean paused, Boolean hasAvailableSeat) {
+		LocalDateTime lastStartAt, Boolean paused, Boolean postponed, Boolean hasAvailableSeat) {
 	}
 }

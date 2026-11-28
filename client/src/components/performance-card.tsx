@@ -7,12 +7,14 @@ const SALE_BADGE: Record<SaleStatus, string> = {
   ON_SALE: "badge badge-accent",
   UPCOMING: "badge badge-warn",
   PAUSED: "badge badge-warn",
+  POSTPONED: "badge badge-warn",
   SOLD_OUT: "badge",
   ENDED: "badge",
 };
 
 export function PerformanceCard({ p }: { p: PerformanceSummary }) {
-  const dim = p.saleStatus === "ENDED" || p.saleStatus === "SOLD_OUT" || p.saleStatus === "PAUSED";
+  const postponed = p.saleStatus === "POSTPONED";
+  const dim = postponed || p.saleStatus === "ENDED" || p.saleStatus === "SOLD_OUT" || p.saleStatus === "PAUSED";
   return (
     <Link href={`/performances/${p.performanceId}`} className="group block">
       <div className={`transition-opacity duration-150 ${dim ? "opacity-60 group-hover:opacity-100" : ""}`}>
@@ -26,7 +28,7 @@ export function PerformanceCard({ p }: { p: PerformanceSummary }) {
         {p.title}
       </h3>
       <p className="mt-1 text-sm text-secondary">{p.venueName ?? "장소 미정"}</p>
-      <p className="text-sm text-muted">{periodText(p.firstStartAt, p.lastStartAt)}</p>
+      <p className="text-sm text-muted">{postponed ? "일정 미정" : periodText(p.firstStartAt, p.lastStartAt)}</p>
     </Link>
   );
 }

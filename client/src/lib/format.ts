@@ -27,6 +27,11 @@ export function dateTimeText(iso: string): string {
   return `${dateText(iso)} ${timeText(iso)}`;
 }
 
+// 일정 미정으로 연기된 회차의 startAt 은 원래 일시라 그대로 보여 주면 그날 하는 것으로 읽힌다.
+export function scheduleText(startAt: string, status?: string): string {
+  return status === "POSTPONED" ? `일정 미정 (원래 ${dateTimeText(startAt)})` : dateTimeText(startAt);
+}
+
 export function periodText(first: string | null, last: string | null): string {
   if (!first) return "일정 미정";
   if (!last || dateText(first) === dateText(last)) return dateText(first);
@@ -42,6 +47,7 @@ export const GENRE_LABEL: Record<Genre, string> = {
 };
 
 export const SALE_LABEL: Record<SaleStatus, string> = {
+  POSTPONED: "연기",
   PAUSED: "판매 일시 중지",
   UPCOMING: "오픈 예정",
   ON_SALE: "예매 중",
