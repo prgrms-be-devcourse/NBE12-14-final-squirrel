@@ -82,6 +82,7 @@ public class QueueService {
 		redis.opsForZSet().remove(waitKey(scheduleId), member);
 		redis.opsForZSet().remove(activeKey(scheduleId), member);
 		redis.delete(seenKey(scheduleId, member));
+		redis.delete(admittedKey(scheduleId, member));
 	}
 
 	/**
@@ -98,7 +99,9 @@ public class QueueService {
 		if (!properties.enabled()) {
 			return true;
 		}
-		Long admitted = redis.execute(CHECK_SCRIPT, List.of(activeKey(scheduleId)), member(userId));
+		String member = member(userId);
+		Long admitted = redis.execute(CHECK_SCRIPT, List.of(activeKey(scheduleId), admittedKey(scheduleId, member)), member,
+			String.valueOf(properties.entryTtl().toMillis()));
 		return admitted != null && admitted == 1L;
 	}
 
@@ -137,7 +140,8 @@ public class QueueService {
 			String.valueOf(properties.entryTtl().toMillis()),
 			String.valueOf(properties.waitingTimeout().toMillis()),
 			String.valueOf(KEY_TTL.toMillis()),
-			seenPrefix(scheduleId), halted ? "1" : "0");
+			seenPrefix(scheduleId), halted ? "1" : "0",
+			admittedPrefix(scheduleId), String.valueOf(properties.entryMax().toMillis()));
 		if (result == null || result.size() < 3) {
 			throw new IllegalStateException("대기열 스크립트가 값을 돌려주지 않았다.");
 		}
@@ -180,6 +184,14 @@ public class QueueService {
 
 	private static String seenKey(Long scheduleId, String member) {
 		return seenPrefix(scheduleId) + member;
+	}
+
+	private static String admittedPrefix(Long scheduleId) {
+		return base(scheduleId) + "admitted:";
+	}
+
+	private static String admittedKey(Long scheduleId, String member) {
+		return admittedPrefix(scheduleId) + member;
 	}
 
 	private static String openKey(Long scheduleId) {

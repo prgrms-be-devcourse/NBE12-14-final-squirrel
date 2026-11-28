@@ -10,7 +10,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxActive      회차마다 동시에 입장해 있을 수 있는 인원. 서버가 버티는 요청 수에 맞춰 부하 테스트로 정한다
  * @param entryTtl       입장한 뒤 구역·좌석을 보고 좌석을 잡을 수 있는 시간. 지나면 자리가 비고 다시 줄을 서야 한다
  * @param waitingTimeout 대기 중인 사람이 이 시간 동안 상태 확인(폴링)을 하지 않으면 떠난 것으로 보고 건너뛴다
+ * @param entryMax       입장한 뒤 활동으로 늘릴 수 있는 한계. 입장 유효 시간은 구역·좌석·점유 요청이 올 때마다 늘어나는데, 입장한 지 이만큼이 지나면 더 늘리지 않는다
  */
 @ConfigurationProperties(prefix = "app.queue")
-public record QueueProperties(boolean enabled, int maxActive, Duration entryTtl, Duration waitingTimeout) {
+public record QueueProperties(boolean enabled, int maxActive, Duration entryTtl, Duration waitingTimeout,
+							  Duration entryMax) {
 }
