@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus } from "lucide-react";
+import { Pencil, Plus, Truck } from "lucide-react";
 import Link from "next/link";
 
 import { Fragment, useState } from "react";
@@ -150,6 +150,12 @@ export default function SellerPerformanceDetailPage() {
         actions={
           <>
             <span className={PERFORMANCE_BADGE[p.status]}>{PERFORMANCE_LABEL[p.status]}</span>
+            {!draft && (
+              <Link href={`/seller/performances/${id}/deliveries`} className="btn">
+                <Truck size={16} strokeWidth={1.5} />
+                배송 관리
+              </Link>
+            )}
             {draft && (
               <Link href={`/seller/performances/${id}/setup`} className="btn">
                 단계별로 이어서 만들기

@@ -380,13 +380,44 @@ export type ScheduleBooking = {
   ordererName: string;
   ordererPhone: string;
   receiveType: "ONSITE" | "DELIVERY";
-  delivery: { recipientName: string; recipientPhone: string; recipientAddress: string } | null;
+  delivery: {
+    recipientName: string;
+    recipientPhone: string;
+    recipientAddress: string;
+    carrier: string | null;
+    trackingNo: string | null;
+    shippedAt: string | null;
+  } | null;
   tickets: TicketGroup[];
   canceledTickets: TicketGroup[];
   seatCount: number;
   canceledSeatCount: number;
   ticketAmount: number;
   createdAt: string;
+};
+
+// 배송 대상(SLR-40). 발송 전이면 택배사·송장번호·발송 일시가 모두 null 이다.
+export type DeliveryTarget = {
+  bookingId: number;
+  bookingNo: string;
+  scheduleId: number;
+  scheduleStartAt: string;
+  recipientName: string;
+  recipientPhone: string;
+  recipientAddress: string;
+  seatCount: number;
+  carrier: string | null;
+  trackingNo: string | null;
+  shippedAt: string | null;
+};
+
+export type ShipmentItem = { bookingNo: string; carrier: string; trackingNo: string };
+
+// 송장 일괄 입력 결과(SLR-42). row 는 보낸 items 에서의 위치(0부터)
+export type ShipmentResult = {
+  total: number;
+  succeeded: number;
+  failed: { row: number; bookingNo: string; code: string; message: string }[];
 };
 
 export type PolicyDetail = {
