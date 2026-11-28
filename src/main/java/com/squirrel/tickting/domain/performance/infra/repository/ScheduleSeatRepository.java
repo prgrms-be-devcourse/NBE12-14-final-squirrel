@@ -54,7 +54,7 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 	);
 
 	/**
-	 * 공연의 모든 회차의 판매 좌석을 지운다. 작성 중(DRAFT) 공연의 공연장을 바꿀 때만 쓴다.
+	 * 공연의 모든 회차의 판매 좌석을 지운다. 작성 중(DRAFT) 공연의 공연장을 바꾸거나 공연을 삭제할 때만 쓴다.
 	 * 영속성 컨텍스트는 비우지 않는다. 호출한 쪽이 같은 트랜잭션에서 이미 읽어 바꾼 공연 엔티티가 저장되지 않고 사라지기 때문이다.
 	 */
 	@Modifying(flushAutomatically = true)
@@ -123,6 +123,49 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 	int releaseSold(@Param("seatIds") Collection<Long> seatIds, @Param("now") LocalDateTime now);
 
 	/**
+	 * 한 회차의 고른 좌석 중 상태가 from 인 것만 to 로 바꾼다. 판매자 보류석 지정·해제(SLR-32·33)가 쓴다.
+	 * 상태 조건이 있어서 그 사이 예매자가 점유한 좌석은 건드리지 않는다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE ScheduleSeat s
+		   SET s.status = :to,
+		       s.updatedAt = :now
+		 WHERE s.scheduleId = :scheduleId
+		   AND s.id IN :seatIds
+		   AND s.status = :from
+		""")
+	int changeStatus(@Param("scheduleId") Long scheduleId, @Param("seatIds") Collection<Long> seatIds,
+		@Param("from") SeatStatus from, @Param("to") SeatStatus to, @Param("now") LocalDateTime now);
+
+	/**
+	 * 한 회차의 한 구역에서 상태가 from 인 좌석을 모두 to 로 바꾸고 바뀐 행 수를 돌려준다. 구역 통째 보류·해제가 쓴다.
+	 * idx_schedule_seat_zone_status (schedule_id, zone_id, status) 를 탄다.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		UPDATE ScheduleSeat s
+		   SET s.status = :to,
+		       s.updatedAt = :now
+		 WHERE s.scheduleId = :scheduleId
+		   AND s.zoneId = :zoneId
+		   AND s.status = :from
+		""")
+	int changeZoneStatus(@Param("scheduleId") Long scheduleId, @Param("zoneId") Long zoneId,
+		@Param("from") SeatStatus from, @Param("to") SeatStatus to, @Param("now") LocalDateTime now);
+
+	/** 한 회차의 구역별 판매 가능·보류 좌석 수. 판매자 구역 요약(SLR-30)이 쓴다. 개수가 0인 상태는 행이 나오지 않는다. */
+	@Query("""
+		SELECT s.zoneId AS zoneId, s.status AS status, COUNT(s) AS count
+		FROM ScheduleSeat s
+		WHERE s.scheduleId = :scheduleId
+		  AND s.status IN (com.squirrel.tickting.domain.performance.type.SeatStatus.AVAILABLE,
+		                   com.squirrel.tickting.domain.performance.type.SeatStatus.RESERVED)
+		GROUP BY s.zoneId, s.status
+		""")
+	List<ZoneStatusCount> countAvailableAndReservedByZone(@Param("scheduleId") Long scheduleId);
+
+	/**
 	 * 공연장 좌석을 복사해 한 회차의 판매 좌석을 만들고 만든 행 수를 돌려준다. 한 문장으로 만들어 왕복을 한 번으로 한다.
 	 * 판매(ASSIGNED) 구역은 AVAILABLE 로 등급·가격을 복사하고, 그 밖의 구역(의도적 미판매)은 등급·가격 없이 BLOCKED 로 만든다.
 	 * 네이티브라 감사(@LastModifiedDate)가 걸리지 않아 version 은 0, updated_at 은 :now 를 직접 넣는다. (둘 다 NOT NULL)
@@ -159,6 +202,16 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
 	interface SeatStatusCount {
 
 		Long getScheduleId();
+
+		SeatStatus getStatus();
+
+		Long getCount();
+	}
+
+	/** {@link #countAvailableAndReservedByZone} 의 한 행 */
+	interface ZoneStatusCount {
+
+		Long getZoneId();
 
 		SeatStatus getStatus();
 

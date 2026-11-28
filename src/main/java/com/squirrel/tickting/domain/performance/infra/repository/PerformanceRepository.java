@@ -85,7 +85,7 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 	Optional<Long> findLockableCancelPolicyId(@Param("performanceId") Long performanceId);
 
 	/**
-	 * 작성 중일 때만 공개로 바꾼다. 공개 두 번이나 공연 취소와 겹칠 때 락이 듣지 않아도 DB 가 막는 마지막 방어선이다.
+	 * 작성 중일 때만 공개로 바꾼다. 공개 두 번이나 삭제와 겹칠 때 락이 듣지 않아도 DB 가 막는 마지막 방어선이다.
 	 * 대량 UPDATE 는 updated_at 자동 갱신을 거치지 않아 직접 넣는다. 바뀐 행이 0이면 작성 중이 아니라는 뜻이다.
 	 */
 	@Modifying(clearAutomatically = true)
@@ -97,4 +97,33 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.DRAFT
 		""")
 	int publishIfDraft(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/**
+	 * 공개 중일 때만 취소로 바꾸고 바뀐 행 수를 돌려준다. 락이 듣지 않아도 두 번 취소되지 않게 하는 상태 조건부 UPDATE 다.
+	 * 일괄 UPDATE 는 updated_at 을 자동으로 채우지 못해 직접 넣고, 영속성 컨텍스트는 비우지 않는다.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		UPDATE Performance p
+		SET p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.CANCELED,
+		    p.updatedAt = :now
+		WHERE p.id = :id
+		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.PUBLISHED
+		""")
+	int cancelIfPublished(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+	/** 작성 중일 때만 지우고 지운 행 수를 돌려준다. 확인한 뒤에 공개된 공연이 지워지지 않게 한다. */
+	@Modifying(flushAutomatically = true)
+	@Query("""
+		DELETE FROM Performance p
+		WHERE p.id = :id
+		  AND p.status = com.squirrel.tickting.domain.performance.type.PerformanceStatus.DRAFT
+		""")
+	int deleteIfDraft(@Param("id") Long id);
+
+	/** 공연장의 해당 상태 공연 번호(번호순). 공연장 사용 중지가 락 이름과 락 안의 재확인에 쓴다. */
+	@Query("SELECT p.id FROM Performance p WHERE p.venueId = :venueId AND p.status = :status ORDER BY p.id")
+	List<Long> findIdsByVenueIdAndStatus(@Param("venueId") Long venueId, @Param("status") PerformanceStatus status);
+
+	List<Performance> findByVenueIdAndStatusOrderById(Long venueId, PerformanceStatus status);
 }

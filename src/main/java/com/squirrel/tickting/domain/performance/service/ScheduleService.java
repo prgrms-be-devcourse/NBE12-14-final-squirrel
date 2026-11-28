@@ -44,6 +44,7 @@ public class ScheduleService {
 	 * 없는 회차와 공개되지 않은(작성 중·취소된) 공연의 회차는 같은 404 다. (번호가 존재하는지 알려주지 않으려고)
 	 * 공개된 공연이라도 판매 기간 밖이거나 회차가 중지·연기·취소됐거나 이미 시작했으면 판매 중이 아니다.
 	 * 아직 시작하지 않았고 판매 종료 전인 회차가 일시 중지면 중지 전용 코드를 준다. (재개되면 살 수 있어서)
+	 * 일정 미정으로 연기한 회차는 판매 기간·원래 일시와 상관없이 연기 전용 코드를 준다.
 	 *
 	 * 취소 규정은 지연 로딩이라 트랜잭션이 끝난 뒤에는 꺼낼 수 없어서 여기서 읽어 담는다.
 	 */
@@ -69,6 +70,9 @@ public class ScheduleService {
 			throw new BusinessException(BookingExceptionCode.SCHEDULE_NOT_FOUND);
 		}
 
+		if (schedule.getStatus() == ScheduleStatus.POSTPONED) {
+			throw new BusinessException(BookingExceptionCode.SCHEDULE_POSTPONED);
+		}
 		boolean saleOpen = !now.isBefore(performance.getSaleOpenAt()) && !now.isAfter(performance.getSaleCloseAt());
 		boolean scheduleOpen = schedule.getStatus() == ScheduleStatus.ON_SALE && schedule.getStartAt().isAfter(now);
 		if (schedule.getStatus() == ScheduleStatus.PAUSED && schedule.getStartAt().isAfter(now)

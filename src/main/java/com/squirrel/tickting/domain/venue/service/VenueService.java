@@ -7,6 +7,7 @@ import com.squirrel.tickting.domain.venue.type.VenueStatus;
 import com.squirrel.tickting.global.exception.BusinessException;
 import com.squirrel.tickting.global.exception.code.VenueExceptionCode;
 import com.squirrel.tickting.global.util.LikeUtil;
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -28,9 +29,48 @@ public class VenueService {
 	 */
 	@Transactional(readOnly = true)
 	public Page<Venue> searchActive(String region, String keyword, Pageable pageable) {
+		return search(List.of(VenueStatus.ACTIVE), region, keyword, pageable);
+	}
+
+	/** 관리자의 공연장 목록(ADM-10). 상태를 주지 않으면 모든 상태다. 검색 조건과 정렬은 판매자 목록과 같다. */
+	@Transactional(readOnly = true)
+	public Page<Venue> searchAll(VenueStatus status, String region, String keyword, Pageable pageable) {
+		return search(status == null ? List.of(VenueStatus.values()) : List.of(status), region, keyword, pageable);
+	}
+
+	private Page<Venue> search(List<VenueStatus> statuses, String region, String keyword, Pageable pageable) {
 		// 지역이 없으면 쿼리가 "모든 지역"으로 읽도록 null 대신 빈 문자열을 넘긴다.
 		String regionCondition = region == null ? "" : region.trim();
-		return venueRepository.search(VenueStatus.ACTIVE, regionCondition, LikeUtil.containsPattern(keyword), pageable);
+		return venueRepository.search(statuses, regionCondition, LikeUtil.containsPattern(keyword), pageable);
+	}
+
+	/** 공연장 한 건. 없으면 404 다. */
+	@Transactional(readOnly = true)
+	public Venue get(Long venueId) {
+		return venueRepository.findById(venueId)
+			.orElseThrow(() -> new BusinessException(VenueExceptionCode.VENUE_NOT_FOUND));
+	}
+
+	/**
+	 * 공연장을 사용 중지한다. 없으면 404, 이미 중지됐으면 409 다. 호출한 쪽이 공연장 락과 트랜잭션을 연 상태에서 부른다.
+	 * 읽어 둔 엔티티에는 반영되지 않는다.
+	 */
+	@Transactional
+	public void deactivate(Long venueId, LocalDateTime now) {
+		changeStatus(venueId, VenueStatus.ACTIVE, VenueStatus.INACTIVE, VenueExceptionCode.VENUE_ALREADY_INACTIVE, now);
+	}
+
+	/** 사용 중지한 공연장을 다시 쓴다. 없으면 404, 이미 사용 중이면 409 다. 호출 조건은 deactivate 와 같다. */
+	@Transactional
+	public void activate(Long venueId, LocalDateTime now) {
+		changeStatus(venueId, VenueStatus.INACTIVE, VenueStatus.ACTIVE, VenueExceptionCode.VENUE_ALREADY_ACTIVE, now);
+	}
+
+	private void changeStatus(Long venueId, VenueStatus from, VenueStatus to, VenueExceptionCode conflict,
+		LocalDateTime now) {
+		if (get(venueId).getStatus() != from || venueRepository.changeStatus(venueId, from, to, now) == 0) {
+			throw new BusinessException(conflict);
+		}
 	}
 
 	/**
@@ -40,8 +80,7 @@ public class VenueService {
 	 */
 	@Transactional(readOnly = true)
 	public List<Long> getActiveZoneIds(Long venueId) {
-		Venue venue = venueRepository.findById(venueId)
-			.orElseThrow(() -> new BusinessException(VenueExceptionCode.VENUE_NOT_FOUND));
+		Venue venue = get(venueId);
 		if (venue.getStatus() != VenueStatus.ACTIVE) {
 			throw new BusinessException(VenueExceptionCode.VENUE_INACTIVE);
 		}
