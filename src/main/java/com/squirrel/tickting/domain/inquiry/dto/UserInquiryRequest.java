@@ -65,12 +65,12 @@ public class UserInquiryRequest {
 	) {
 	}
 
-	/** 첨부 사진 하나. 공연 상세 이미지처럼 객체로 받는다. (@ImageUrl 은 목록의 문자열 원소에 걸 수 없다) */
+	/** 첨부 사진 하나. 공연 상세 이미지처럼 객체로 받는다. (@ImageUrl 은 목록의 문자열 원소에 걸 수 없다) 판매자 문의도 함께 쓴다. */
 	public record Image(
 		@NotBlank(message = "사진 주소를 입력해 주세요.")
 		@Size(max = 2048, message = "사진 주소는 2048자 이하로 입력해 주세요.")
 		@ImageUrl
-		@Schema(description = "이미지 업로드(IMG-01, purpose USER_INQUIRY)의 imageUrl 값",
+		@Schema(description = "이미지 업로드(IMG-01)의 imageUrl 값. 예매자는 purpose USER_INQUIRY, 판매자는 SELLER_INQUIRY",
 			example = "https://cdn.example.com/public/user_inquiry/user-5/3f2a9c1e.jpg")
 		String url
 	) {

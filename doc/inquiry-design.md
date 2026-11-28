@@ -83,9 +83,11 @@ inquiry (문의 1건 = 1행, 첨부 사진 주소는 image_urls 컬럼에 JSON �
 ```
 domain/inquiry
   controller/UserInquiryController   예매자 API (/api/v1/inquiries)
+  controller/SellerInquiryController 판매자 API (/api/v1/seller/inquiries)
   facade/UserInquiryFacade           작성: 예매(내 예매인가) + 회원(이름·이메일) + 문의(저장), 수정: 예매 + 문의
+  facade/SellerInquiryFacade         작성: 판매자 계정(이름·이메일) + 문의(저장)
   service/InquiryService             문의·이력 저장과 조회 (자기 도메인만)
-  dto/UserInquiryRequest, UserInquiryResponse
+  dto/UserInquiryRequest, UserInquiryResponse, SellerInquiryRequest, SellerInquiryResponse
   infra/entity/Inquiry, InquiryHistory
   type/InquiryStatus, InquiryCategory, InquiryAction
 global/exception/code/InquiryExceptionCode
@@ -101,7 +103,8 @@ domain/admin
 - 수정은 내용을 통째로 바꾼다(PUT). 같은 작성자가 두 화면에서 동시에 고치면 나중 요청이 이긴다. 두 수정 모두 이력에 남아서 따로 막지 않았다.
 - 관리자 API는 팀 규칙대로 `domain/admin`에 컨트롤러·DTO를 두고 로직은 `InquiryService`가 맡는다. 문의 한 도메인만 바꿔서 파사드는 없다. 상세·답변 응답은 예매(읽기 전용 연관)를 꺼내야 해서, 컨트롤러가 넘긴 변환(`AdminInquiryResponse.Detail::of`)을 서비스가 트랜잭션 안에서 부른다. (관리자 예매 상세와 같은 방식, 서비스가 관리자 DTO를 모른다)
 - 관리자 목록은 문의 행의 값(복사한 이름·이메일)만 보여 줘서 연관을 읽지 않는다. 목록·개수 쿼리 두 번으로 끝나고 항목마다 쿼리가 나가지 않는다.
-- 판매자 컨트롤러는 같은 도메인에 `SellerInquiryController`로 둔다. ⏳
+- 판매자 API는 같은 도메인에 `SellerInquiryController`로 둔다. 컨트롤러·DTO·파사드는 경로와 권한, 받는 값(판매자는 예매를 고르지 않음), 읽는 도메인이 달라 역할별로 나눴다. 작성 규칙(유형 확인 → 답변 대기로 저장 → 작성 이력)과 "내가 쓴 문의" 조회는 `InquiryService`의 공통 private 메서드 하나를 예매자·판매자가 함께 써서 규칙이 어긋나지 않게 했다. 유형·작성 결과·사진은 모양이 같아 예매자 DTO의 record를 함께 쓴다.
+- 판매자 문의는 **같은 사업체의 대표·담당자가 함께 본다**(사업체 번호로 거름). 다른 사업체의 문의는 404다. 수정·삭제는 작성자 본인만 한다. (다음 PR)
 
 ## 4. PR 순서
 
@@ -111,7 +114,8 @@ domain/admin
 | 1 | 테이블 2개(V14: `inquiry`, `inquiry_history`) + 예매자 문의 유형 목록·작성·목록·상세 | ✅ |
 | 2 | 예매자 문의 수정·삭제 (답변 대기일 때만, 상태 조건부 UPDATE로 답변과 겹치면 하나만 성공) | ✅ |
 | 3 | 관리자 문의 목록·상세(이력 포함)·답변 (이미 답변했으면 409 `INQUIRY003`) | ✅ |
-| 4 | 판매자 문의 유형 목록·작성·목록·상세·수정·삭제 (사업체 단위로 보기) | ⏳ |
+| 4-1 | 판매자 문의 유형 목록·작성·사업체 목록·상세 (SLR-34~37) | ✅ |
+| 4-2 | 판매자 문의 수정·삭제 (작성자 본인만, 답변 대기일 때만) | ⏳ |
 
 ## 5. 알려진 한계
 

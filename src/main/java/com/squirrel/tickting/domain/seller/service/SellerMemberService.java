@@ -162,7 +162,12 @@ public class SellerMemberService {
 		return sellerMemberRepository.isDisabled(memberId);
 	}
 
-	private SellerMember getMine(Long businessId, Long memberId) {
+	/**
+	 * 내 회사의 판매자 계정 하나. 없거나 다른 회사 계정이면 MEMBER_NOT_FOUND.
+	 * 문의 작성처럼 다른 도메인이 작성자 이름·이메일을 복사할 때도 파사드가 이걸 부른다.
+	 */
+	@Transactional(readOnly = true)
+	public SellerMember getMine(Long businessId, Long memberId) {
 		return sellerMemberRepository.findByIdAndBusinessIdAndDeletedAtIsNull(memberId, businessId)
 			.orElseThrow(() -> new BusinessException(SellerExceptionCode.MEMBER_NOT_FOUND));
 	}
