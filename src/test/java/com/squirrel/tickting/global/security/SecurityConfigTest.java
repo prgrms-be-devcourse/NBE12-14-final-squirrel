@@ -11,6 +11,7 @@ import com.squirrel.tickting.domain.queue.service.QueueProperties;
 import com.squirrel.tickting.domain.queue.service.QueueService;
 import com.squirrel.tickting.domain.seller.service.SellerMemberService;
 import com.squirrel.tickting.global.exception.GlobalExceptionHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -54,7 +55,7 @@ class SecurityConfigTest {
 
 		@Bean
 		QueueService queueService(QueueProperties properties) {
-			return new QueueService(new StringRedisTemplate(), properties);
+			return new QueueService(new StringRedisTemplate(), properties, new SimpleMeterRegistry());
 		}
 
 		/** 캡챠 인터셉터도 만들어지므로 항상 통과하는 검증기를 넣는다. 캡챠 자체는 CaptchaApiTest 가 확인한다. */
