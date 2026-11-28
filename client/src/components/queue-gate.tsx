@@ -39,6 +39,8 @@ export function QueueGate({
   const [attempt, setAttempt] = useState(0);
   const path = `/api/v1/schedules/${scheduleId}/queue`;
   const waitingRef = useRef(false);
+  // 줄에 있거나(대기) 입장해 있는 동안 true. 창을 닫을 때 자리를 돌려줄지 정하는 데 쓴다.
+  const joinedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,11 +50,13 @@ export function QueueGate({
       if (cancelled) return;
       if (status.status === "ADMITTED") {
         waitingRef.current = false;
+        joinedRef.current = true;
         setPhase({ kind: "admitted" });
         return;
       }
       if (status.status === "WAITING") {
         waitingRef.current = true;
+        joinedRef.current = true;
         setPhase({
           kind: "waiting",
           position: status.position ?? 0,
@@ -64,6 +68,7 @@ export function QueueGate({
       }
       // NONE: 줄에도 입장 목록에도 없다. 시간이 지났거나 오래 확인하지 않아 밀려난 것이라 다시 입장한다.
       waitingRef.current = false;
+      joinedRef.current = false;
       if (enteredJustNow) {
         setPhase({ kind: "error", message: "대기열에 들어가지 못했습니다", retryable: true });
         return;
@@ -74,6 +79,7 @@ export function QueueGate({
     function fail(error: unknown) {
       if (cancelled) return;
       waitingRef.current = false;
+      joinedRef.current = false;
       if (error instanceof ApiError && error.status === 401) {
         toLogin();
         return;
@@ -120,13 +126,34 @@ export function QueueGate({
       }
     }
 
+    // 창을 닫거나 다른 사이트로 가면(pagehide) 자리를 바로 돌려줘서 뒷사람이 들어오게 한다.
+    // 새로고침도 같은 신호라 자리를 잃는다. 사용자의 실수로 보고 감수한다. (doc/queue-release-design.md)
+    // 닫히는 중이라 일반 요청은 취소될 수 있어서 keepalive 로 보낸다. 우리 사이트 안의 이동(클라이언트 라우팅)은 이 신호가 나지 않는다.
+    function onPageHide() {
+      if (!joinedRef.current) return;
+      joinedRef.current = false;
+      waitingRef.current = false;
+      void fetch(path, { method: "DELETE", keepalive: true }).catch(() => {});
+    }
+    // 뒤로 가기로 화면이 그대로 복원되면(bfcache) 자리는 이미 돌려준 뒤라서 처음부터 다시 확인한다.
+    function onPageShow(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      setPhase({ kind: "entering" });
+      setAttempt((n) => n + 1);
+    }
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+
     void enter();
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
       // 줄을 선 채로 화면을 떠나면 자리를 비워 뒷사람이 들어오게 한다. (입장해 있는 사람은 그대로 둔다)
       if (waitingRef.current) {
         waitingRef.current = false;
+        joinedRef.current = false;
         void api(path, { method: "DELETE" }).catch(() => {});
       }
     };
@@ -158,7 +185,10 @@ export function QueueGate({
         <div className="card space-y-4 p-8 text-center">
           <h1 className="text-xl font-semibold">대기 중입니다</h1>
           <p className="text-5xl font-semibold tabular-nums">{phase.position.toLocaleString("ko-KR")}번째</p>
-          <p className="text-sm text-secondary">전체 대기 {phase.waitingCount.toLocaleString("ko-KR")}명</p>
+          <p className="text-sm text-secondary">
+            내 앞에 {Math.max(phase.position - 1, 0).toLocaleString("ko-KR")}명 · 전체 대기{" "}
+            {phase.waitingCount.toLocaleString("ko-KR")}명
+          </p>
           {phase.paused ? (
             <p role="status" className="rounded-xl bg-[var(--warn-soft)] px-4 py-3 text-sm text-[var(--warn)]">
               판매가 일시 중지되었습니다. 재개 시각은 정해지지 않았습니다. 이 화면을 유지하면 순번이 유지되고, 나가면
